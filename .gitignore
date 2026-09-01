@@ -1,8 +1,35 @@
+# Environments and secrets
 .env
+.env.*
+!.env.example
 .venv/
-node_modules/
+venv/
+
+# Python
 __pycache__/
+*.py[cod]
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+.turbo/
+*.tsbuildinfo
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Local agent instructions, not shared
 CLAUDE.local.md
