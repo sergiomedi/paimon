@@ -17,10 +17,11 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phase 1 of 8 — Foundation, in progress.**
-> Architecture, decision records, the service skeleton and CI are in place. This README is
-> updated as each piece lands, and nothing is described here as working before it works —
-> see [What works today](#what-works-today) for the current, verified surface.
+> **Project status: Phase 1 of 8 — Foundation, complete.**
+> Architecture, decision records, the backend skeleton, the frontend and CI are in place.
+> Phase 2 — the RAG system — is next. This README is updated as each phase lands, and
+> nothing is described here as working before it works: see
+> [What works today](#what-works-today) for the current, verified surface.
 
 ---
 
@@ -65,9 +66,14 @@ anything is built on top of it.
 | `GET /api/v1/health/ready` | Probes PostgreSQL and Redis concurrently, each under a timeout. Returns `503` when any is unusable, and names which one and why. |
 | `GET /api/v1/me` | Validates a bearer token and returns the caller as a domain `Principal`. |
 
+The web application renders the platform's readiness — every dependency, its latency and,
+when something is wrong, the error — and distinguishes "a dependency is failing" from "the
+API did not answer at all", which are different situations for whoever is on call.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, five machine-enforced architecture contracts, and a CI
-pipeline running lint, types, contracts, tests and a container image build.
+pipeline running lint, types, contracts, tests, a frontend build and a container image
+build with a smoke test.
 
 Not yet built: document ingestion, retrieval, agents, MCP, evaluation. Those are Phases 2
 to 6.
@@ -110,13 +116,14 @@ including the negative ones.
 | [0006](docs/adr/0006-continuous-integration-from-phase-1.md) | Continuous integration from Phase 1 |
 | [0007](docs/adr/0007-persistence-postgresql-sqlalchemy-alembic-redis.md) | Persistence: PostgreSQL, SQLAlchemy, Alembic, Redis |
 | [0008](docs/adr/0008-target-domain-engineering-operations.md) | Target domain: engineering operations |
+| [0009](docs/adr/0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's `Depends` |
 
 ## Technology
 
 | Layer | Choice | Why |
 |---|---|---|
 | Backend | FastAPI · Python 3.13 | Async throughout, native OpenAPI, first-class typing |
-| Frontend | Next.js 15 · TypeScript · Tailwind · shadcn/ui | Streaming UI, strict types |
+| Frontend | Next.js 16 · TypeScript · Tailwind · shadcn/ui | Streaming UI, strict types |
 | Agents | LangGraph | Explicit state machines over implicit agent loops |
 | LLM | Azure OpenAI · local OpenAI-compatible | Behind a port — see [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md) |
 | Retrieval | Azure AI Search · pgvector | Two adapters, one contract, benchmarked against each other |
@@ -173,7 +180,16 @@ print(DevIdentityProvider(get_settings().auth.dev_signing_key.get_secret_value()
 curl -H "Authorization: Bearer $TOKEN" localhost:8000/api/v1/me
 ```
 
-To run the whole stack in containers instead: `docker compose -f docker/compose.yaml
+In another terminal, the web application:
+
+```bash
+cd frontend
+cp .env.example .env.local
+pnpm install
+pnpm dev                       # http://localhost:3000
+```
+
+To run the backend stack in containers instead: `docker compose -f docker/compose.yaml
 --profile app up --build`.
 
 ## Quality gates
@@ -187,6 +203,11 @@ uv run ruff format --check .   # formatting
 uv run mypy                    # types, strict
 uv run lint-imports            # the dependency rule of ADR-0002
 uv run pytest                  # unit, end-to-end and integration tests
+
+cd ../frontend
+pnpm lint
+pnpm typecheck                 # tsc --noEmit, strict
+pnpm build
 ```
 
 `lint-imports` is the one worth explaining: it fails the build when a layer imports
@@ -212,7 +233,11 @@ docker/              Dockerfile and the local Compose stack
 docs/                Architecture overview and decision records
 .github/workflows/   CI
 
-frontend/            Next.js application            (Phase 1, pending)
+frontend/
+  src/app/           App Router pages
+  src/components/    UI, in the shadcn/ui convention
+  src/lib/           Typed API client
+
 evaluation/          Benchmarks and eval pipeline   (Phase 6)
 infrastructure/      Infrastructure as code, Azure  (Phase 7)
 ```

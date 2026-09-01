@@ -19,6 +19,7 @@ reasoning trail, and rewriting history destroys it.
 | [0006](0006-continuous-integration-from-phase-1.md) | Continuous integration from Phase 1 | Accepted |
 | [0007](0007-persistence-postgresql-sqlalchemy-alembic-redis.md) | Persistence: PostgreSQL, SQLAlchemy, Alembic, Redis | Accepted |
 | [0008](0008-target-domain-engineering-operations.md) | Target domain: engineering operations | Accepted |
+| [0009](0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's Depends | Accepted |
 
 ## Writing a new ADR
 

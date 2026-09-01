@@ -51,7 +51,7 @@ flowchart TB
     engineer["Engineer"]
 
     subgraph platform["Paimon"]
-        web["Web Application<br/><i>Next.js 15, TypeScript</i><br/>Chat, document management,<br/>evaluation dashboards"]
+        web["Web Application<br/><i>Next.js 16, TypeScript</i><br/>Chat, document management,<br/>evaluation dashboards"]
         api["API<br/><i>FastAPI, Python 3.13</i><br/>Use cases, RAG pipeline,<br/>agent runtime"]
         mcp["MCP Server<br/><i>Python</i><br/>Tools exposed to<br/>external MCP clients"]
         pg[("PostgreSQL 17<br/><i>+ pgvector</i><br/>Documents, users, agent state,<br/>local vector index")]

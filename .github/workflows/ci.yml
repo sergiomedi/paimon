@@ -12,9 +12,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ["backend/**", "docker/**", ".github/workflows/ci.yml"]
+    paths: ["backend/**", "frontend/**", "docker/**", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["backend/**", "docker/**", ".github/workflows/ci.yml"]
+    paths: ["backend/**", "frontend/**", "docker/**", ".github/workflows/ci.yml"]
 
 # A new push supersedes the run in flight for the same ref.
 concurrency:
@@ -145,6 +145,40 @@ jobs:
 
       - name: Run integration tests
         run: uv run --no-sync pytest tests/integration -v
+
+  frontend:
+    name: Frontend lint, types and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # --frozen-lockfile fails rather than quietly resolving a different tree
+      # than the one that was reviewed.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
 
   image:
     name: Container image builds

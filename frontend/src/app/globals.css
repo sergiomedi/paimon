@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Design tokens, defined once and referenced everywhere. Light and dark are
+   both explicit: a page that only defines one borrows the other from whatever
+   the browser happens to do. */
+@theme {
+  --color-surface: oklch(99% 0.003 250);
+  --color-surface-raised: oklch(100% 0 0);
+  --color-border: oklch(91% 0.006 250);
+  --color-ink: oklch(22% 0.02 260);
+  --color-ink-muted: oklch(52% 0.015 260);
+  --color-accent: oklch(58% 0.16 265);
+  --color-healthy: oklch(63% 0.15 155);
+  --color-failing: oklch(58% 0.19 25);
+}
+
+@media (prefers-color-scheme: dark) {
+  @theme {
+    --color-surface: oklch(19% 0.015 260);
+    --color-surface-raised: oklch(23% 0.018 260);
+    --color-border: oklch(32% 0.02 260);
+    --color-ink: oklch(96% 0.005 260);
+    --color-ink-muted: oklch(70% 0.015 260);
+    --color-accent: oklch(72% 0.14 265);
+    --color-healthy: oklch(75% 0.16 155);
+    --color-failing: oklch(70% 0.17 25);
+  }
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+}
