@@ -235,26 +235,34 @@ When proposing solutions, always explain:
 The repository should evolve toward:
 
 ```text
-frontend/
-
 backend/
-
-docs/
-
-infrastructure/
-
-docker/
-
+    src/paimon/
+        domain/          # entities, value objects, ports. No framework imports
+        application/     # use cases, orchestration
+        rag/             # ingestion, chunking, retrieval
+        agents/          # LangGraph workflows
+        infrastructure/  # adapters: Azure OpenAI, Azure AI Search, Postgres, Redis
+        interfaces/      # FastAPI routers, schemas, dependency wiring
+    tests/               # unit, integration, e2e
+frontend/
 evaluation/
-
-agents/
-
-rag/
-
-tests/
-
+infrastructure/
+docker/
+docs/
+    architecture/
+    adr/
 .github/workflows/
 ```
+
+RAG, agent and test code lives inside the backend package rather than at the
+repository root. Those modules import domain entities and deploy in the same
+process as the API; separating them at the root would force either independent
+packaging or path manipulation, and a root-level test directory makes pytest
+discovery ambiguous across the Python and TypeScript ecosystems.
+
+The dependency rule is enforced in CI by import-linter, not merely documented.
+
+Rationale and rejected alternatives: docs/adr/0002-monorepo-layout-and-module-boundaries.md
 
 ---
 
@@ -358,12 +366,22 @@ Do not move to the next phase without approval.
 - Redis
 - Environment management
 - Authentication strategy
+- Continuous integration
 
 ## Deliverables
 
 - Architecture diagrams
+- Architecture decision records
 - Folder structure
 - Development environment
+- CI pipeline running lint, type checking, layer contracts and tests on every change
+
+Continuous integration belongs to this phase, not to Phase 8. The layer contracts
+and type contracts this architecture depends on decay from the first commits, and
+an enforcement mechanism that runs only on the author's machine is not an
+enforcement mechanism.
+
+Rationale and rejected alternatives: docs/adr/0006-continuous-integration-from-phase-1.md
 
 ---
 
@@ -473,15 +491,18 @@ Do not move to the next phase without approval.
 
 ---
 
-# Phase 8 — CI/CD
+# Phase 8 — Continuous Delivery
+
+Continuous integration is delivered in Phase 1. This phase covers delivery.
 
 ## Goals
 
-- GitHub Actions
-- Automated testing
-- Automated build
-- Automated deployment
+- Container image build and publication
+- Environment promotion
+- Database migrations as a deployment step
+- Automated deployment to Azure Container Apps
+- Release gating and rollback
 
 ## Deliverables
 
-- Production-grade CI/CD pipeline
+- Production-grade continuous delivery pipeline
