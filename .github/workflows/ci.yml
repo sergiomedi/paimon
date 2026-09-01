@@ -1,0 +1,192 @@
+# Continuous integration (ADR-0006).
+#
+# CI runs from Phase 1, not Phase 8, because the layer and type contracts this
+# architecture depends on decay from the first commits, and an enforcement
+# mechanism that runs only on the author's machine is not one.
+#
+# Budget: this workflow stays under five minutes. Exceeding it is treated as a
+# defect, because a slow pipeline pushes people towards large commits.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths: ["backend/**", "docker/**", ".github/workflows/ci.yml"]
+  pull_request:
+    paths: ["backend/**", "docker/**", ".github/workflows/ci.yml"]
+
+# A new push supersedes the run in flight for the same ref.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_VERSION: "0.12.8"
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  quality:
+    name: Lint, types and architecture
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install the locked environment
+        run: uv sync --all-groups --frozen
+
+      - name: Lint
+        run: uv run --no-sync ruff check --output-format=github .
+
+      - name: Check formatting
+        run: uv run --no-sync ruff format --check .
+
+      - name: Type check
+        run: uv run --no-sync mypy
+
+      # The dependency rule of ADR-0002. This step failing means the
+      # architecture has been violated, not that a linter is being fussy.
+      - name: Verify architecture contracts
+        run: uv run --no-sync lint-imports
+
+  test:
+    name: Unit and end-to-end tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install the locked environment
+        run: uv sync --all-groups --frozen
+
+      - name: Run tests
+        run: uv run --no-sync pytest tests/unit tests/e2e --cov --cov-report=xml --cov-report=term
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: coverage-unit
+          path: backend/coverage.xml
+          if-no-files-found: error
+
+  integration:
+    name: Integration tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
+        env:
+          POSTGRES_USER: paimon
+          POSTGRES_PASSWORD: paimon
+          POSTGRES_DB: paimon
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U paimon -d paimon"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      PAIMON_DATABASE__HOST: localhost
+      PAIMON_DATABASE__USER: paimon
+      PAIMON_DATABASE__PASSWORD: paimon
+      PAIMON_DATABASE__NAME: paimon
+      PAIMON_REDIS__HOST: localhost
+      # Turns "the service is unreachable" from a skip into a failure. Locally a
+      # skip is a courtesy; here it would hide a broken adapter behind a green
+      # build.
+      PAIMON_REQUIRE_INTEGRATION: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install the locked environment
+        run: uv sync --all-groups --frozen
+
+      - name: Run integration tests
+        run: uv run --no-sync pytest tests/integration -v
+
+  image:
+    name: Container image builds
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Built but not published. Publication, environment promotion and
+      # deployment are Phase 8; proving the image still builds is Phase 1's job.
+      - name: Build the backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backend.Dockerfile
+          push: false
+          load: true
+          tags: paimon-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the image
+        run: |
+          docker run --rm --name paimon-smoke -d -p 8000:8000 \
+            -e PAIMON_ENVIRONMENT=local \
+            -e PAIMON_DATABASE__HOST=localhost \
+            -e PAIMON_DATABASE__USER=paimon \
+            -e PAIMON_DATABASE__PASSWORD=paimon \
+            -e PAIMON_DATABASE__NAME=paimon \
+            -e PAIMON_REDIS__HOST=localhost \
+            -e PAIMON_AUTH__PROVIDER=dev \
+            -e PAIMON_AUTH__DEV_SIGNING_KEY=ci-only-signing-key-of-at-least-32-bytes \
+            paimon-backend:ci
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/api/v1/health/live; then
+              echo "\nimage responds"; docker stop paimon-smoke; exit 0
+            fi
+            sleep 1
+          done
+          echo "the image never became live"; docker logs paimon-smoke; docker stop paimon-smoke; exit 1

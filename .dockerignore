@@ -1,0 +1,14 @@
+**/.git
+**/.venv
+**/node_modules
+**/__pycache__
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/.coverage
+**/htmlcov
+**/.env
+**/*.md
+!backend/README.md
+docs/
+NOTAS_DE_DESARROLLO.md

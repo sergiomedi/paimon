@@ -1,0 +1,70 @@
+# Local development stack.
+#
+#   docker compose -f docker/compose.yaml up -d          # dependencies only
+#   docker compose -f docker/compose.yaml --profile app up --build
+#
+# The default set is PostgreSQL and Redis, which is what the backend needs when
+# it runs on the host with `uv run uvicorn`. The containerised backend sits
+# behind the `app` profile, so day-to-day development does not pay for a rebuild
+# on every change.
+
+name: paimon
+
+services:
+  postgres:
+    # Pinned to a digest-stable tag rather than :latest: a database image that
+    # changes underneath you is a debugging session nobody planned for.
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
+    environment:
+      POSTGRES_USER: ${PAIMON_DATABASE__USER:-paimon}
+      POSTGRES_PASSWORD: ${PAIMON_DATABASE__PASSWORD:-paimon}
+      POSTGRES_DB: ${PAIMON_DATABASE__NAME:-paimon}
+    ports:
+      - "${PAIMON_DATABASE__PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      # pg_isready alone reports a server that is up but still recovering, so the
+      # check also requires the target database to be connectable.
+      test: ["CMD-SHELL", "pg_isready -U ${PAIMON_DATABASE__USER:-paimon} -d ${PAIMON_DATABASE__NAME:-paimon}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    # Persistence off: everything Redis holds here is a cache or a counter
+    # (ADR-0007). Writing an RDB file would only slow development down.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${PAIMON_REDIS__PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    profiles: ["app"]
+    build:
+      context: ..
+      dockerfile: docker/backend.Dockerfile
+    env_file:
+      - path: ../backend/.env
+        required: false
+    environment:
+      # Inside the network the dependencies answer to their service names.
+      PAIMON_DATABASE__HOST: postgres
+      PAIMON_REDIS__HOST: redis
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres-data:
