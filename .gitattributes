@@ -1,0 +1,15 @@
+# Normalize all text files to LF in the repository.
+# The working tree on Windows and inside WSL then stays consistent, and a file
+# edited from either side no longer produces a whole-file diff.
+* text=auto eol=lf
+
+# Binary assets: never touched.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.mp4 binary
+*.woff binary
+*.woff2 binary
