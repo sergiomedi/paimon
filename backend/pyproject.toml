@@ -150,3 +150,44 @@ exclude_lines = [
     "@(abc\\.)?abstractmethod",
     "class .*\\(Protocol\\):",
 ]
+
+# ---------------------------------------------------------------------------
+# Import Linter — the dependency rule, enforced (ADR-0002)
+# ---------------------------------------------------------------------------
+
+[tool.importlinter]
+root_package = "paimon"
+# Required so that third-party packages can appear in forbidden_modules:
+# keeping frameworks out of the domain is the point of the rule.
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dependencies point inward"
+type = "layers"
+layers = ["paimon.interfaces", "paimon.application", "paimon.domain"]
+
+[[tool.importlinter.contracts]]
+name = "The domain depends on nothing"
+type = "forbidden"
+source_modules = ["paimon.domain"]
+forbidden_modules = [
+    "paimon.application",
+    "paimon.infrastructure",
+    "paimon.interfaces",
+    "fastapi",
+    "sqlalchemy",
+    "redis",
+    "httpx",
+    "jwt",
+]
+
+[[tool.importlinter.contracts]]
+name = "Infrastructure knows only the domain"
+type = "forbidden"
+source_modules = ["paimon.infrastructure"]
+forbidden_modules = ["paimon.application", "paimon.interfaces"]
+
+# A fifth contract — "infrastructure is reached only through the composition
+# root" — lands with the composition root itself. import-linter rejects an
+# ignore_imports entry that matches nothing, and asserting an exception for a
+# module that does not yet exist would be asserting nothing.

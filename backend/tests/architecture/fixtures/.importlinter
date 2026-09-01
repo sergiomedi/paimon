@@ -1,0 +1,13 @@
+# Configuration for the deliberately violating fixture package. Used only by
+# tests/architecture/test_layer_contracts.py to prove the checker fails when it
+# should.
+[importlinter]
+root_package = violating
+
+[importlinter:contract:domain-independence]
+name = The domain is independent
+type = forbidden
+source_modules =
+    violating.domain
+forbidden_modules =
+    violating.infrastructure
