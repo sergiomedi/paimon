@@ -174,6 +174,8 @@ forbidden_modules = [
     "paimon.application",
     "paimon.infrastructure",
     "paimon.interfaces",
+    "paimon.config",
+    "paimon.observability",
     "fastapi",
     "sqlalchemy",
     "redis",
@@ -191,3 +193,11 @@ forbidden_modules = ["paimon.application", "paimon.interfaces"]
 # root" — lands with the composition root itself. import-linter rejects an
 # ignore_imports entry that matches nothing, and asserting an exception for a
 # module that does not yet exist would be asserting nothing.
+
+# Use cases receive what they need as arguments. A use case that reads settings
+# directly is a use case that cannot be tested without an environment.
+[[tool.importlinter.contracts]]
+name = "Use cases do not read configuration"
+type = "forbidden"
+source_modules = ["paimon.application"]
+forbidden_modules = ["paimon.config"]
