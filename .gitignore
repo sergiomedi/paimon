@@ -33,3 +33,6 @@ Thumbs.db
 
 # Local agent instructions, not shared
 CLAUDE.local.md
+
+# Personal development journal, not part of the repository
+NOTAS_DE_DESARROLLO.md
