@@ -122,7 +122,7 @@ previous one is complete.
 > repository skeleton, and every command listed here is one that has been verified to run.
 
 ```bash
-git clone https://github.com/OWNER/paimon.git
+git clone https://github.com/sergiomedi/paimon.git
 cd paimon
 ```
 
