@@ -18,7 +18,7 @@ BASE_ENV = {
     "PAIMON_DATABASE__NAME": "paimon",
     "PAIMON_REDIS__HOST": "cache.internal",
     "PAIMON_AUTH__PROVIDER": "dev",
-    "PAIMON_AUTH__DEV_SIGNING_KEY": "local-only",
+    "PAIMON_AUTH__DEV_SIGNING_KEY": "local-only-padded-to-thirty-two-bytes",
 }
 
 
@@ -105,6 +105,11 @@ class TestAuthValidation:
             monkeypatch.setenv(key, value)
         with pytest.raises(ValidationError, match="dev_signing_key is required"):
             Settings(_env_file=None)
+
+    def test_a_short_dev_signing_key_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """RFC 7518 section 3.2: an HMAC key shorter than the hash output weakens HS256."""
+        with pytest.raises(ValidationError, match="at least 32 bytes"):
+            build(monkeypatch, PAIMON_AUTH__DEV_SIGNING_KEY="too-short")
 
     def test_jwks_uri_is_derived_from_the_tenant(self, monkeypatch: pytest.MonkeyPatch) -> None:
         settings = build(

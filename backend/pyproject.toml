@@ -124,6 +124,9 @@ disallow_untyped_defs = false
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
+# A warning nobody reads is a defect waiting its turn. Anything expected is
+# silenced explicitly, with a reason, rather than left to scroll past.
+filterwarnings = ["error"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [
@@ -189,10 +192,14 @@ type = "forbidden"
 source_modules = ["paimon.infrastructure"]
 forbidden_modules = ["paimon.application", "paimon.interfaces"]
 
-# A fifth contract — "infrastructure is reached only through the composition
-# root" — lands with the composition root itself. import-linter rejects an
-# ignore_imports entry that matches nothing, and asserting an exception for a
-# module that does not yet exist would be asserting nothing.
+# The composition root is the one place where concrete adapters are bound to
+# domain ports, so it is the one module permitted to import infrastructure.
+[[tool.importlinter.contracts]]
+name = "Infrastructure is reached only through the composition root"
+type = "forbidden"
+source_modules = ["paimon.interfaces"]
+forbidden_modules = ["paimon.infrastructure"]
+ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.*"]
 
 # Use cases receive what they need as arguments. A use case that reads settings
 # directly is a use case that cannot be tested without an environment.

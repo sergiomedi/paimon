@@ -94,6 +94,10 @@ class RedisSettings(BaseModel):
         return f"{scheme}://{credentials}{self.host}:{self.port}/{self.db}"
 
 
+MIN_DEV_SIGNING_KEY_BYTES = 32
+"""Minimum HMAC key length for HS256, per RFC 7518 section 3.2."""
+
+
 class AuthSettings(BaseModel):
     """Identity provider configuration (ADR-0004).
 
@@ -123,9 +127,19 @@ class AuthSettings(BaseModel):
         if self.provider == "entra" and not (self.tenant_id and self.audience):
             msg = "auth.tenant_id and auth.audience are required when provider is 'entra'"
             raise ValueError(msg)
-        if self.provider == "dev" and self.dev_signing_key is None:
-            msg = "auth.dev_signing_key is required when provider is 'dev'"
-            raise ValueError(msg)
+        if self.provider == "dev":
+            if self.dev_signing_key is None:
+                msg = "auth.dev_signing_key is required when provider is 'dev'"
+                raise ValueError(msg)
+            # RFC 7518 §3.2: an HMAC key shorter than the hash output weakens
+            # HS256. Enforced even for development, because a weak key that only
+            # ever lives in development still teaches the wrong default.
+            if len(self.dev_signing_key.get_secret_value().encode()) < MIN_DEV_SIGNING_KEY_BYTES:
+                msg = (
+                    f"auth.dev_signing_key must be at least "
+                    f"{MIN_DEV_SIGNING_KEY_BYTES} bytes (RFC 7518 section 3.2)"
+                )
+                raise ValueError(msg)
         return self
 
 
