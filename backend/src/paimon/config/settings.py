@@ -169,6 +169,54 @@ class EmbeddingSettings(BaseModel):
     index_name: str = "chunks"
 
 
+class ChatSettings(BaseModel):
+    """Which generation endpoint to call, and how."""
+
+    base_url: str = "http://localhost:11434/v1"
+    model: str = "qwen2.5:7b-instruct"
+    api_key: SecretStr | None = None
+    # Zero by default: a grounded answer should be the same answer for the same
+    # sources, and an evaluation over a sampled model measures the sampler as
+    # much as the retrieval.
+    temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    max_output_tokens: int | None = Field(default=1024, ge=1)
+    timeout_seconds: float = Field(default=120.0, gt=0)
+
+
+class IngestionSettings(BaseModel):
+    """How documents are cut up before indexing."""
+
+    max_chunk_tokens: int = Field(default=512, ge=32)
+    chunk_overlap_tokens: int = Field(default=64, ge=0)
+    min_chunk_tokens: int = Field(default=16, ge=1)
+
+    @model_validator(mode="after")
+    def _overlap_must_leave_room(self) -> Self:
+        if self.chunk_overlap_tokens >= self.max_chunk_tokens:
+            msg = "chunk_overlap_tokens must leave room for new content"
+            raise ValueError(msg)
+        if self.min_chunk_tokens > self.max_chunk_tokens:
+            msg = "min_chunk_tokens cannot exceed max_chunk_tokens"
+            raise ValueError(msg)
+        return self
+
+
+class RetrievalSettings(BaseModel):
+    """How much is retrieved, and how much of it reaches the prompt."""
+
+    top_k: int = Field(default=8, ge=1)
+    candidates_per_retriever: int = Field(default=40, ge=1)
+    rrf_k: int = Field(default=60, ge=0)
+    max_context_tokens: int = Field(default=6000, ge=256)
+
+    @model_validator(mode="after")
+    def _cannot_return_more_than_is_gathered(self) -> Self:
+        if self.candidates_per_retriever < self.top_k:
+            msg = "candidates_per_retriever cannot be smaller than top_k"
+            raise ValueError(msg)
+        return self
+
+
 class ObservabilitySettings(BaseModel):
     """Logging and, from Phase 5, tracing configuration."""
 
@@ -199,6 +247,9 @@ class Settings(BaseSettings):
     redis: RedisSettings
     auth: AuthSettings
     embedding: EmbeddingSettings = EmbeddingSettings()
+    chat: ChatSettings = ChatSettings()
+    ingestion: IngestionSettings = IngestionSettings()
+    retrieval: RetrievalSettings = RetrievalSettings()
     observability: ObservabilitySettings = ObservabilitySettings()
 
     @model_validator(mode="after")

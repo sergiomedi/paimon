@@ -18,10 +18,10 @@ grounded answers, cited evidence and automated workflows.
 ---
 
 > **Project status: Phase 1 complete, Phase 2 — RAG — in progress.**
-> Ingestion, chunking and the PostgreSQL/pgvector retrieval backend are built and tested;
-> the retrieval API, citations and the evaluation benchmark are still being written. This
-> README is updated as each phase lands, and nothing is described here as working before
-> it works: see [What works today](#what-works-today) for the current, verified surface.
+> Ingestion, hybrid retrieval and grounded answering with citations work end to end. The
+> evaluation benchmark and the Azure adapters are still being written. This README is
+> updated as each phase lands, and nothing is described here as working before it works:
+> see [What works today](#what-works-today) for the current, verified surface.
 
 ---
 
@@ -62,9 +62,40 @@ anything is built on top of it.
 
 | Endpoint | Behaviour |
 |---|---|
+| `PUT /api/v1/documents/{id}` | Parses, chunks, embeds and indexes a document. Idempotent by content: unchanged bytes cost a hash comparison, not a round of embeddings. |
+| `POST /api/v1/answers` | Retrieves by meaning and by wording, fuses the rankings, and answers **only** from what was retrieved — with citations that resolve to an exact span of the source. |
 | `GET /api/v1/health/live` | Reports that the process is running. Touches no dependency, so a database outage cannot get the container restarted. |
 | `GET /api/v1/health/ready` | Probes PostgreSQL and Redis concurrently, each under a timeout. Returns `503` when any is unusable, and names which one and why. |
 | `GET /api/v1/me` | Validates a bearer token and returns the caller as a domain `Principal`. |
+
+A citation is not a filename. Each one carries the document, the enclosing
+headings, the quoted text and the **character offsets** it came from, so a client
+can open the source at the passage the claim rests on:
+
+```json
+{
+  "answer": "Cordon the node first so the scheduler stops placing new pods on it [1].",
+  "grounded": true,
+  "citations": [
+    {
+      "marker": 1,
+      "document_id": "node-maintenance",
+      "source_uri": "https://example.test/runbooks/node-maintenance.md",
+      "heading_path": ["Node maintenance", "Draining"],
+      "start_char": 84,
+      "end_char": 152,
+      "quote": "Cordon the node first so the scheduler stops placing new pods on it."
+    }
+  ],
+  "strategy": "fused",
+  "usage": { "input_tokens": 83, "output_tokens": 14, "total_tokens": 97 }
+}
+```
+
+When retrieval finds nothing, no model is called and the answer says so. A `200`
+with `grounded: false` is a normal outcome, not an error: an answer that sounds
+right and is not in the sources is worse than no answer, because the reader
+cannot tell the difference.
 
 The web application renders the platform's readiness — every dependency, its latency and,
 when something is wrong, the error — and distinguishes "a dependency is failing" from "the
@@ -75,8 +106,8 @@ that covers library output too, five machine-enforced architecture contracts, an
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: document ingestion, retrieval, agents, MCP, evaluation. Those are Phases 2
-to 6.
+Not yet built: the evaluation benchmark, the Azure adapters, agents, MCP and observability.
+Those are the rest of Phase 2 and Phases 3 to 6.
 
 ## Architecture
 

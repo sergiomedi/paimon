@@ -1,5 +1,6 @@
 """Use cases: the platform's application-level operations."""
 
+from paimon.application.use_cases.answer_question import Answer, AnswerQuestion, Usage
 from paimon.application.use_cases.check_readiness import (
     CheckReadiness,
     ComponentStatus,
@@ -17,6 +18,8 @@ from paimon.application.use_cases.retrieve_chunks import (
 )
 
 __all__ = [
+    "Answer",
+    "AnswerQuestion",
     "CheckReadiness",
     "ComponentStatus",
     "IngestDocument",
@@ -26,4 +29,5 @@ __all__ = [
     "RetrievalResult",
     "RetrieveChunks",
     "SourceDocument",
+    "Usage",
 ]

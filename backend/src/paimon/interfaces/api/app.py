@@ -14,10 +14,18 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from paimon.config import Settings, get_settings
-from paimon.domain.errors import DomainError, IdentityProviderUnavailableError, InvalidTokenError
+from paimon.domain.errors import (
+    DomainError,
+    EmbeddingError,
+    GenerationError,
+    IdentityProviderUnavailableError,
+    IngestionError,
+    InvalidTokenError,
+    UnsupportedMediaTypeError,
+)
 from paimon.interfaces.api.dependencies import build_resources
 from paimon.interfaces.api.middleware import CorrelationIdMiddleware
-from paimon.interfaces.api.routers import health, identity
+from paimon.interfaces.api.routers import health, identity, knowledge
 from paimon.interfaces.api.schemas import ErrorResponse
 from paimon.observability import configure_logging, get_logger
 
@@ -69,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(identity.router, prefix=API_PREFIX)
+    app.include_router(knowledge.router, prefix=API_PREFIX)
     return app
 
 
@@ -106,6 +115,29 @@ def _register_exception_handlers(app: FastAPI) -> None:
             request,
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "identity provider unavailable",
+        )
+
+    @app.exception_handler(UnsupportedMediaTypeError)
+    async def _unsupported_media_type(
+        request: Request, exc: UnsupportedMediaTypeError
+    ) -> JSONResponse:
+        return _error_response(request, status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc))
+
+    @app.exception_handler(IngestionError)
+    async def _ingestion_error(request: Request, exc: IngestionError) -> JSONResponse:
+        # The message describes what the caller sent, so returning it helps them
+        # fix it and reveals nothing they did not already provide.
+        logger.info("ingestion_rejected", reason=str(exc))
+        return _error_response(request, status.HTTP_400_BAD_REQUEST, str(exc))
+
+    @app.exception_handler(EmbeddingError)
+    @app.exception_handler(GenerationError)
+    async def _model_provider_unavailable(request: Request, exc: DomainError) -> JSONResponse:
+        # Not the caller's fault and not permanent: a 503 tells a client to retry,
+        # where a 500 tells it to give up.
+        logger.error("model_provider_failed", error_type=type(exc).__name__, reason=str(exc))
+        return _error_response(
+            request, status.HTTP_503_SERVICE_UNAVAILABLE, "model provider unavailable"
         )
 
     @app.exception_handler(DomainError)

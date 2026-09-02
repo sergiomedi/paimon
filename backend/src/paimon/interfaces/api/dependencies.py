@@ -19,14 +19,43 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from paimon.application.use_cases import CheckReadiness
+from paimon.application.use_cases import (
+    AnswerQuestion,
+    CheckReadiness,
+    IngestDocument,
+    RetrievalPolicy,
+    RetrieveChunks,
+)
 from paimon.config import Settings
 from paimon.domain.entities import Principal
 from paimon.domain.errors import InvalidTokenError
-from paimon.domain.ports import HealthProbe, IdentityProvider
+from paimon.domain.ports import (
+    ChatModel,
+    DocumentParser,
+    DocumentRepository,
+    EmbeddingModel,
+    HealthProbe,
+    IdentityProvider,
+    IndexDescriptor,
+    TokenCounter,
+    VectorStore,
+)
 from paimon.infrastructure.cache import RedisHealthProbe, build_redis_client
+from paimon.infrastructure.chat import OpenAICompatibleChatConfig, OpenAICompatibleChatModel
+from paimon.infrastructure.embedding import (
+    OpenAICompatibleConfig,
+    OpenAICompatibleEmbeddingModel,
+)
 from paimon.infrastructure.identity import build_identity_provider
-from paimon.infrastructure.persistence import PostgresHealthProbe, build_engine
+from paimon.infrastructure.parsing import MarkdownParser
+from paimon.infrastructure.persistence import (
+    PgVectorStore,
+    PostgresDocumentRepository,
+    PostgresHealthProbe,
+    build_engine,
+)
+from paimon.infrastructure.tokenization import HeuristicTokenCounter
+from paimon.rag.chunking import Chunker, ChunkingPolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +67,13 @@ class Resources:
     redis: Redis
     identity_provider: IdentityProvider
     readiness_probes: tuple[HealthProbe, ...]
+    embedding_model: EmbeddingModel
+    chat_model: ChatModel
+    vector_store: VectorStore
+    document_repository: DocumentRepository
+    parser: DocumentParser
+    chunker: Chunker
+    token_counter: TokenCounter
 
 
 @asynccontextmanager
@@ -57,6 +93,33 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     """
     engine = build_engine(settings.database)
     redis = build_redis_client(settings.redis)
+    embedding_model = OpenAICompatibleEmbeddingModel(
+        OpenAICompatibleConfig(
+            base_url=settings.embedding.base_url,
+            model=settings.embedding.model,
+            dimensions=settings.embedding.dimensions,
+            api_key=(
+                settings.embedding.api_key.get_secret_value()
+                if settings.embedding.api_key
+                else None
+            ),
+            document_prefix=settings.embedding.document_prefix,
+            query_prefix=settings.embedding.query_prefix,
+            batch_size=settings.embedding.batch_size,
+            timeout_seconds=settings.embedding.timeout_seconds,
+        )
+    )
+    chat_model = OpenAICompatibleChatModel(
+        OpenAICompatibleChatConfig(
+            base_url=settings.chat.base_url,
+            model=settings.chat.model,
+            api_key=(settings.chat.api_key.get_secret_value() if settings.chat.api_key else None),
+            temperature=settings.chat.temperature,
+            max_output_tokens=settings.chat.max_output_tokens,
+            timeout_seconds=settings.chat.timeout_seconds,
+        )
+    )
+    token_counter = HeuristicTokenCounter()
     try:
         yield Resources(
             settings=settings,
@@ -64,8 +127,31 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
             redis=redis,
             identity_provider=build_identity_provider(settings.auth, settings.environment),
             readiness_probes=(PostgresHealthProbe(engine), RedisHealthProbe(redis)),
+            embedding_model=embedding_model,
+            chat_model=chat_model,
+            vector_store=PgVectorStore(
+                engine,
+                IndexDescriptor(
+                    name=settings.embedding.index_name,
+                    embedding_model_id=settings.embedding.model,
+                    dimensions=settings.embedding.dimensions,
+                ),
+            ),
+            document_repository=PostgresDocumentRepository(engine),
+            parser=MarkdownParser(),
+            chunker=Chunker(
+                ChunkingPolicy(
+                    max_tokens=settings.ingestion.max_chunk_tokens,
+                    overlap_tokens=settings.ingestion.chunk_overlap_tokens,
+                    min_tokens=settings.ingestion.min_chunk_tokens,
+                ),
+                token_counter,
+            ),
+            token_counter=token_counter,
         )
     finally:
+        await chat_model.aclose()
+        await embedding_model.aclose()
         await redis.aclose()
         await engine.dispose()
 
@@ -92,6 +178,42 @@ def get_identity_provider(resources: ResourcesDep) -> IdentityProvider:
 def get_check_readiness(resources: ResourcesDep) -> CheckReadiness:
     """Return the readiness use case, wired to the configured probes."""
     return CheckReadiness(resources.readiness_probes)
+
+
+def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
+    """Return the ingestion use case, fully assembled."""
+    return IngestDocument(
+        parser=resources.parser,
+        repository=resources.document_repository,
+        store=resources.vector_store,
+        embedding_model=resources.embedding_model,
+        chunker=resources.chunker,
+    )
+
+
+def get_retrieve_chunks(resources: ResourcesDep) -> RetrieveChunks:
+    """Return the retrieval use case, fully assembled."""
+    retrieval = resources.settings.retrieval
+    return RetrieveChunks(
+        store=resources.vector_store,
+        embedding_model=resources.embedding_model,
+        policy=RetrievalPolicy(
+            top_k=retrieval.top_k,
+            candidates_per_retriever=retrieval.candidates_per_retriever,
+            rrf_k=retrieval.rrf_k,
+        ),
+    )
+
+
+def get_answer_question(resources: ResourcesDep) -> AnswerQuestion:
+    """Return the answering use case, fully assembled."""
+    return AnswerQuestion(
+        retrieve=get_retrieve_chunks(resources),
+        chat_model=resources.chat_model,
+        repository=resources.document_repository,
+        token_counter=resources.token_counter,
+        max_context_tokens=resources.settings.retrieval.max_context_tokens,
+    )
 
 
 # auto_error=False so that a missing header produces our own error shape rather
@@ -122,6 +244,8 @@ async def get_current_principal(
     return await identity_provider.authenticate(credentials.credentials)
 
 
+AnswerQuestionDep = Annotated[AnswerQuestion, Depends(get_answer_question)]
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
+IngestDocumentDep = Annotated[IngestDocument, Depends(get_ingest_document)]
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dependency)]

@@ -8,11 +8,14 @@ receive what they need as explicit arguments.
 
 from paimon.config.settings import (
     AuthSettings,
+    ChatSettings,
     DatabaseSettings,
     EmbeddingSettings,
     Environment,
+    IngestionSettings,
     ObservabilitySettings,
     RedisSettings,
+    RetrievalSettings,
     Settings,
     get_settings,
     unknown_environment_variables,
@@ -20,11 +23,14 @@ from paimon.config.settings import (
 
 __all__ = [
     "AuthSettings",
+    "ChatSettings",
     "DatabaseSettings",
     "EmbeddingSettings",
     "Environment",
+    "IngestionSettings",
     "ObservabilitySettings",
     "RedisSettings",
+    "RetrievalSettings",
     "Settings",
     "get_settings",
     "unknown_environment_variables",
