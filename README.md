@@ -194,7 +194,14 @@ To run the backend stack in containers instead: `docker compose -f docker/compos
 
 ## Quality gates
 
-The same checks CI runs, runnable locally:
+Everything CI runs, in one command:
+
+```bash
+./scripts/check.sh             # backend and frontend
+./scripts/check.sh backend     # backend only
+```
+
+Or individually:
 
 ```bash
 cd backend
@@ -230,6 +237,7 @@ backend/
     interfaces/api/  Routers, schemas, composition root
   tests/             unit, e2e, integration, architecture
 docker/              Dockerfile and the local Compose stack
+scripts/             check.sh — every CI gate in one command
 docs/                Architecture overview and decision records
 .github/workflows/   CI
 

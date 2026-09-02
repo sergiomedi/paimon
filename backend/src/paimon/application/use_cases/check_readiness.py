@@ -82,7 +82,7 @@ class CheckReadiness:
                 latency_ms=self._elapsed_ms(started),
                 error=f"timed out after {self._timeout_seconds}s",
             )
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001  one bad probe must not hide the rest
             return ComponentStatus(
                 component=probe.component,
                 healthy=False,

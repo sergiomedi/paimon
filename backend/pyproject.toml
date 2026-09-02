@@ -63,6 +63,7 @@ select = [
     "UP",        # pyupgrade
     "ANN",       # flake8-annotations
     "ASYNC",     # flake8-async
+    "BLE",       # flake8-blind-except
     "S",         # flake8-bandit
     "B",         # flake8-bugbear
     "A",         # flake8-builtins
@@ -106,6 +107,9 @@ docstring-code-format = true
 [tool.mypy]
 python_version = "3.13"
 files = ["src", "tests"]
+# The architecture fixture is a standalone package that is only importable
+# from its own directory, which is where the checker under test runs it.
+exclude = ["tests/architecture/fixtures/"]
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]

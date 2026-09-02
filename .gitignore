@@ -35,5 +35,9 @@ Thumbs.db
 # Local agent instructions, not shared
 CLAUDE.local.md
 
+# Hand-off files used while pairing; never part of a change
+_changes.patch
+_commit_msg.txt
+
 # Personal development journal, not part of the repository
 NOTAS_DE_DESARROLLO.md

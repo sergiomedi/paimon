@@ -18,9 +18,7 @@ pytestmark = pytest.mark.integration
 
 
 class TestPostgres:
-    async def test_the_probe_passes_against_a_running_database(
-        self, engine: AsyncEngine
-    ) -> None:
+    async def test_the_probe_passes_against_a_running_database(self, engine: AsyncEngine) -> None:
         await PostgresHealthProbe(engine).check()
 
     async def test_the_probe_fails_against_a_closed_port(
@@ -31,7 +29,7 @@ class TestPostgres:
             pool_pre_ping=False,
         )
         try:
-            with pytest.raises(Exception, match="[Cc]onnect"):
+            with pytest.raises(Exception, match=r"[Cc]onnect"):
                 await PostgresHealthProbe(unreachable).check()
         finally:
             await unreachable.dispose()
