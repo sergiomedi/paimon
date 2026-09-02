@@ -29,3 +29,36 @@ class IdentityProviderUnavailableError(AuthenticationError):
 
 class HealthCheckFailedError(DomainError):
     """A component reported itself unhealthy."""
+
+
+class RetrievalError(DomainError):
+    """Retrieval could not be completed."""
+
+
+class IndexMismatchError(RetrievalError):
+    """An embedding does not match the index it was offered to.
+
+    Raised when the embedding model or dimensionality differs from what the index
+    declares. Mixing models in one index degrades retrieval without ever raising,
+    so the mismatch is refused at the boundary.
+    """
+
+
+class EmbeddingError(DomainError):
+    """The provider could not produce an embedding."""
+
+
+class GenerationError(DomainError):
+    """The provider could not produce an answer."""
+
+
+class IngestionError(DomainError):
+    """A document could not be ingested."""
+
+
+class UnsupportedMediaTypeError(IngestionError):
+    """No parser handles this media type."""
+
+
+class ParseError(IngestionError):
+    """The source could not be read."""

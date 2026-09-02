@@ -20,6 +20,7 @@ reasoning trail, and rewriting history destroys it.
 | [0007](0007-persistence-postgresql-sqlalchemy-alembic-redis.md) | Persistence: PostgreSQL, SQLAlchemy, Alembic, Redis | Accepted |
 | [0008](0008-target-domain-engineering-operations.md) | Target domain: engineering operations | Accepted |
 | [0009](0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's Depends | Accepted |
+| [0010](0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports (refines 0003) | Accepted |
 
 ## Writing a new ADR
 

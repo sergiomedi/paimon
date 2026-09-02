@@ -117,6 +117,7 @@ including the negative ones.
 | [0007](docs/adr/0007-persistence-postgresql-sqlalchemy-alembic-redis.md) | Persistence: PostgreSQL, SQLAlchemy, Alembic, Redis |
 | [0008](docs/adr/0008-target-domain-engineering-operations.md) | Target domain: engineering operations |
 | [0009](docs/adr/0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's `Depends` |
+| [0010](docs/adr/0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports |
 
 ## Technology
 
