@@ -20,6 +20,11 @@ class Document:
         text: Normalized document text.
         content_hash: Hash of the normalized text, used to skip unchanged work.
         media_type: Media type of the original source.
+        pipeline_fingerprint: Identifies the chunking policy and embedding model
+            the stored chunks were produced by. Content alone does not decide
+            whether a document needs reindexing: the same bytes chunked at 512
+            tokens and at 256 produce different chunks, so a system that skips on
+            content alone can never re-chunk anything.
         metadata: Free-form provenance, kept as strings so it survives any store.
     """
 
@@ -30,6 +35,7 @@ class Document:
     text: str
     content_hash: str
     media_type: str
+    pipeline_fingerprint: str = ""
     metadata: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

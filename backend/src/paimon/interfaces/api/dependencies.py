@@ -180,8 +180,11 @@ def get_check_readiness(resources: ResourcesDep) -> CheckReadiness:
     return CheckReadiness(resources.readiness_probes)
 
 
-def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
-    """Return the ingestion use case, fully assembled."""
+# The builders below take Resources rather than a request, so anything holding a
+# Resources can assemble the same object graph — the benchmark command builds the
+# very use cases the API serves, instead of a lookalike that can drift from them.
+def build_ingest_document(resources: Resources) -> IngestDocument:
+    """Assemble the ingestion use case."""
     return IngestDocument(
         parser=resources.parser,
         repository=resources.document_repository,
@@ -191,8 +194,8 @@ def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
     )
 
 
-def get_retrieve_chunks(resources: ResourcesDep) -> RetrieveChunks:
-    """Return the retrieval use case, fully assembled."""
+def build_retrieve_chunks(resources: Resources) -> RetrieveChunks:
+    """Assemble the retrieval use case."""
     retrieval = resources.settings.retrieval
     return RetrieveChunks(
         store=resources.vector_store,
@@ -205,10 +208,10 @@ def get_retrieve_chunks(resources: ResourcesDep) -> RetrieveChunks:
     )
 
 
-def get_answer_question(resources: ResourcesDep) -> AnswerQuestion:
-    """Return the answering use case, fully assembled."""
+def build_answer_question(resources: Resources) -> AnswerQuestion:
+    """Assemble the answering use case."""
     return AnswerQuestion(
-        retrieve=get_retrieve_chunks(resources),
+        retrieve=build_retrieve_chunks(resources),
         chat_model=resources.chat_model,
         repository=resources.document_repository,
         token_counter=resources.token_counter,
@@ -242,6 +245,21 @@ async def get_current_principal(
         msg = "missing bearer token"
         raise InvalidTokenError(msg)
     return await identity_provider.authenticate(credentials.credentials)
+
+
+def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
+    """Return the ingestion use case for a request."""
+    return build_ingest_document(resources)
+
+
+def get_retrieve_chunks(resources: ResourcesDep) -> RetrieveChunks:
+    """Return the retrieval use case for a request."""
+    return build_retrieve_chunks(resources)
+
+
+def get_answer_question(resources: ResourcesDep) -> AnswerQuestion:
+    """Return the answering use case for a request."""
+    return build_answer_question(resources)
 
 
 AnswerQuestionDep = Annotated[AnswerQuestion, Depends(get_answer_question)]

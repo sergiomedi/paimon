@@ -9,25 +9,24 @@ TENANT = "tenant-a"
 OTHER_TENANT = "tenant-b"
 
 
-def document(
-    document_id: str = "doc-1",
-    *,
-    tenant_id: str = TENANT,
-    text: str = "# Node maintenance\n\nCordon the node first.",
-    content_hash: str = "hash-1",
-    metadata: dict[str, str] | None = None,
-) -> Document:
+DEFAULT_FINGERPRINT = "chunk:max=512,overlap=64,min=16|embed:m@1024"
+
+
+def document(document_id: str = "doc-1", **overrides: object) -> Document:
     """Build a document for use in a contract test."""
-    return Document(
-        document_id=document_id,
-        tenant_id=tenant_id,
-        source_uri="https://example.test/runbook.md",
-        title="Node maintenance",
-        text=text,
-        content_hash=content_hash,
-        media_type="text/markdown",
-        metadata=metadata or {},
-    )
+    fields: dict[str, object] = {
+        "document_id": document_id,
+        "tenant_id": TENANT,
+        "source_uri": "https://example.test/runbook.md",
+        "title": "Node maintenance",
+        "text": "# Node maintenance\n\nCordon the node first.",
+        "content_hash": "hash-1",
+        "media_type": "text/markdown",
+        "pipeline_fingerprint": DEFAULT_FINGERPRINT,
+        "metadata": {},
+    }
+    fields.update(overrides)
+    return Document(**fields)  # type: ignore[arg-type]
 
 
 class DocumentRepositoryContract:
@@ -55,6 +54,17 @@ class DocumentRepositoryContract:
 
         assert loaded is not None
         assert loaded.text == text
+
+    async def test_the_pipeline_fingerprint_round_trips(
+        self, repository: DocumentRepository
+    ) -> None:
+        """It decides whether a document needs re-chunking. A store that drops it
+        makes every re-ingestion look unnecessary."""
+        await repository.save(document())
+        loaded = await repository.get(TENANT, "doc-1")
+
+        assert loaded is not None
+        assert loaded.pipeline_fingerprint == DEFAULT_FINGERPRINT
 
     async def test_metadata_round_trips(self, repository: DocumentRepository) -> None:
         await repository.save(document(metadata={"team": "platform", "source": "github"}))

@@ -39,5 +39,8 @@ CLAUDE.local.md
 _changes.patch
 _commit_msg.txt
 
+# Benchmark output. Runs are cheap; results are not a source of truth.
+evaluation/reports/
+
 # Personal development journal, not part of the repository
 NOTAS_DE_DESARROLLO.md

@@ -151,6 +151,7 @@ including the negative ones.
 | [0010](docs/adr/0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports |
 | [0011](docs/adr/0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions |
 | [0012](docs/adr/0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score |
+| [0013](docs/adr/0013-anchor-ground-truth-to-quotations.md) | Anchor evaluation ground truth to quotations |
 
 ## Technology
 
@@ -225,6 +226,46 @@ pnpm dev                       # http://localhost:3000
 
 To run the backend stack in containers instead: `docker compose -f docker/compose.yaml
 --profile app up --build`.
+
+## Evaluation
+
+Retrieval is easy to change and hard to judge by eye, so it is measured. A golden
+set of questions names the document and quotes the passage that answers each one;
+a retrieval counts as successful when a returned chunk comes from that document
+and contains the quotation.
+
+```bash
+cd backend
+uv run python -m paimon.interfaces.cli.evaluate \
+    --corpus ../evaluation/corpus/sample \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "chunk=512 overlap=64 rrf=60"
+```
+
+```text
+dataset       retrieval-v1  (15 cases)
+configuration chunk=512 overlap=64 rrf=60
+cutoff        k=3
+
+  answerable@k   100.0%   at least one supporting passage retrieved
+  recall@k       100.0%   of expected passages retrieved
+  precision@k     35.6%   of the k slots that were useful
+  MRR             0.900   how high the first useful hit lands
+  nDCG@k          0.900   rank-weighted quality
+  median latency    7.9 ms
+```
+
+**Read those numbers with the caveat they deserve.** They come from the five-document
+sample corpus committed here so the benchmark runs immediately after a clone. On a
+corpus that small, retrieving eight chunks returns most of it, and the scores say the
+pipeline works rather than that retrieval is good. The reported benchmark uses the
+public corpora in [`evaluation/corpus/manifest.json`](evaluation/corpus/manifest.json),
+fetched rather than vendored.
+
+Ground truth is anchored to quotations rather than chunk ids, so chunk size, overlap,
+embedding model and fusion weights can all be varied without rewriting the dataset —
+which is the one experiment the benchmark exists to run
+([ADR-0013](docs/adr/0013-anchor-ground-truth-to-quotations.md)).
 
 ## Quality gates
 

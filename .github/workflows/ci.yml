@@ -135,7 +135,7 @@ jobs:
       # Turns "the service is unreachable" from a skip into a failure. Locally a
       # skip is a courtesy; here it would hide a broken adapter behind a green
       # build.
-      PAIMON_REQUIRE_INTEGRATION: "1"
+      PAIMON_TEST_REQUIRE_INTEGRATION: "1"
 
     steps:
       - uses: actions/checkout@v7.0.1

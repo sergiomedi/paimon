@@ -46,6 +46,12 @@ class DocumentRow(Base):
     text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     media_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    # What produced the stored chunks: the chunking policy and the embedding
+    # model. Content alone cannot decide whether a document needs reindexing —
+    # the same bytes chunked at two sizes are two different indexes.
+    pipeline_fingerprint: Mapped[str] = mapped_column(
+        String(256), nullable=False, server_default=""
+    )
     # Named doc_metadata in the database too, not just in Python. A column
     # called "metadata" collides with SQLAlchemy's own MetaData attribute on a
     # declarative class, and the two halves of the ORM disagree about which name

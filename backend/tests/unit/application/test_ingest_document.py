@@ -3,7 +3,11 @@
 import pytest
 
 from paimon.application.use_cases import IngestDocument, SourceDocument
-from paimon.domain.errors import IngestionError, UnsupportedMediaTypeError
+from paimon.domain.errors import (
+    IndexMismatchError,
+    IngestionError,
+    UnsupportedMediaTypeError,
+)
 from paimon.domain.ports import IndexDescriptor, SearchFilters
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
@@ -161,6 +165,58 @@ class TestIdempotence:
             "cordon", top_k=10, filters=SearchFilters(tenant_id=TENANT)
         )
         assert hits == []
+
+
+class TestPipelineChanges:
+    async def test_changing_the_chunk_size_reindexes_unchanged_content(
+        self, harness: Harness
+    ) -> None:
+        """The experiment the benchmark exists to run. Skipping on content alone
+        would make it impossible: the same bytes at a different chunk size are a
+        different index."""
+        await harness.ingest(source())
+
+        rechunked = IngestDocument(
+            parser=MarkdownParser(),
+            repository=harness.repository,
+            store=harness.store,
+            embedding_model=harness.embedding_model,
+            chunker=Chunker(
+                ChunkingPolicy(max_tokens=20, overlap_tokens=4, min_tokens=3),
+                HeuristicTokenCounter(),
+            ),
+        )
+        result = await rechunked(source())
+
+        assert result.unchanged is False
+        assert result.chunks_indexed > 0
+
+    async def test_changing_the_embedding_model_reindexes_too(self, harness: Harness) -> None:
+        """An index holds vectors from one model; a new model means a new index."""
+        await harness.ingest(source())
+
+        with_other_model = IngestDocument(
+            parser=MarkdownParser(),
+            repository=harness.repository,
+            store=harness.store,
+            embedding_model=FakeEmbeddingModel(dimensions=64, model_id="fake-embed-v2"),
+            chunker=Chunker(
+                ChunkingPolicy(max_tokens=60, overlap_tokens=10, min_tokens=5),
+                HeuristicTokenCounter(),
+            ),
+        )
+        # The store still declares the original model, so the mismatch guard of
+        # ADR-0011 fires — which is the correct outcome, not a bug.
+        with pytest.raises(IndexMismatchError):
+            await with_other_model(source())
+
+    async def test_the_fingerprint_is_recorded(self, harness: Harness) -> None:
+        await harness.ingest(source())
+        stored = await harness.repository.get(TENANT, "doc-1")
+
+        assert stored is not None
+        assert "chunk:max=60" in stored.pipeline_fingerprint
+        assert "embed:fake-embed-v1@64" in stored.pipeline_fingerprint
 
 
 class TestFailures:

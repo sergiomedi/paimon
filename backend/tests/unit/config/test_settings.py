@@ -77,6 +77,13 @@ class TestUnknownVariableDetection:
         environ = {**BASE_ENV, "PAIMON_DATABSE__HOST": "typo.internal"}
         assert unknown_environment_variables(environ) == frozenset({"PAIMON_DATABSE__HOST"})
 
+    def test_the_test_harness_namespace_is_ignored(self) -> None:
+        """The guard cannot tell a typo from a deliberate non-setting, so the test
+        harness gets a reserved prefix rather than the guard getting a list of
+        names it should not have to know."""
+        environ = {**BASE_ENV, "PAIMON_TEST_REQUIRE_INTEGRATION": "1"}
+        assert unknown_environment_variables(environ) == frozenset()
+
     def test_unprefixed_variables_are_ignored(self) -> None:
         environ = {**BASE_ENV, "PATH": "/usr/bin", "OTHER_APP_HOST": "x"}
         assert unknown_environment_variables(environ) == frozenset()

@@ -6,7 +6,7 @@ Start them with:
 
 When the services are unreachable these tests skip, so a contributor without
 Docker running still gets a useful local run. In CI that would silently turn a
-broken adapter into a green build, so CI sets ``PAIMON_REQUIRE_INTEGRATION=1``
+broken adapter into a green build, so CI sets ``PAIMON_TEST_REQUIRE_INTEGRATION=1``
 and the same condition fails instead of skipping.
 """
 
@@ -27,7 +27,7 @@ from paimon.config import DatabaseSettings, RedisSettings
 from paimon.infrastructure.cache import build_redis_client
 from paimon.infrastructure.persistence import build_engine
 
-REQUIRE_INTEGRATION = os.environ.get("PAIMON_REQUIRE_INTEGRATION") == "1"
+REQUIRE_INTEGRATION = os.environ.get("PAIMON_TEST_REQUIRE_INTEGRATION") == "1"
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -35,7 +35,7 @@ def unavailable(service: str, error: Exception) -> None:
     """Skip locally, fail in CI."""
     message = f"{service} is not reachable: {error}"
     if REQUIRE_INTEGRATION:
-        pytest.fail(f"{message} (PAIMON_REQUIRE_INTEGRATION=1)")
+        pytest.fail(f"{message} (PAIMON_TEST_REQUIRE_INTEGRATION=1)")
     pytest.skip(f"{message} — start it with docker compose -f docker/compose.yaml up -d")
 
 

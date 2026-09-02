@@ -94,6 +94,15 @@ class RedisSettings(BaseModel):
         return f"{scheme}://{credentials}{self.host}:{self.port}/{self.db}"
 
 
+TEST_HARNESS_PREFIX = "PAIMON_TEST_"
+"""Namespace for variables that configure the test harness, not the service.
+
+The unknown-variable guard would otherwise reject them: it cannot tell a typo
+from a deliberate non-setting, and it should not have to know which names the
+test suite uses. Reserving a prefix keeps the guard strict about everything it
+is actually responsible for.
+"""
+
 MAX_INDEXABLE_DIMENSIONS = 2000
 """pgvector indexes the vector type with HNSW only up to this width (ADR-0011)."""
 
@@ -308,7 +317,11 @@ def unknown_environment_variables(environ: Mapping[str, str] | None = None) -> f
     known = _known_environment_variables()
     present = {name.upper() for name in (environ if environ is not None else os.environ)}
     return frozenset(
-        name for name in present if name.startswith(prefix.upper()) and name not in known
+        name
+        for name in present
+        if name.startswith(prefix.upper())
+        and not name.startswith(TEST_HARNESS_PREFIX)
+        and name not in known
     )
 
 

@@ -1,0 +1,33 @@
+{
+  "description": "Public operational documentation used for the reported benchmark. Fetched at run time rather than vendored: redistributing these would mean taking on their licence terms, and a corpus committed to git goes stale.",
+  "sources": [
+    {
+      "id": "google-sre-book",
+      "title": "Google SRE Book",
+      "url": "https://sre.google/sre-book/table-of-contents/",
+      "licence": "CC BY-NC-ND 4.0",
+      "notes": "No derivatives: index it locally, do not redistribute extracts."
+    },
+    {
+      "id": "danluu-postmortems",
+      "title": "A collection of public postmortems",
+      "url": "https://github.com/danluu/post-mortems",
+      "licence": "See repository",
+      "notes": "Links to incident write-ups from many organizations; heterogeneous by nature, which is the point."
+    },
+    {
+      "id": "kubernetes-docs-tasks",
+      "title": "Kubernetes task documentation",
+      "url": "https://github.com/kubernetes/website/tree/main/content/en/docs/tasks",
+      "licence": "CC BY 4.0",
+      "notes": "Procedural documentation with a consistent structure — a useful contrast to postmortem prose."
+    },
+    {
+      "id": "arc42-adr-collections",
+      "title": "Public architecture decision records",
+      "url": "https://github.com/joelparkerhenderson/architecture-decision-record",
+      "licence": "See repository",
+      "notes": "ADRs in several formats, which exercises heading-aware chunking."
+    }
+  ]
+}

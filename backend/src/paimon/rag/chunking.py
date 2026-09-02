@@ -288,6 +288,19 @@ class Chunker:
         """The policy in force."""
         return self._policy
 
+    @property
+    def fingerprint(self) -> str:
+        """A stable identifier for this policy.
+
+        Part of what decides whether a document needs reindexing: the same bytes
+        chunked at two different sizes are two different indexes.
+        """
+        return (
+            f"chunk:max={self._policy.max_tokens}"
+            f",overlap={self._policy.overlap_tokens}"
+            f",min={self._policy.min_tokens}"
+        )
+
     def split(self, document: Document) -> list[Chunk]:
         """Split a document into retrievable chunks.
 

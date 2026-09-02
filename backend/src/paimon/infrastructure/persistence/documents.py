@@ -37,6 +37,7 @@ class PostgresDocumentRepository:
             text=row["text"],
             content_hash=row["content_hash"],
             media_type=row["media_type"],
+            pipeline_fingerprint=row["pipeline_fingerprint"],
             metadata=dict(row["doc_metadata"]),
         )
 
@@ -55,6 +56,7 @@ class PostgresDocumentRepository:
             "text": document.text,
             "content_hash": document.content_hash,
             "media_type": document.media_type,
+            "pipeline_fingerprint": document.pipeline_fingerprint,
             "doc_metadata": dict(document.metadata),
         }
         statement = insert(DocumentRow).values(**values)

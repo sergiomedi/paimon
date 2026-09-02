@@ -54,9 +54,15 @@ class IngestionResult:
 class IngestDocument:
     """Parse, chunk, embed and index a document.
 
-    Idempotent by content. Re-ingesting unchanged bytes is a hash comparison and
-    nothing else — no embedding calls, no index writes — which matters because a
-    corpus is re-ingested on a schedule and embeddings are the expensive part.
+    Idempotent by content *and* by pipeline. Re-ingesting unchanged bytes through
+    an unchanged pipeline is a comparison and nothing else — no embedding calls,
+    no index writes — which matters because a corpus is re-ingested on a schedule
+    and embeddings are the expensive part.
+
+    The pipeline is part of the comparison because content alone cannot decide it.
+    The same document chunked at 512 tokens and at 256 produces different chunks,
+    and an ingestion that skipped on content alone could never re-chunk anything —
+    which is precisely the experiment the retrieval benchmark exists to run.
     """
 
     def __init__(
@@ -91,8 +97,14 @@ class IngestDocument:
         parsed = await self._parser.parse(source.raw, source.media_type)
         content_hash = hashlib.sha256(parsed.text.encode()).hexdigest()
 
+        fingerprint = self._pipeline_fingerprint()
+
         existing = await self._repository.get(source.tenant_id, source.document_id)
-        if existing is not None and existing.content_hash == content_hash:
+        if (
+            existing is not None
+            and existing.content_hash == content_hash
+            and existing.pipeline_fingerprint == fingerprint
+        ):
             return IngestionResult(document_id=source.document_id, chunks_indexed=0, unchanged=True)
 
         document = Document(
@@ -103,6 +115,7 @@ class IngestDocument:
             text=parsed.text,
             content_hash=content_hash,
             media_type=source.media_type.split(";", maxsplit=1)[0].strip().lower(),
+            pipeline_fingerprint=fingerprint,
             metadata={**parsed.metadata, **source.metadata},
         )
 
@@ -133,4 +146,11 @@ class IngestDocument:
 
         return IngestionResult(
             document_id=source.document_id, chunks_indexed=len(chunks), unchanged=False
+        )
+
+    def _pipeline_fingerprint(self) -> str:
+        """Identify the chunking policy and embedding model in force."""
+        return (
+            f"{self._chunker.fingerprint}"
+            f"|embed:{self._embedding_model.model_id}@{self._embedding_model.dimensions}"
         )
