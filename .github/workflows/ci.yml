@@ -6,6 +6,13 @@
 #
 # Budget: this workflow stays under five minutes. Exceeding it is treated as a
 # defect, because a slow pipeline pushes people towards large commits.
+#
+# Actions are pinned to exact release tags rather than moving major tags. A major
+# tag is mutable: whoever controls the action repository can repoint it, and the
+# workflow silently starts running different code. Pinning also makes a missing
+# tag fail at authoring time instead of at run time — the first version of this
+# file referenced astral-sh/setup-uv@v10, a major tag that action does not
+# publish, and every backend job died before checkout.
 
 name: CI
 
@@ -37,10 +44,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -68,10 +75,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -85,7 +92,7 @@ jobs:
 
       - name: Upload coverage
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: coverage-unit
           path: backend/coverage.xml
@@ -131,10 +138,10 @@ jobs:
       PAIMON_REQUIRE_INTEGRATION: "1"
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v10
+        uses: astral-sh/setup-uv@v10.0.1
         with:
           version: ${{ env.UV_VERSION }}
           enable-cache: true
@@ -154,13 +161,13 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6.0.10
         with:
           version: 10
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7.0.0
         with:
           node-version: 22
           cache: pnpm
@@ -188,14 +195,14 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7.0.1
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4.3.0
 
       # Built but not published. Publication, environment promotion and
       # deployment are Phase 8; proving the image still builds is Phase 1's job.
       - name: Build the backend image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7.3.0
         with:
           context: .
           file: docker/backend.Dockerfile
