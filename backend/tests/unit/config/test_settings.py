@@ -189,3 +189,55 @@ class TestDeployedEnvironmentGuards:
         settings = build(monkeypatch, PAIMON_DEBUG="true", PAIMON_DATABASE__ECHO_SQL="true")
         assert settings.debug is True
         assert settings.environment.is_deployed is False
+
+
+class TestAzureProviders:
+    """Configuration that points at Azure must be complete before startup."""
+
+    def test_azure_embeddings_without_a_deployment_are_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A deployment that starts and then fails every query looks like an
+        outage; one that refuses to start names the missing setting."""
+        with pytest.raises(ValidationError, match="azure_openai endpoint/deployment are unset"):
+            build(monkeypatch, PAIMON_EMBEDDING__PROVIDER="azure")
+
+    def test_azure_chat_without_a_deployment_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with pytest.raises(ValidationError, match="chat_deployment are unset"):
+            build(
+                monkeypatch,
+                PAIMON_CHAT__PROVIDER="azure",
+                PAIMON_AZURE_OPENAI__ENDPOINT="https://r.openai.azure.com",
+            )
+
+    def test_azure_search_without_an_endpoint_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with pytest.raises(ValidationError, match=r"azure_search\.endpoint is unset"):
+            build(monkeypatch, PAIMON_RETRIEVAL__STORE="azure_search")
+
+    def test_a_complete_azure_configuration_is_accepted(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = build(
+            monkeypatch,
+            PAIMON_EMBEDDING__PROVIDER="azure",
+            PAIMON_CHAT__PROVIDER="azure",
+            PAIMON_RETRIEVAL__STORE="azure_search",
+            PAIMON_AZURE_OPENAI__ENDPOINT="https://r.openai.azure.com",
+            PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT="embed-prod",
+            PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT="chat-prod",
+            PAIMON_AZURE_SEARCH__ENDPOINT="https://s.search.windows.net",
+        )
+        assert settings.azure_openai.embedding_deployment == "embed-prod"
+        assert settings.azure_search.index_name == "paimon-chunks"
+
+    def test_the_local_providers_need_no_azure_settings(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = build(monkeypatch)
+        assert settings.embedding.provider == "local"
+        assert settings.retrieval.store == "pgvector"
+        assert settings.azure_openai.endpoint is None

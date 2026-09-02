@@ -17,11 +17,14 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phase 1 complete, Phase 2 — RAG — in progress.**
-> Ingestion, hybrid retrieval and grounded answering with citations work end to end. The
-> evaluation benchmark and the Azure adapters are still being written. This README is
-> updated as each phase lands, and nothing is described here as working before it works:
-> see [What works today](#what-works-today) for the current, verified surface.
+> **Project status: Phases 1 and 2 complete. Phase 3 — agents — next.**
+> Ingestion, hybrid retrieval and grounded answering with citations work end to end,
+> the retrieval benchmark runs, and the same ports are implemented twice: locally
+> (pgvector, any OpenAI-compatible endpoint) and on Azure (Azure OpenAI, Azure AI
+> Search). This README is updated as each phase lands, and nothing is described here as
+> working before it works: see [What works today](#what-works-today) for the current,
+> verified surface — including what the Azure adapters have and have not been tested
+> against.
 
 ---
 
@@ -58,11 +61,13 @@ Paimon is an operational layer over organizational knowledge. It is not a chatbo
 ## What works today
 
 Phase 1 is a thin vertical slice through every layer, so the wiring is proven before
-anything is built on top of it.
+anything is built on top of it. Phase 2 fills that slice in: real chunking, real
+embeddings, hybrid retrieval, citations that resolve, a benchmark that scores them, and
+a second implementation of every port on Azure.
 
 | Endpoint | Behaviour |
 |---|---|
-| `PUT /api/v1/documents/{id}` | Parses, chunks, embeds and indexes a document. Idempotent by content: unchanged bytes cost a hash comparison, not a round of embeddings. |
+| `PUT /api/v1/documents/{id}` | Parses, chunks, embeds and indexes a document. Idempotent by content **and by pipeline**: unchanged bytes cost a hash comparison, not a round of embeddings — but a change to chunk size or embedding model re-ingests, because the same bytes no longer produce the same chunks. |
 | `POST /api/v1/answers` | Retrieves by meaning and by wording, fuses the rankings, and answers **only** from what was retrieved — with citations that resolve to an exact span of the source. |
 | `GET /api/v1/health/live` | Reports that the process is running. Touches no dependency, so a database outage cannot get the container restarted. |
 | `GET /api/v1/health/ready` | Probes PostgreSQL and Redis concurrently, each under a timeout. Returns `503` when any is unusable, and names which one and why. |
@@ -101,13 +106,29 @@ The web application renders the platform's readiness — every dependency, its l
 when something is wrong, the error — and distinguishes "a dependency is failing" from "the
 API did not answer at all", which are different situations for whoever is on call.
 
+Retrieval runs on either backend without the use cases knowing which: **pgvector**
+inside PostgreSQL, or **Azure AI Search**. Both satisfy the same twelve-assertion
+contract test suite, and the Azure store additionally declares the `NativeHybridSearch`
+capability, so the same question is fused in-process against pgvector and by the service
+against Azure — a capability difference expressed as a protocol rather than a boolean
+flag. Embeddings and generation are the same story: any OpenAI-compatible endpoint, or
+Azure OpenAI, chosen by configuration. Azure authentication is selectable between an API
+key and Microsoft Entra ID; with Entra the platform stores no secret at all
+([ADR-0014](docs/adr/0014-azure-adapters-and-authentication.md),
+[setup guide](docs/azure-setup.md)).
+
+**The honest caveat about Azure:** those adapters are verified against an in-process
+stand-in for the service, not against Azure. A stand-in written by the author of the
+adapter can find inconsistencies; it cannot find wrong assumptions. The numbers in
+[Evaluation](#evaluation) come from the local backend, which has been run against real
+PostgreSQL and a real model server.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, five machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: the evaluation benchmark, the Azure adapters, agents, MCP and observability.
-Those are the rest of Phase 2 and Phases 3 to 6.
+Not yet built: agents, MCP and observability — Phases 3 to 5.
 
 ## Architecture
 
@@ -152,6 +173,7 @@ including the negative ones.
 | [0011](docs/adr/0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions |
 | [0012](docs/adr/0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score |
 | [0013](docs/adr/0013-anchor-ground-truth-to-quotations.md) | Anchor evaluation ground truth to quotations |
+| [0014](docs/adr/0014-azure-adapters-and-authentication.md) | Azure adapters and selectable authentication |
 
 ## Technology
 
@@ -160,8 +182,8 @@ including the negative ones.
 | Backend | FastAPI · Python 3.13 | Async throughout, native OpenAPI, first-class typing |
 | Frontend | Next.js 16 · TypeScript · Tailwind · shadcn/ui | Streaming UI, strict types |
 | Agents | LangGraph | Explicit state machines over implicit agent loops |
-| LLM | Azure OpenAI · local OpenAI-compatible | Behind a port — see [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md) |
-| Retrieval | Azure AI Search · pgvector | Two adapters, one contract, benchmarked against each other |
+| LLM | Azure OpenAI · local OpenAI-compatible | Both implemented, behind one port — [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md), [ADR-0010](docs/adr/0010-separate-embedding-and-chat-ports.md) |
+| Retrieval | Azure AI Search · pgvector | Two adapters, one contract suite, selected by configuration |
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
 | Observability | Langfuse · OpenTelemetry | Traces, latency, token cost per request |
@@ -174,7 +196,7 @@ Each phase ships working software and its documentation. No phase begins before 
 previous one is complete.
 
 - [x] **Phase 1 — Foundation** · architecture, ADRs, repository skeleton, dev environment, CI
-- [ ] **Phase 2 — RAG** · ingestion, chunking, embeddings, hybrid retrieval, citations
+- [x] **Phase 2 — RAG** · ingestion, chunking, embeddings, hybrid retrieval, citations
 - [ ] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
 - [ ] **Phase 4 — MCP** · MCP server and tools, client integration
 - [ ] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
@@ -226,6 +248,31 @@ pnpm dev                       # http://localhost:3000
 
 To run the backend stack in containers instead: `docker compose -f docker/compose.yaml
 --profile app up --build`.
+
+### Running against Azure
+
+The same build talks to Azure OpenAI and Azure AI Search by configuration alone — no code
+path, no branch in a use case. Point it at your own resources:
+
+```bash
+# Embeddings and generation on Azure OpenAI, vectors in Azure AI Search
+PAIMON_EMBEDDING__PROVIDER=azure
+PAIMON_CHAT__PROVIDER=azure
+PAIMON_RETRIEVAL__STORE=azure_search
+PAIMON_AZURE_OPENAI__ENDPOINT=https://<resource>.openai.azure.com
+PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT=text-embedding-3-large
+PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT=gpt-4o-mini
+PAIMON_AZURE_SEARCH__ENDPOINT=https://<service>.search.windows.net
+```
+
+Leave the API keys unset and the adapters acquire tokens from Microsoft Entra ID through
+`DefaultAzureCredential` — `az login` on a workstation, a managed identity in Azure — so
+no secret is stored anywhere. Set a key instead and it is used directly; the choice is by
+absence, not a mode flag. Selecting an Azure provider without its endpoint or deployment
+aborts startup rather than failing on the first request.
+
+☁️ **[Azure setup guide](docs/azure-setup.md)** — provisioning with `az`, the role
+assignments Entra authentication needs, index creation, and what it costs.
 
 ## Evaluation
 
@@ -298,7 +345,7 @@ diagram. The contracts are themselves tested against a package that violates the
 purpose — a guard never observed to fail is not a guard.
 
 Integration tests skip when PostgreSQL and Redis are unreachable, so a contributor without
-Docker still gets a useful run. CI sets `PAIMON_REQUIRE_INTEGRATION=1`, which turns that
+Docker still gets a useful run. CI sets `PAIMON_TEST_REQUIRE_INTEGRATION=1`, which turns that
 skip into a failure.
 
 ## Repository layout
@@ -308,9 +355,12 @@ backend/
   src/paimon/
     domain/          Entities, value objects, ports. No framework imports
     application/     Use cases
-    infrastructure/  Adapters: identity, persistence, cache
+    rag/             Chunking, rank fusion, prompt assembly. Pure functions
+    evaluation/      Golden set, metrics, benchmark runner
+    infrastructure/  Adapters: identity, persistence, embedding, chat, azure/
     interfaces/api/  Routers, schemas, composition root
-  tests/             unit, e2e, integration, architecture
+    interfaces/cli/  The benchmark entry point
+  tests/             unit, e2e, integration, architecture, contracts, fakes
 docker/              Dockerfile and the local Compose stack
 scripts/             check.sh — every CI gate in one command
 docs/                Architecture overview and decision records
@@ -321,11 +371,11 @@ frontend/
   src/components/    UI, in the shadcn/ui convention
   src/lib/           Typed API client
 
-evaluation/          Benchmarks and eval pipeline   (Phase 6)
+evaluation/          Corpus, golden set, manifest
 infrastructure/      Infrastructure as code, Azure  (Phase 7)
 ```
 
-`rag/` and `agents/` join the backend package in Phases 2 and 3.
+`agents/` joins the backend package in Phase 3.
 
 ## Demo
 

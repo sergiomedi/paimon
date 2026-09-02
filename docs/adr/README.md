@@ -24,6 +24,7 @@ reasoning trail, and rewriting history destroys it.
 | [0011](0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions | Accepted |
 | [0012](0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score | Accepted |
 | [0013](0013-anchor-ground-truth-to-quotations.md) | Anchor evaluation ground truth to quotations, not chunk ids | Accepted |
+| [0014](0014-azure-adapters-and-authentication.md) | Azure adapters and how they authenticate | Accepted |
 
 ## Writing a new ADR
 

@@ -24,6 +24,11 @@ dependencies = [
     "pgvector>=0.5.0",
 ]
 
+# Entra ID authentication. Optional: a deployment using service keys needs
+# none of it, and it pulls a large dependency tree.
+[project.optional-dependencies]
+azure = ["azure-identity>=1.19.0"]
+
 [dependency-groups]
 dev = [
     "ruff>=0.16.5",
@@ -218,7 +223,9 @@ name = "Infrastructure is reached only through the composition root"
 type = "forbidden"
 source_modules = ["paimon.interfaces", "paimon.evaluation"]
 forbidden_modules = ["paimon.infrastructure"]
-ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.*"]
+# Recursive: a single star matches one segment, so it stopped covering
+# paimon.infrastructure.azure.openai the moment an adapter grew a sub-package.
+ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.**"]
 
 # Use cases receive what they need as arguments. A use case that reads settings
 # directly is a use case that cannot be tested without an environment.

@@ -12,7 +12,7 @@ which is what keeps the dependency inversion real rather than nominal.
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated
+from typing import Annotated, Protocol, runtime_checkable
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -39,6 +39,18 @@ from paimon.domain.ports import (
     IndexDescriptor,
     TokenCounter,
     VectorStore,
+)
+from paimon.infrastructure.azure import build_credential
+from paimon.infrastructure.azure.openai import (
+    COGNITIVE_SERVICES_SCOPE,
+    AzureOpenAIChatModel,
+    AzureOpenAIConfig,
+    AzureOpenAIEmbeddingModel,
+)
+from paimon.infrastructure.azure.search import (
+    SEARCH_SCOPE,
+    AzureSearchConfig,
+    AzureSearchStore,
 )
 from paimon.infrastructure.cache import RedisHealthProbe, build_redis_client
 from paimon.infrastructure.chat import OpenAICompatibleChatConfig, OpenAICompatibleChatModel
@@ -76,6 +88,134 @@ class Resources:
     token_counter: TokenCounter
 
 
+@runtime_checkable
+class _Closeable(Protocol):
+    """Anything holding a connection pool that must be released at shutdown.
+
+    Not on the ports: closing is a lifecycle concern of a particular
+    implementation, and requiring it of every adapter would force an empty method
+    onto in-memory ones. The composition root owns lifecycles, so it is the right
+    place to ask.
+    """
+
+    async def aclose(self) -> None: ...
+
+
+async def _close(resource: object) -> None:
+    """Release a resource if it holds anything."""
+    if isinstance(resource, _Closeable):
+        await resource.aclose()
+
+
+def _build_embedding_model(settings: Settings) -> EmbeddingModel:
+    """Select the embedding adapter (ADR-0014)."""
+    if settings.embedding.provider == "azure":
+        azure = settings.azure_openai
+        # Both are guaranteed by the startup validator; asserted so the type
+        # checker knows it too.
+        assert azure.endpoint  # noqa: S101
+        assert azure.embedding_deployment  # noqa: S101
+        return AzureOpenAIEmbeddingModel(
+            AzureOpenAIConfig(
+                endpoint=azure.endpoint,
+                deployment=azure.embedding_deployment,
+                api_version=azure.api_version,
+                dimensions=settings.embedding.dimensions,
+                document_prefix=settings.embedding.document_prefix,
+                query_prefix=settings.embedding.query_prefix,
+                batch_size=settings.embedding.batch_size,
+                timeout_seconds=settings.embedding.timeout_seconds,
+            ),
+            build_credential(
+                azure.api_key.get_secret_value() if azure.api_key else None,
+                COGNITIVE_SERVICES_SCOPE,
+            ),
+        )
+    return OpenAICompatibleEmbeddingModel(
+        OpenAICompatibleConfig(
+            base_url=settings.embedding.base_url,
+            model=settings.embedding.model,
+            dimensions=settings.embedding.dimensions,
+            api_key=(
+                settings.embedding.api_key.get_secret_value()
+                if settings.embedding.api_key
+                else None
+            ),
+            document_prefix=settings.embedding.document_prefix,
+            query_prefix=settings.embedding.query_prefix,
+            batch_size=settings.embedding.batch_size,
+            timeout_seconds=settings.embedding.timeout_seconds,
+        )
+    )
+
+
+def _build_chat_model(settings: Settings) -> ChatModel:
+    """Select the generation adapter (ADR-0014)."""
+    if settings.chat.provider == "azure":
+        azure = settings.azure_openai
+        assert azure.endpoint  # noqa: S101  guaranteed by the startup validator
+        assert azure.chat_deployment  # noqa: S101
+        return AzureOpenAIChatModel(
+            AzureOpenAIConfig(
+                endpoint=azure.endpoint,
+                deployment=azure.chat_deployment,
+                api_version=azure.api_version,
+                timeout_seconds=settings.chat.timeout_seconds,
+            ),
+            build_credential(
+                azure.api_key.get_secret_value() if azure.api_key else None,
+                COGNITIVE_SERVICES_SCOPE,
+            ),
+            temperature=settings.chat.temperature,
+            max_output_tokens=settings.chat.max_output_tokens,
+        )
+    return OpenAICompatibleChatModel(
+        OpenAICompatibleChatConfig(
+            base_url=settings.chat.base_url,
+            model=settings.chat.model,
+            api_key=settings.chat.api_key.get_secret_value() if settings.chat.api_key else None,
+            temperature=settings.chat.temperature,
+            max_output_tokens=settings.chat.max_output_tokens,
+            timeout_seconds=settings.chat.timeout_seconds,
+        )
+    )
+
+
+def _build_vector_store(
+    settings: Settings, engine: AsyncEngine, embedding_model: EmbeddingModel
+) -> VectorStore:
+    """Select the retrieval backend (ADR-0003).
+
+    The index is described by the model that fills it, not by the model named in
+    configuration, so a mismatched pair is refused on the first write rather than
+    producing an index nobody can query.
+    """
+    if settings.retrieval.store == "azure_search":
+        azure = settings.azure_search
+        assert azure.endpoint  # noqa: S101  guaranteed by the startup validator
+        return AzureSearchStore(
+            AzureSearchConfig(
+                endpoint=azure.endpoint,
+                index_name=azure.index_name,
+                embedding_model_id=embedding_model.model_id,
+                dimensions=embedding_model.dimensions,
+                api_version=azure.api_version,
+                semantic_configuration=azure.semantic_configuration,
+            ),
+            build_credential(
+                azure.api_key.get_secret_value() if azure.api_key else None, SEARCH_SCOPE
+            ),
+        )
+    return PgVectorStore(
+        engine,
+        IndexDescriptor(
+            name=settings.embedding.index_name,
+            embedding_model_id=embedding_model.model_id,
+            dimensions=embedding_model.dimensions,
+        ),
+    )
+
+
 @asynccontextmanager
 async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     """Construct every long-lived dependency and release it on exit.
@@ -93,33 +233,10 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     """
     engine = build_engine(settings.database)
     redis = build_redis_client(settings.redis)
-    embedding_model = OpenAICompatibleEmbeddingModel(
-        OpenAICompatibleConfig(
-            base_url=settings.embedding.base_url,
-            model=settings.embedding.model,
-            dimensions=settings.embedding.dimensions,
-            api_key=(
-                settings.embedding.api_key.get_secret_value()
-                if settings.embedding.api_key
-                else None
-            ),
-            document_prefix=settings.embedding.document_prefix,
-            query_prefix=settings.embedding.query_prefix,
-            batch_size=settings.embedding.batch_size,
-            timeout_seconds=settings.embedding.timeout_seconds,
-        )
-    )
-    chat_model = OpenAICompatibleChatModel(
-        OpenAICompatibleChatConfig(
-            base_url=settings.chat.base_url,
-            model=settings.chat.model,
-            api_key=(settings.chat.api_key.get_secret_value() if settings.chat.api_key else None),
-            temperature=settings.chat.temperature,
-            max_output_tokens=settings.chat.max_output_tokens,
-            timeout_seconds=settings.chat.timeout_seconds,
-        )
-    )
+    embedding_model = _build_embedding_model(settings)
+    chat_model = _build_chat_model(settings)
     token_counter = HeuristicTokenCounter()
+    vector_store = _build_vector_store(settings, engine, embedding_model)
     try:
         yield Resources(
             settings=settings,
@@ -129,14 +246,7 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
             readiness_probes=(PostgresHealthProbe(engine), RedisHealthProbe(redis)),
             embedding_model=embedding_model,
             chat_model=chat_model,
-            vector_store=PgVectorStore(
-                engine,
-                IndexDescriptor(
-                    name=settings.embedding.index_name,
-                    embedding_model_id=settings.embedding.model,
-                    dimensions=settings.embedding.dimensions,
-                ),
-            ),
+            vector_store=vector_store,
             document_repository=PostgresDocumentRepository(engine),
             parser=MarkdownParser(),
             chunker=Chunker(
@@ -150,8 +260,9 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
             token_counter=token_counter,
         )
     finally:
-        await chat_model.aclose()
-        await embedding_model.aclose()
+        await _close(vector_store)
+        await _close(chat_model)
+        await _close(embedding_model)
         await redis.aclose()
         await engine.dispose()
 

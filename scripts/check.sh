@@ -21,7 +21,9 @@ if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
     # --all-groups, because a bare `uv run` installs only the default groups and
     # would leave pytest out — which mypy then reports as thirty missing-import
     # errors rather than as the missing dependency it is. CI syncs the same way.
-    step "uv sync";        uv sync --all-groups
+    # --all-extras too: the Azure credential path is an optional extra, and
+    # mypy cannot verify code whose imports are not installed.
+    step "uv sync";        uv sync --all-groups --all-extras
     # --no-sync from here on: the environment is already correct, and re-checking
     # it before every gate only costs time.
     step "ruff check";     uv run --no-sync ruff check .

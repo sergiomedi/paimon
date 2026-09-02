@@ -165,6 +165,7 @@ class EmbeddingSettings(BaseModel):
     model fails at startup instead of writing vectors the index will refuse.
     """
 
+    provider: Literal["local", "azure"] = "local"
     base_url: str = "http://localhost:11434/v1"
     model: str = "bge-m3"
     dimensions: int = Field(default=1024, ge=1, le=2000)
@@ -178,9 +179,38 @@ class EmbeddingSettings(BaseModel):
     index_name: str = "chunks"
 
 
+class AzureOpenAISettings(BaseModel):
+    """An Azure OpenAI resource and its deployments.
+
+    Deployments, not models: Azure lets a deployment be called anything, the URL
+    uses that name, and it cannot be inferred from the model. The api-version is
+    pinned rather than left to the service, because a version change alters
+    response shapes.
+    """
+
+    endpoint: str | None = None
+    api_key: SecretStr | None = None
+    api_version: str = "2024-10-21"
+    embedding_deployment: str | None = None
+    chat_deployment: str | None = None
+
+
+class AzureSearchSettings(BaseModel):
+    """An Azure AI Search service and the index it holds."""
+
+    endpoint: str | None = None
+    api_key: SecretStr | None = None
+    index_name: str = "paimon-chunks"
+    api_version: str = "2024-07-01"
+    # A capability pgvector has no equivalent for. Off unless a configuration
+    # exists on the index, so the difference between backends stays visible.
+    semantic_configuration: str | None = None
+
+
 class ChatSettings(BaseModel):
     """Which generation endpoint to call, and how."""
 
+    provider: Literal["local", "azure"] = "local"
     base_url: str = "http://localhost:11434/v1"
     model: str = "qwen2.5:7b-instruct"
     api_key: SecretStr | None = None
@@ -213,6 +243,7 @@ class IngestionSettings(BaseModel):
 class RetrievalSettings(BaseModel):
     """How much is retrieved, and how much of it reaches the prompt."""
 
+    store: Literal["pgvector", "azure_search"] = "pgvector"
     top_k: int = Field(default=8, ge=1)
     candidates_per_retriever: int = Field(default=40, ge=1)
     rrf_k: int = Field(default=60, ge=0)
@@ -256,10 +287,35 @@ class Settings(BaseSettings):
     redis: RedisSettings
     auth: AuthSettings
     embedding: EmbeddingSettings = EmbeddingSettings()
+    azure_openai: AzureOpenAISettings = AzureOpenAISettings()
+    azure_search: AzureSearchSettings = AzureSearchSettings()
     chat: ChatSettings = ChatSettings()
     ingestion: IngestionSettings = IngestionSettings()
     retrieval: RetrievalSettings = RetrievalSettings()
     observability: ObservabilitySettings = ObservabilitySettings()
+
+    @model_validator(mode="after")
+    def _require_azure_configuration(self) -> Self:
+        """Refuse to start with an Azure provider that has nowhere to call.
+
+        Caught here rather than on the first request: a deployment that starts
+        and then fails every query looks like an outage, while one that refuses
+        to start names the missing setting.
+        """
+        if self.embedding.provider == "azure" and not (
+            self.azure_openai.endpoint and self.azure_openai.embedding_deployment
+        ):
+            msg = "embedding.provider is 'azure' but azure_openai endpoint/deployment are unset"
+            raise ValueError(msg)
+        if self.chat.provider == "azure" and not (
+            self.azure_openai.endpoint and self.azure_openai.chat_deployment
+        ):
+            msg = "chat.provider is 'azure' but azure_openai endpoint/chat_deployment are unset"
+            raise ValueError(msg)
+        if self.retrieval.store == "azure_search" and not self.azure_search.endpoint:
+            msg = "retrieval.store is 'azure_search' but azure_search.endpoint is unset"
+            raise ValueError(msg)
+        return self
 
     @model_validator(mode="after")
     def _reject_unsafe_deployed_configuration(self) -> Self:

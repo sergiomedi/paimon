@@ -8,6 +8,7 @@ import httpx
 
 from paimon.domain.errors import EmbeddingError
 from paimon.domain.value_objects import Embedding
+from paimon.infrastructure.embedding._responses import parse_embeddings
 
 DEFAULT_BATCH_SIZE = 96
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -128,35 +129,6 @@ class OpenAICompatibleEmbeddingModel:
             msg = f"embedding provider returned a malformed body: {error}"
             raise EmbeddingError(msg) from error
 
-        return self._parse(body, expected=len(inputs))
-
-    def _parse(self, body: Any, expected: int) -> list[Embedding]:
-        try:
-            data = list(body["data"])
-        except (KeyError, TypeError) as error:
-            msg = "embedding response has no 'data' array"
-            raise EmbeddingError(msg) from error
-
-        if len(data) != expected:
-            msg = f"asked for {expected} embeddings, received {len(data)}"
-            raise EmbeddingError(msg)
-
-        # Ordered by the index the provider reports rather than by arrival.
-        # Results are matched to inputs by position, so a provider that answers
-        # out of order would attach every embedding to the wrong chunk, silently.
-        try:
-            data.sort(key=lambda item: int(item["index"]))
-            vectors = [tuple(float(value) for value in item["embedding"]) for item in data]
-        except (KeyError, TypeError, ValueError) as error:
-            msg = f"embedding response is malformed: {error}"
-            raise EmbeddingError(msg) from error
-
-        for vector in vectors:
-            if len(vector) != self._dimensions:
-                msg = (
-                    f"model '{self._model}' returned {len(vector)} dimensions, "
-                    f"but the index is built on {self._dimensions}"
-                )
-                raise EmbeddingError(msg)
-
-        return [Embedding(values=vector, model_id=self._model) for vector in vectors]
+        return parse_embeddings(
+            body, expected=len(inputs), dimensions=self._dimensions, model_id=self._model
+        )

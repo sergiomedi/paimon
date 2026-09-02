@@ -8,6 +8,8 @@ receive what they need as explicit arguments.
 
 from paimon.config.settings import (
     AuthSettings,
+    AzureOpenAISettings,
+    AzureSearchSettings,
     ChatSettings,
     DatabaseSettings,
     EmbeddingSettings,
@@ -23,6 +25,8 @@ from paimon.config.settings import (
 
 __all__ = [
     "AuthSettings",
+    "AzureOpenAISettings",
+    "AzureSearchSettings",
     "ChatSettings",
     "DatabaseSettings",
     "EmbeddingSettings",
