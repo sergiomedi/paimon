@@ -17,11 +17,11 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phase 1 of 8 — Foundation, complete.**
-> Architecture, decision records, the backend skeleton, the frontend and CI are in place.
-> Phase 2 — the RAG system — is next. This README is updated as each phase lands, and
-> nothing is described here as working before it works: see
-> [What works today](#what-works-today) for the current, verified surface.
+> **Project status: Phase 1 complete, Phase 2 — RAG — in progress.**
+> Ingestion, chunking and the PostgreSQL/pgvector retrieval backend are built and tested;
+> the retrieval API, citations and the evaluation benchmark are still being written. This
+> README is updated as each phase lands, and nothing is described here as working before
+> it works: see [What works today](#what-works-today) for the current, verified surface.
 
 ---
 
@@ -118,6 +118,7 @@ including the negative ones.
 | [0008](docs/adr/0008-target-domain-engineering-operations.md) | Target domain: engineering operations |
 | [0009](docs/adr/0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's `Depends` |
 | [0010](docs/adr/0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports |
+| [0011](docs/adr/0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions |
 
 ## Technology
 

@@ -21,6 +21,7 @@ dependencies = [
     "structlog>=26.1.0",
     "pyjwt[crypto]>=2.13.0",
     "httpx>=0.28.1",
+    "pgvector>=0.5.0",
 ]
 
 [dependency-groups]
@@ -66,6 +67,7 @@ select = [
     "BLE",       # flake8-blind-except
     "S",         # flake8-bandit
     "B",         # flake8-bugbear
+    "FBT",       # flake8-boolean-trap
     "A",         # flake8-builtins
     "C4",        # flake8-comprehensions
     "DTZ",       # flake8-datetimez
@@ -106,7 +108,7 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.13"
-files = ["src", "tests"]
+files = ["src", "tests", "migrations"]
 # The architecture fixture is a standalone package that is only importable
 # from its own directory, which is where the checker under test runs it.
 exclude = ["tests/architecture/fixtures/"]

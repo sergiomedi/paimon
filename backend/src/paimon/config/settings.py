@@ -94,6 +94,9 @@ class RedisSettings(BaseModel):
         return f"{scheme}://{credentials}{self.host}:{self.port}/{self.db}"
 
 
+MAX_INDEXABLE_DIMENSIONS = 2000
+"""pgvector indexes the vector type with HNSW only up to this width (ADR-0011)."""
+
 MIN_DEV_SIGNING_KEY_BYTES = 32
 """Minimum HMAC key length for HS256, per RFC 7518 section 3.2."""
 
@@ -143,6 +146,29 @@ class AuthSettings(BaseModel):
         return self
 
 
+class EmbeddingSettings(BaseModel):
+    """Which embedding endpoint to call, and how.
+
+    ``dimensions`` is fixed at 1024 platform-wide (ADR-0011) and is not meant to
+    be tuned per deployment: it is the width the index was built on, and changing
+    it requires a migration and a full reindex. It appears here so the value can
+    be asserted rather than assumed, and so a deployment pointed at the wrong
+    model fails at startup instead of writing vectors the index will refuse.
+    """
+
+    base_url: str = "http://localhost:11434/v1"
+    model: str = "bge-m3"
+    dimensions: int = Field(default=1024, ge=1, le=2000)
+    api_key: SecretStr | None = None
+    # Asymmetric models expect an instruction on the query side only. Empty by
+    # default because a prefix that the model was not trained with hurts.
+    document_prefix: str = ""
+    query_prefix: str = ""
+    batch_size: int = Field(default=96, ge=1)
+    timeout_seconds: float = Field(default=30.0, gt=0)
+    index_name: str = "chunks"
+
+
 class ObservabilitySettings(BaseModel):
     """Logging and, from Phase 5, tracing configuration."""
 
@@ -172,6 +198,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings
     redis: RedisSettings
     auth: AuthSettings
+    embedding: EmbeddingSettings = EmbeddingSettings()
     observability: ObservabilitySettings = ObservabilitySettings()
 
     @model_validator(mode="after")

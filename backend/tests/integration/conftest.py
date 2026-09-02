@@ -12,11 +12,15 @@ and the same condition fails instead of skipping.
 
 import os
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
+from alembic import command
+from alembic.config import Config
 from pydantic import SecretStr
 from redis.asyncio import Redis
 from sqlalchemy import text
+from sqlalchemy.exc import InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from paimon.config import DatabaseSettings, RedisSettings
@@ -24,6 +28,7 @@ from paimon.infrastructure.cache import build_redis_client
 from paimon.infrastructure.persistence import build_engine
 
 REQUIRE_INTEGRATION = os.environ.get("PAIMON_REQUIRE_INTEGRATION") == "1"
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
 
 
 def unavailable(service: str, error: Exception) -> None:
@@ -53,6 +58,29 @@ def redis_settings() -> RedisSettings:
         host=os.environ.get("PAIMON_REDIS__HOST", "localhost"),
         port=int(os.environ.get("PAIMON_REDIS__PORT", "6379")),
     )
+
+
+@pytest.fixture(scope="session")
+def migrated_database(database_settings: DatabaseSettings) -> None:
+    """Bring the schema to head before anything touches it.
+
+    Runs the real migrations rather than metadata.create_all, so the tests
+    exercise the same path a deployment takes — a schema created from metadata
+    can differ from the one migrations produce, and the difference only surfaces
+    in production.
+
+    Synchronous on purpose: Alembic's env.py opens its own event loop, which it
+    cannot do from inside a running one.
+    """
+    config = Config(str(BACKEND_ROOT / "alembic.ini"))
+    config.attributes["db_url"] = database_settings.dsn
+    try:
+        command.upgrade(config, "head")
+    except (OperationalError, InterfaceError, OSError) as error:
+        # Only connection failures mean "no database here". A broken migration
+        # must surface as a broken migration: reporting it as an unreachable
+        # service sends the reader to start Docker instead of reading the error.
+        unavailable("PostgreSQL", error)
 
 
 @pytest.fixture

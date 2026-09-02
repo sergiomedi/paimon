@@ -121,6 +121,31 @@ class TestAuthValidation:
         assert settings.auth.jwks_uri.endswith("/tenant-123/discovery/v2.0/keys")
 
 
+class TestEmbeddingSettings:
+    def test_it_defaults_to_the_platform_width(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        assert build(monkeypatch).embedding.dimensions == 1024
+
+    def test_a_width_pgvector_cannot_index_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """pgvector indexes the vector type with HNSW only up to 2000 dimensions
+        (ADR-0011); above that a deployment would silently fall back to scanning
+        every chunk."""
+        with pytest.raises(ValidationError, match="less than or equal to 2000"):
+            build(monkeypatch, PAIMON_EMBEDDING__DIMENSIONS="3072")
+
+    def test_the_endpoint_is_configurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = build(
+            monkeypatch,
+            PAIMON_EMBEDDING__BASE_URL="http://models.internal/v1",
+            PAIMON_EMBEDDING__MODEL="bge-m3",
+            PAIMON_EMBEDDING__QUERY_PREFIX="query: ",
+        )
+        assert settings.embedding.base_url == "http://models.internal/v1"
+        assert settings.embedding.query_prefix == "query: "
+        assert settings.embedding.document_prefix == ""
+
+
 class TestDeployedEnvironmentGuards:
     """A development affordance reachable from production is a vulnerability."""
 

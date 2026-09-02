@@ -7,11 +7,23 @@ run cannot be checked in CI without a cloud account.
 
 import pytest
 
-from paimon.domain.ports import ChatModel, EmbeddingModel, IndexDescriptor, VectorStore
+from paimon.domain.ports import (
+    ChatModel,
+    DocumentRepository,
+    EmbeddingModel,
+    IndexDescriptor,
+    VectorStore,
+)
 from tests.contracts.chat_model import ChatModelContract
+from tests.contracts.document_repository import DocumentRepositoryContract
 from tests.contracts.embedding_model import EmbeddingModelContract
 from tests.contracts.vector_store import VectorStoreContract
-from tests.fakes import FakeChatModel, FakeEmbeddingModel, InMemoryVectorStore
+from tests.fakes import (
+    FakeChatModel,
+    FakeEmbeddingModel,
+    InMemoryDocumentRepository,
+    InMemoryVectorStore,
+)
 
 DIMENSIONS = 64
 
@@ -42,3 +54,9 @@ class TestInMemoryVectorStore(VectorStoreContract):
                 dimensions=embedding_model.dimensions,
             )
         )
+
+
+class TestInMemoryDocumentRepository(DocumentRepositoryContract):
+    @pytest.fixture
+    def repository(self) -> DocumentRepository:
+        return InMemoryDocumentRepository()
