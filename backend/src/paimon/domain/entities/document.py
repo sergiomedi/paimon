@@ -106,3 +106,21 @@ class Chunk:
     def heading_trail(self) -> str:
         """The heading path rendered for display and for prompt context."""
         return " > ".join(self.heading_path)
+
+    @property
+    def embedding_text(self) -> str:
+        """The text to embed, which is not the text to cite.
+
+        A chunk taken from deep inside a document often reads as a fragment: "Run
+        this before the upgrade" says nothing about what "this" is. Prefixing the
+        enclosing headings restores the context the author left implicit, and
+        measurably improves retrieval.
+
+        The cited text stays exactly ``text`` — a verbatim slice of the document —
+        so that the character offsets remain truthful. Embedding one string and
+        citing another is deliberate: the index is for finding, the offsets are
+        for proving.
+        """
+        if not self.heading_path:
+            return self.text
+        return f"{self.heading_trail}\n\n{self.text}"

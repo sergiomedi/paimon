@@ -10,6 +10,7 @@ from paimon.domain.ports.embedding import EmbeddingModel
 from paimon.domain.ports.health import HealthProbe
 from paimon.domain.ports.identity import IdentityProvider
 from paimon.domain.ports.parsing import DocumentParser, ParsedDocument
+from paimon.domain.ports.repository import DocumentRepository
 from paimon.domain.ports.retrieval import (
     ChunkRecord,
     IndexDescriptor,
@@ -18,12 +19,14 @@ from paimon.domain.ports.retrieval import (
     SearchHit,
     VectorStore,
 )
+from paimon.domain.ports.tokenization import TokenCounter
 
 __all__ = [
     "ChatModel",
     "ChunkRecord",
     "Completion",
     "DocumentParser",
+    "DocumentRepository",
     "EmbeddingModel",
     "HealthProbe",
     "IdentityProvider",
@@ -34,5 +37,6 @@ __all__ = [
     "Role",
     "SearchFilters",
     "SearchHit",
+    "TokenCounter",
     "VectorStore",
 ]

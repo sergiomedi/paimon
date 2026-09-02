@@ -171,7 +171,7 @@ include_external_packages = true
 [[tool.importlinter.contracts]]
 name = "Dependencies point inward"
 type = "layers"
-layers = ["paimon.interfaces", "paimon.application", "paimon.domain"]
+layers = ["paimon.interfaces", "paimon.application", "paimon.rag", "paimon.domain"]
 
 [[tool.importlinter.contracts]]
 name = "The domain depends on nothing"
@@ -181,6 +181,7 @@ forbidden_modules = [
     "paimon.application",
     "paimon.infrastructure",
     "paimon.interfaces",
+    "paimon.rag",
     "paimon.config",
     "paimon.observability",
     "fastapi",
@@ -194,7 +195,7 @@ forbidden_modules = [
 name = "Infrastructure knows only the domain"
 type = "forbidden"
 source_modules = ["paimon.infrastructure"]
-forbidden_modules = ["paimon.application", "paimon.interfaces"]
+forbidden_modules = ["paimon.application", "paimon.interfaces", "paimon.rag"]
 
 # The composition root is the one place where concrete adapters are bound to
 # domain ports, so it is the one module permitted to import infrastructure.
@@ -210,5 +211,5 @@ ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.*
 [[tool.importlinter.contracts]]
 name = "Use cases do not read configuration"
 type = "forbidden"
-source_modules = ["paimon.application"]
+source_modules = ["paimon.application", "paimon.rag"]
 forbidden_modules = ["paimon.config"]

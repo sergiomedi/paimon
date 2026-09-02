@@ -22,6 +22,10 @@ class FakeEmbeddingModel:
     def __init__(self, dimensions: int = 64, model_id: str = "fake-embed-v1") -> None:
         self._dimensions = dimensions
         self._model_id = model_id
+        # Recorded so tests can assert that work was skipped, not merely that a
+        # result said it was.
+        self.document_batches: list[list[str]] = []
+        self.query_calls: list[str] = []
 
     @property
     def model_id(self) -> str:
@@ -44,7 +48,9 @@ class FakeEmbeddingModel:
         return Embedding(values=tuple(buckets), model_id=self._model_id)
 
     async def embed_documents(self, texts: Sequence[str]) -> list[Embedding]:
+        self.document_batches.append(list(texts))
         return [self._vector(text) for text in texts]
 
     async def embed_query(self, text: str) -> Embedding:
+        self.query_calls.append(text)
         return self._vector(text)
