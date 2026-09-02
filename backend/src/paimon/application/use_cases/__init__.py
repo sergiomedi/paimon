@@ -10,6 +10,11 @@ from paimon.application.use_cases.ingest_document import (
     IngestionResult,
     SourceDocument,
 )
+from paimon.application.use_cases.retrieve_chunks import (
+    RetrievalPolicy,
+    RetrievalResult,
+    RetrieveChunks,
+)
 
 __all__ = [
     "CheckReadiness",
@@ -17,5 +22,8 @@ __all__ = [
     "IngestDocument",
     "IngestionResult",
     "ReadinessReport",
+    "RetrievalPolicy",
+    "RetrievalResult",
+    "RetrieveChunks",
     "SourceDocument",
 ]

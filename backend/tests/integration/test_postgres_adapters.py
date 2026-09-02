@@ -10,6 +10,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from paimon.application.use_cases import RetrievalPolicy, RetrieveChunks
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import (
     ChunkRecord,
@@ -123,3 +124,83 @@ class TestSchema:
             "decommissioning", top_k=5, filters=SearchFilters(tenant_id="tenant-a")
         )
         assert [hit.chunk.chunk_id for hit in hits] == ["c1"]
+
+
+class TestHybridRetrievalAgainstPostgres:
+    """The retrieval use case over real BM25 ranking and a real HNSW index.
+
+    The unit tests pin the fusion algorithm; this pins the plumbing — that both
+    of PostgreSQL's retrievers actually run, return one-based ranks, and fuse
+    into a single ordering.
+    """
+
+    @pytest.fixture
+    def store(
+        self, engine: AsyncEngine, embedding_model: EmbeddingModel, clean_tables: None
+    ) -> PgVectorStore:
+        return PgVectorStore(
+            engine,
+            IndexDescriptor(
+                name="chunks",
+                embedding_model_id=embedding_model.model_id,
+                dimensions=embedding_model.dimensions,
+            ),
+        )
+
+    @pytest.fixture
+    def embedding_model(self) -> EmbeddingModel:
+        return FakeEmbeddingModel(dimensions=EMBEDDING_DIMENSIONS)
+
+    async def _index(self, store: PgVectorStore, model: EmbeddingModel, *texts: str) -> None:
+        chunks = [
+            Chunk(
+                chunk_id=f"c{index}",
+                document_id="doc-1",
+                tenant_id="tenant-a",
+                ordinal=index,
+                text=text,
+                start_char=index * 200,
+                end_char=index * 200 + len(text),
+                token_count=max(len(text.split()), 1),
+            )
+            for index, text in enumerate(texts)
+        ]
+        embeddings = await model.embed_documents([chunk.text for chunk in chunks])
+        await store.upsert(
+            [
+                ChunkRecord(chunk=chunk, embedding=embedding)
+                for chunk, embedding in zip(chunks, embeddings, strict=True)
+            ]
+        )
+
+    async def test_both_retrievers_contribute_to_the_fused_result(
+        self, store: PgVectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        await self._index(
+            store,
+            embedding_model,
+            "Cordon the node before rebooting it.",
+            "Eviction stalls without a pod disruption budget.",
+            "Quarterly revenue by region and product line.",
+        )
+
+        result = await RetrieveChunks(
+            store, embedding_model, RetrievalPolicy(top_k=3, candidates_per_retriever=10)
+        )("cordon the node", SearchFilters(tenant_id="tenant-a"))
+
+        assert result.strategy == "fused"
+        assert result.hits
+        assert result.hits[0].chunk.chunk_id == "c0"
+        assert [hit.rank for hit in result.hits] == list(range(1, len(result.hits) + 1))
+        assert "lexical" in result.hits[0].retrievers
+        assert "dense" in result.hits[0].retrievers
+
+    async def test_retrieval_is_isolated_by_tenant(
+        self, store: PgVectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        await self._index(store, embedding_model, "Cordon the node before rebooting it.")
+
+        result = await RetrieveChunks(store, embedding_model)(
+            "cordon", SearchFilters(tenant_id="tenant-b")
+        )
+        assert result.hits == ()

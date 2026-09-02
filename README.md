@@ -119,6 +119,7 @@ including the negative ones.
 | [0009](docs/adr/0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's `Depends` |
 | [0010](docs/adr/0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports |
 | [0011](docs/adr/0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions |
+| [0012](docs/adr/0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score |
 
 ## Technology
 

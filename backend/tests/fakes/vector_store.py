@@ -21,6 +21,10 @@ class InMemoryVectorStore:
     def __init__(self, descriptor: IndexDescriptor) -> None:
         self._descriptor = descriptor
         self._records: dict[str, ChunkRecord] = {}
+        # Recorded so tests can assert which retrievers ran, not merely what came
+        # back: choosing a strategy is a behaviour worth pinning.
+        self.dense_calls: list[int] = []
+        self.lexical_calls: list[tuple[str, int]] = []
 
     @property
     def descriptor(self) -> IndexDescriptor:
@@ -70,6 +74,7 @@ class InMemoryVectorStore:
         self, embedding: Embedding, *, top_k: int, filters: SearchFilters
     ) -> list[SearchHit]:
         self._reject_mismatch(embedding)
+        self.dense_calls.append(top_k)
         scored = [
             (cosine_similarity(embedding, record.embedding), record)
             for record in self._visible(filters)
@@ -83,6 +88,7 @@ class InMemoryVectorStore:
     async def search_lexical(
         self, query: str, *, top_k: int, filters: SearchFilters
     ) -> list[SearchHit]:
+        self.lexical_calls.append((query, top_k))
         terms = set(_TOKEN.findall(query.lower()))
         scored = []
         for record in self._visible(filters):
@@ -94,4 +100,28 @@ class InMemoryVectorStore:
         return [
             SearchHit(chunk=record.chunk, score=score, rank=position, retriever="lexical")
             for position, (score, record) in enumerate(scored[:top_k], start=1)
+        ]
+
+
+class InMemoryHybridVectorStore(InMemoryVectorStore):
+    """An in-memory store that also fuses natively.
+
+    Stands in for Azure AI Search, whose own fusion the application must defer to
+    rather than duplicate. The fusion here is intentionally trivial — the point of
+    the fake is the code path, not the algorithm.
+    """
+
+    def __init__(self, descriptor: IndexDescriptor) -> None:
+        super().__init__(descriptor)
+        self.hybrid_calls: list[tuple[str, int]] = []
+
+    async def search_hybrid(
+        self, query: str, embedding: Embedding, *, top_k: int, filters: SearchFilters
+    ) -> list[SearchHit]:
+        self.hybrid_calls.append((query, top_k))
+        self._reject_mismatch(embedding)
+        dense = await self.search_dense(embedding, top_k=top_k, filters=filters)
+        return [
+            SearchHit(chunk=hit.chunk, score=hit.score, rank=position, retriever="hybrid")
+            for position, hit in enumerate(dense, start=1)
         ]

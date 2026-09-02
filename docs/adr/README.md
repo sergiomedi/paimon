@@ -22,6 +22,7 @@ reasoning trail, and rewriting history destroys it.
 | [0009](0009-dependency-injection-with-fastapi-depends.md) | Dependency injection with FastAPI's Depends | Accepted |
 | [0010](0010-separate-embedding-and-chat-ports.md) | Separate embedding and chat ports (refines 0003) | Accepted |
 | [0011](0011-fix-embeddings-at-1024-dimensions.md) | Fix embeddings at 1024 dimensions | Accepted |
+| [0012](0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score | Accepted |
 
 ## Writing a new ADR
 
