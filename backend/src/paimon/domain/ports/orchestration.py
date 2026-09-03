@@ -41,6 +41,19 @@ class AgentWorkflow(Protocol):
         """
         ...
 
+
+@runtime_checkable
+class HumanInTheLoop(Protocol):
+    """A workflow that can stop for a person and continue afterwards.
+
+    A capability, not part of :class:`AgentWorkflow`, for the reason ADR-0014
+    gave for :class:`~paimon.domain.ports.NativeHybridSearch`: not every workflow
+    has a decision worth interrupting for, and requiring ``resume`` of all of
+    them would force most to implement a method that only ever raises. A
+    capability expressed as a protocol is one the type checker can ask about; a
+    capability expressed as a boolean is one every caller has to remember to.
+    """
+
     async def resume(self, decision: str, *, thread_id: str) -> AgentRun:
         """Continue a run that stopped for a human decision.
 

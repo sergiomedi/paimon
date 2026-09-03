@@ -51,8 +51,18 @@ genuinely hard, and reimplementing them to avoid a dependency would be the worse
 Option 1, made possible by a detail of LangGraph that option 3 was written to work around:
 **a `StateGraph` accepts a dataclass as its state schema**, not only a `TypedDict`.
 
-So `paimon.agents` holds a plain `AgentState` dataclass, plain reducer functions, and node
-bodies of the form `async def node(state: AgentState) -> StateUpdate`. Reducers are attached
+So `paimon.domain.agents` holds a plain `AgentState` dataclass, plain reducer functions and a
+`GraphSpec` describing an agent's shape as data; `paimon.agents` holds the agents themselves,
+as node bodies of the form `async def node(state: AgentState) -> StateUpdate`.
+
+That split was not the original placement. Everything started in `paimon.agents`, and the
+import-linter contract rejected it the moment the adapter was written: an adapter compiling a
+`GraphSpec` has to import one, and `paimon.agents` sits above `paimon.application`, so
+infrastructure would have been importing a layer above itself. The correction is the one the
+failure pointed at — the vocabulary an agent is *described in* is domain, because the
+`AgentWorkflow` port is written in it and any adapter must speak it; the agents themselves are
+the layer above the use cases they orchestrate. The contract found a contradiction between
+this ADR's own title and where the code had been put. Reducers are attached
 with `Annotated[tuple[AgentStep, ...], append_steps]` — and `Annotated` is `typing` from the
 standard library, so declaring how concurrent writes merge costs the package no dependency
 at all. `paimon.infrastructure.orchestration` builds the `StateGraph`, owns the checkpointer,
@@ -65,7 +75,8 @@ leave them alone — is what a partial update expresses without having to be sta
 which catches the typo that would otherwise be discarded silently at runtime.
 
 A sixth import-linter contract, *"Agent logic does not import the orchestration framework"*,
-forbids `langgraph`, `langchain` and `langchain_core` inside `paimon.agents`. A unit test
+forbids `langgraph`, `langchain` and `langchain_core` inside both `paimon.agents` and
+`paimon.domain.agents`. A unit test
 asserts that `StateUpdate` covers exactly the fields of `AgentState`, so the two cannot drift.
 
 ## Consequences
@@ -82,6 +93,12 @@ the documentation will look for the graph inside the agent and not find it. Node
 cannot call `interrupt` directly, so suspension is expressed as state (`awaiting`) and acted
 on by the adapter — one indirection where the framework offered none. A dataclass state is
 marginally slower to copy than a `TypedDict`, which is irrelevant next to a model call.
+
+One concession the framework extracted, recorded because it looks like noise and is not: a
+node cannot be typed as `Callable[[AgentState], Awaitable[StateUpdate]]` where LangGraph
+expects it. Its node protocol names the parameter `state`, and a bare `Callable` has no
+parameter names, so the alias is rejected for a reason unrelated to behaviour. The adapter
+declares a one-method protocol with the parameter named instead.
 
 **Accepted risk.** LangGraph's dataclass support is documented but less travelled than the
 `TypedDict` path; a bug there would be felt here first. The contract suite and the unit tests

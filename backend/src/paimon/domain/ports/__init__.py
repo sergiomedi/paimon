@@ -13,6 +13,7 @@ from paimon.domain.ports.orchestration import (
     AgentCheckpointer,
     AgentMemory,
     AgentWorkflow,
+    HumanInTheLoop,
 )
 from paimon.domain.ports.parsing import DocumentParser, ParsedDocument
 from paimon.domain.ports.repository import DocumentRepository
@@ -37,6 +38,7 @@ __all__ = [
     "DocumentRepository",
     "EmbeddingModel",
     "HealthProbe",
+    "HumanInTheLoop",
     "IdentityProvider",
     "IndexDescriptor",
     "Message",

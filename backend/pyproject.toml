@@ -22,6 +22,7 @@ dependencies = [
     "pyjwt[crypto]>=2.13.0",
     "httpx>=0.28.1",
     "pgvector>=0.5.0",
+    "langgraph>=1.2.11",
 ]
 
 # Entra ID authentication. Optional: a deployment using service keys needs
@@ -236,7 +237,7 @@ ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.*
 [[tool.importlinter.contracts]]
 name = "Agent logic does not import the orchestration framework"
 type = "forbidden"
-source_modules = ["paimon.agents"]
+source_modules = ["paimon.agents", "paimon.domain.agents"]
 forbidden_modules = ["langgraph", "langchain", "langchain_core"]
 
 # Use cases receive what they need as arguments. A use case that reads settings

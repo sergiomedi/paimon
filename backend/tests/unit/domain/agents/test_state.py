@@ -3,7 +3,7 @@
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
-from paimon.agents import AgentState, StateUpdate, append_steps, merge_evidence
+from paimon.domain.agents import AgentState, StateUpdate, append_steps, merge_evidence
 from paimon.domain.entities import AgentStep, Chunk
 from paimon.domain.value_objects import Citation
 
