@@ -52,6 +52,36 @@ class GenerationError(DomainError):
     """The provider could not produce an answer."""
 
 
+class AgentError(DomainError):
+    """Base class for failures of an agent workflow."""
+
+
+class AgentRunError(AgentError):
+    """A run could not be completed."""
+
+
+class UnknownThreadError(AgentError):
+    """No run exists under that thread.
+
+    Distinct from :class:`AgentRunError`: one means a run went wrong, the other
+    means there is nothing to go wrong with. Resuming a thread that was never
+    started is a caller mistake, not a platform failure.
+    """
+
+
+class CheckpointError(AgentError):
+    """A run could not be persisted or read back."""
+
+
+class AgentMemoryError(AgentError):
+    """Cross-run memory could not be written or searched.
+
+    Named for the domain rather than as ``MemoryError``, which is a Python
+    builtin raised when the interpreter runs out of memory. Shadowing it would
+    make an ordinary storage failure indistinguishable from exhaustion.
+    """
+
+
 class IngestionError(DomainError):
     """A document could not be ingested."""
 

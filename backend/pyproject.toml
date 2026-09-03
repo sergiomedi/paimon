@@ -181,6 +181,7 @@ type = "layers"
 layers = [
     "paimon.interfaces",
     "paimon.evaluation",
+    "paimon.agents",
     "paimon.application",
     "paimon.rag",
     "paimon.domain",
@@ -192,6 +193,7 @@ type = "forbidden"
 source_modules = ["paimon.domain"]
 forbidden_modules = [
     "paimon.application",
+    "paimon.agents",
     "paimon.infrastructure",
     "paimon.interfaces",
     "paimon.rag",
@@ -211,6 +213,7 @@ type = "forbidden"
 source_modules = ["paimon.infrastructure"]
 forbidden_modules = [
     "paimon.application",
+    "paimon.agents",
     "paimon.interfaces",
     "paimon.rag",
     "paimon.evaluation",
@@ -221,16 +224,25 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Infrastructure is reached only through the composition root"
 type = "forbidden"
-source_modules = ["paimon.interfaces", "paimon.evaluation"]
+source_modules = ["paimon.interfaces", "paimon.evaluation", "paimon.agents"]
 forbidden_modules = ["paimon.infrastructure"]
 # Recursive: a single star matches one segment, so it stopped covering
 # paimon.infrastructure.azure.openai the moment an adapter grew a sub-package.
 ignore_imports = ["paimon.interfaces.api.dependencies -> paimon.infrastructure.**"]
+
+# ADR-0015: node bodies are plain async functions over a plain dataclass. This
+# is the contract that keeps that true, and it fails the build the day someone
+# reaches for a StateGraph inside a node instead of inside the adapter.
+[[tool.importlinter.contracts]]
+name = "Agent logic does not import the orchestration framework"
+type = "forbidden"
+source_modules = ["paimon.agents"]
+forbidden_modules = ["langgraph", "langchain", "langchain_core"]
 
 # Use cases receive what they need as arguments. A use case that reads settings
 # directly is a use case that cannot be tested without an environment.
 [[tool.importlinter.contracts]]
 name = "Use cases do not read configuration"
 type = "forbidden"
-source_modules = ["paimon.application", "paimon.rag", "paimon.evaluation"]
+source_modules = ["paimon.application", "paimon.rag", "paimon.evaluation", "paimon.agents"]
 forbidden_modules = ["paimon.config"]

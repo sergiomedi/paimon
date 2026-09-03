@@ -8,12 +8,14 @@ run cannot be checked in CI without a cloud account.
 import pytest
 
 from paimon.domain.ports import (
+    AgentCheckpointer,
     ChatModel,
     DocumentRepository,
     EmbeddingModel,
     IndexDescriptor,
     VectorStore,
 )
+from tests.contracts.agent_checkpointer import AgentCheckpointerContract
 from tests.contracts.chat_model import ChatModelContract
 from tests.contracts.document_repository import DocumentRepositoryContract
 from tests.contracts.embedding_model import EmbeddingModelContract
@@ -21,6 +23,7 @@ from tests.contracts.vector_store import VectorStoreContract
 from tests.fakes import (
     FakeChatModel,
     FakeEmbeddingModel,
+    InMemoryCheckpointer,
     InMemoryDocumentRepository,
     InMemoryVectorStore,
 )
@@ -60,3 +63,9 @@ class TestInMemoryDocumentRepository(DocumentRepositoryContract):
     @pytest.fixture
     def repository(self) -> DocumentRepository:
         return InMemoryDocumentRepository()
+
+
+class TestInMemoryCheckpointer(AgentCheckpointerContract):
+    @pytest.fixture
+    def checkpointer(self) -> AgentCheckpointer:
+        return InMemoryCheckpointer()
