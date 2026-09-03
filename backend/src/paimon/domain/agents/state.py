@@ -114,14 +114,24 @@ class AgentState:
             needs, when the two are separated by nodes that neither produce nor
             consume it — a sub-agent's conclusion, read by the node that composes
             over it before that node overwrites ``draft``.
-        awaiting: What a human is being asked to decide, when the run is
-            suspended; empty otherwise.
+        awaiting: What a human is being asked to decide. A node sets it to
+            suspend the run; the adapter is what actually stops, because
+            interrupting is a property of the runtime and a node that knew how
+            to do it would be a node that needed one to be tested.
+        decision: What the person answered, once they have. Empty until then, so
+            a node can tell "not asked yet" from "asked and answered".
         failure: Why the run failed, when it did. Joined by the reducer, because
             concurrent branches can fail independently and separately.
     """
 
-    question: str
-    tenant_id: str
+    # Defaulted, not because a run without a question is meaningful, but because
+    # an orchestrator resuming from a checkpoint constructs the state schema with
+    # no arguments before filling it in. A required field turns every resumed run
+    # into a TypeError raised from inside the framework. The invariant is kept
+    # where it can be: stream() always builds this with both, and AgentRun — the
+    # record a person actually reads — refuses a blank tenant outright.
+    question: str = ""
+    tenant_id: str = ""
     evidence: Annotated[tuple[Chunk, ...], merge_evidence] = ()
     citations: tuple[Citation, ...] = ()
     draft: str = ""
@@ -129,6 +139,7 @@ class AgentState:
     steps: Annotated[tuple[AgentStep, ...], append_steps] = ()
     usage: Annotated[tuple[int, int], add_usage] = (0, 0)
     awaiting: str = ""
+    decision: str = ""
     failure: Annotated[str, combine_failures] = ""
 
     @property
@@ -157,4 +168,5 @@ class StateUpdate(TypedDict, total=False):
     steps: tuple[AgentStep, ...]
     usage: tuple[int, int]
     awaiting: str
+    decision: str
     failure: str

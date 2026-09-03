@@ -23,6 +23,12 @@ dependencies = [
     "httpx>=0.28.1",
     "pgvector>=0.5.0",
     "langgraph>=1.2.11",
+    "langgraph-checkpoint-postgres>=3.1.2",
+    # The checkpointer depends on bare psycopg, which ships no libpq wrapper and
+    # fails to import until one is present. Naming the binary extra here rather
+    # than discovering it at runtime: a transitive dependency that cannot be
+    # imported as installed is a broken install, not a configuration choice.
+    "psycopg[binary]>=3.2.0",
 ]
 
 # Entra ID authentication. Optional: a deployment using service keys needs

@@ -8,8 +8,9 @@ from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 
 from paimon.agents import AGENT_DESCRIPTIONS
+from paimon.domain.entities import RunStatus
 from paimon.domain.errors import AgentRunError
-from paimon.domain.ports import AgentWorkflow
+from paimon.domain.ports import AgentWorkflow, HumanInTheLoop
 from paimon.interfaces.api.dependencies import (
     AgentCheckpointerDep,
     AgentWorkflowsDep,
@@ -21,6 +22,7 @@ from paimon.interfaces.api.schemas_agents import (
     AgentRunResponse,
     AgentStepResponse,
     AgentSummaryResponse,
+    DecisionRequest,
     StartRunRequest,
 )
 
@@ -121,6 +123,49 @@ async def list_runs(
     """Return recent runs, most recently started first."""
     runs = await checkpointer.list_runs(principal.tenant_id, limit=min(max(limit, 1), 200))
     return AgentRunListResponse(runs=[AgentRunResponse.from_run(run) for run in runs])
+
+
+@router.post(
+    "/runs/{thread_id}/decision",
+    response_model=AgentRunResponse,
+    summary="Answer a run that is waiting for a person",
+    responses={
+        status.HTTP_404_NOT_FOUND: {"model": ErrorResponse},
+        status.HTTP_409_CONFLICT: {"model": ErrorResponse},
+    },
+)
+async def decide(
+    thread_id: str,
+    request: DecisionRequest,
+    principal: CurrentPrincipal,
+    checkpointer: AgentCheckpointerDep,
+    workflows: AgentWorkflowsDep,
+) -> AgentRunResponse:
+    """Continue a suspended run with a person's answer.
+
+    Returns the finished run rather than streaming, because what a reviewer wants
+    after answering is the outcome, and the remaining steps are on the record
+    either way.
+    """
+    run = await checkpointer.load(thread_id)
+    if run is None or run.tenant_id != principal.tenant_id:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"no run '{thread_id}'")
+    if run.status is not RunStatus.AWAITING_INPUT:
+        # A run that is still going, or already over, has no question open. This
+        # is a conflict rather than a bad request: the request was well formed
+        # and the run was simply not in a state to receive it.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"run '{thread_id}' is {run.status}, not waiting for a decision",
+        )
+
+    workflow = _workflow(workflows, run.agent)
+    if not isinstance(workflow, HumanInTheLoop):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"agent '{run.agent}' cannot be resumed in this deployment",
+        )
+    return AgentRunResponse.from_run(await workflow.resume(request.decision, thread_id=thread_id))
 
 
 @router.get(

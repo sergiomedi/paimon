@@ -13,14 +13,15 @@ from collections.abc import Iterator
 import pytest
 from fastapi import FastAPI
 from httpx import AsyncClient
+from langgraph.checkpoint.memory import InMemorySaver
 
-from paimon.agents import AGENTS
+from paimon.agents import AGENTS, AgentCollaborators, build_all
 from paimon.agents.triage import AGENT_NAME as TRIAGE
 from paimon.application.use_cases import RetrieveChunks
 from paimon.domain.entities import Chunk, Document
 from paimon.domain.ports import AgentCheckpointer, AgentWorkflow, ChunkRecord, IndexDescriptor
 from paimon.infrastructure.identity import DevIdentityProvider
-from paimon.infrastructure.orchestration import LangGraphWorkflow
+from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
 from paimon.interfaces.api.dependencies import get_agent_workflows, get_checkpointer
 from tests.fakes import (
@@ -43,7 +44,9 @@ stalls indefinitely when a disruption budget cannot be satisfied.
 class Backend:
     """Every agent, wired to reference implementations."""
 
-    def __init__(self, answer: str = "Cordon the node first [1].") -> None:
+    def __init__(self, answer: str = "Cordon the node first [1].", *, review: bool = False) -> None:
+        self.review = review
+        self._workflows: dict[str, AgentWorkflow] | None = None
         self.embedding_model = FakeEmbeddingModel(dimensions=DIMENSIONS)
         self.chat_model = FakeChatModel(answer=answer)
         self.repository = InMemoryDocumentRepository()
@@ -82,14 +85,29 @@ class Backend:
         )
 
     def workflows(self) -> dict[str, AgentWorkflow]:
-        retrieve = RetrieveChunks(self.store, self.embedding_model)
-        return {
+        """Build once and hand back the same instances.
+
+        FastAPI calls a dependency override on every request, so building here
+        would give each request a fresh graph checkpointer — and a run suspended
+        by one request would be unknown to the next. The application builds these
+        once at startup; the override has to mirror that or it tests a lifecycle
+        the platform does not have.
+        """
+        if self._workflows is not None:
+            return self._workflows
+        collaborators = AgentCollaborators(
+            retrieve=RetrieveChunks(self.store, self.embedding_model),
+            chat_model=self.chat_model,
+            repository=self.repository,
+            token_counter=HeuristicTokenCounter(),
+        )
+        self._workflows = {
             name: LangGraphWorkflow(
-                builder(retrieve, self.chat_model, self.repository, HeuristicTokenCounter()),
-                self.checkpointer,
+                spec, self.checkpointer, saver=InMemorySaver(serde=build_serializer())
             )
-            for name, builder in AGENTS.items()
+            for name, spec in build_all(collaborators, review_postmortems=self.review).items()
         }
+        return self._workflows
 
     def runs(self) -> AgentCheckpointer:
         return self.checkpointer
@@ -244,3 +262,92 @@ class TestReadingRunsBack:
 
     async def test_reading_runs_requires_authentication(self, client: AsyncClient) -> None:
         assert (await client.get("/api/v1/agents/runs")).status_code == 401
+
+
+class TestReviewingASuspendedRun:
+    """A postmortem is the one output an organization publishes, so it is the
+    one agent where waiting for a person is worth it when a deployment asks."""
+
+    @pytest.fixture
+    def reviewed(self, app: FastAPI) -> Iterator[Backend]:
+        instance = Backend(review=True)
+        app.dependency_overrides[get_agent_workflows] = instance.workflows
+        app.dependency_overrides[get_checkpointer] = instance.runs
+        yield instance
+        app.dependency_overrides.clear()
+
+    async def start(self, client: AsyncClient, auth: dict[str, str]) -> str:
+        response = await client.post(
+            "/api/v1/agents/postmortem-drafting/runs",
+            json={"input": "09:00 drain started\n09:12 eviction stalled"},
+            headers=auth,
+        )
+        return response.headers["X-Paimon-Thread-Id"]
+
+    async def test_the_run_reports_itself_as_waiting(
+        self, client: AsyncClient, reviewed: Backend, auth: dict[str, str]
+    ) -> None:
+        await reviewed.index()
+        thread_id = await self.start(client, auth)
+        body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
+        assert body["status"] == "awaiting_input"
+
+    async def test_a_decision_finishes_the_run(
+        self, client: AsyncClient, reviewed: Backend, auth: dict[str, str]
+    ) -> None:
+        await reviewed.index()
+        thread_id = await self.start(client, auth)
+        response = await client.post(
+            f"/api/v1/agents/runs/{thread_id}/decision",
+            json={"decision": "accept"},
+            headers=auth,
+        )
+        assert response.status_code == 200
+        assert response.json()["status"] == "succeeded"
+        assert "review" in [step["name"] for step in response.json()["steps"]]
+
+    async def test_deciding_on_a_run_that_is_not_waiting_is_a_conflict(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # The request was well formed; the run was simply not in a state to
+        # receive it, which is a conflict rather than a bad request.
+        await backend.index()
+        started = await client.post(
+            "/api/v1/agents/incident-triage/runs",
+            json={"input": "eviction hangs"},
+            headers=auth,
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+        response = await client.post(
+            f"/api/v1/agents/runs/{thread_id}/decision",
+            json={"decision": "accept"},
+            headers=auth,
+        )
+        assert response.status_code == 409
+
+    async def test_another_tenant_cannot_answer_your_run(
+        self, client: AsyncClient, reviewed: Backend, auth: dict[str, str]
+    ) -> None:
+        await reviewed.index()
+        thread_id = await self.start(client, auth)
+        other = DevIdentityProvider(
+            signing_key="test-signing-key-padded-to-thirty-two-bytes"
+        ).issue(subject="user-2", tenant_id="tenant-2")
+        response = await client.post(
+            f"/api/v1/agents/runs/{thread_id}/decision",
+            json={"decision": "accept"},
+            headers={"Authorization": f"Bearer {other}"},
+        )
+        assert response.status_code == 404
+
+    async def test_an_empty_decision_is_rejected(
+        self, client: AsyncClient, reviewed: Backend, auth: dict[str, str]
+    ) -> None:
+        await reviewed.index()
+        thread_id = await self.start(client, auth)
+        response = await client.post(
+            f"/api/v1/agents/runs/{thread_id}/decision",
+            json={"decision": ""},
+            headers=auth,
+        )
+        assert response.status_code == 422

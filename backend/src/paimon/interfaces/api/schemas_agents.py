@@ -81,6 +81,16 @@ class AgentRunResponse(BaseModel):
         )
 
 
+class DecisionRequest(BaseModel):
+    """What a person decided about a suspended run."""
+
+    decision: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="The answer to the question the run stopped on.",
+    )
+
+
 class AgentRunListResponse(BaseModel):
     """A tenant's recent runs, most recently started first."""
 

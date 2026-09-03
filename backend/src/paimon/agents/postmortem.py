@@ -19,9 +19,9 @@ And triage's conclusion is copied into ``notes`` before this agent overwrites
 read before it writes.
 """
 
+from paimon.agents.collaborators import AgentCollaborators
 from paimon.agents.support import load_documents
 from paimon.agents.triage import build_triage_graph
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.agents import (
     END,
     AgentState,
@@ -32,7 +32,6 @@ from paimon.domain.agents import (
     embed,
 )
 from paimon.domain.entities import Chunk
-from paimon.domain.ports import ChatModel, DocumentRepository, TokenCounter
 from paimon.rag.citations import resolve_citations
 from paimon.rag.prompting import DEFAULT_CONTEXT_TOKENS, build_prompt
 
@@ -50,6 +49,13 @@ INSTRUCTION = (
     "Incident timeline:\n{timeline}"
 )
 PRECEDENT = "\n\nWhat comparable earlier incidents suggest:\n{precedent}"
+
+REVIEW_QUESTION = (
+    "A postmortem draft is ready. Reply 'accept' to finalise it, or 'reject: <reason>' "
+    "to withdraw it. Anything else is recorded as reviewer notes."
+)
+
+REJECTED = "The reviewer rejected this draft:"
 
 UNSUPPORTED = (
     "I could not tie a postmortem draft to the timeline or to any earlier incident, "
@@ -77,33 +83,34 @@ def timeline_chunk(timeline: str, tenant_id: str) -> Chunk:
 
 
 def build_postmortem_graph(
-    retrieve: RetrieveChunks,
-    chat_model: ChatModel,
-    repository: DocumentRepository,
-    token_counter: TokenCounter,
+    collaborators: AgentCollaborators,
     *,
     max_context_tokens: int = DEFAULT_CONTEXT_TOKENS,
+    review: bool = False,
 ) -> GraphSpec:
     """Assemble the postmortem agent, with triage embedded as its first phase.
 
     Args:
-        retrieve: Retrieval, shared with the embedded triage agent.
-        chat_model: Called once by triage and once here.
-        repository: Loads the documents behind cited chunks.
-        token_counter: Enforces the context budget.
+        collaborators: The ports and use cases this agent's nodes call.
         max_context_tokens: Budget for the sources section of the prompt.
+        review: Suspend the run for a person to accept or correct the draft
+            before it is finalised. Off by default, because a workflow that
+            always needs a human is a workflow that cannot be benchmarked or run
+            on a schedule — and this is the agent whose output an organization
+            actually publishes, so it is the one where a review is worth the
+            wait when someone asks for it.
 
     Returns:
         A validated graph specification.
     """
+    # Retrieval is used only by the embedded triage agent, which is handed the
+    # whole collaborator set.
+    chat_model = collaborators.chat_model
+    repository = collaborators.repository
+    token_counter = collaborators.token_counter
+
     triage = embed(
-        build_triage_graph(
-            retrieve,
-            chat_model,
-            repository,
-            token_counter,
-            max_context_tokens=max_context_tokens,
-        ),
+        build_triage_graph(collaborators, max_context_tokens=max_context_tokens),
         "precedent",
         exit_to="ground",
     )
@@ -135,6 +142,22 @@ def build_postmortem_graph(
             "usage": (completion.input_tokens, completion.output_tokens),
         }
 
+    async def ask_reviewer(state: AgentState) -> StateUpdate:
+        """Suspend, so a person can accept or correct the draft.
+
+        Writes to the state rather than calling the runtime: suspending is the
+        adapter's job (ADR-0015), and a node that knew how to interrupt would be
+        a node that needed a graph to be tested.
+
+        On the way back the same node runs again with ``decision`` filled, which
+        is why nothing expensive happens here.
+        """
+        if not state.decision:
+            return {"awaiting": REVIEW_QUESTION}
+        if state.decision.strip().lower().startswith("reject"):
+            return {"draft": f"{REJECTED}\n\n{state.decision}", "citations": ()}
+        return {"notes": state.decision}
+
     async def verify(state: AgentState) -> StateUpdate:
         """Withdraw a draft that cites nothing, by the same rule as triage."""
         if state.citations:
@@ -154,13 +177,24 @@ def build_postmortem_graph(
                 report=_report_precedent,
             ),
             NodeSpec(name="compose", run=compose, summary="drafted the postmortem"),
+            *(
+                [
+                    NodeSpec(
+                        name="review",
+                        run=ask_reviewer,
+                        summary="put the draft to a reviewer",
+                    )
+                ]
+                if review
+                else []
+            ),
             NodeSpec(name="verify", run=verify, summary="checked the draft is supported"),
         ],
         edges=[
             ("read", triage.entry),
             *triage.edges,
             ("ground", "compose"),
-            ("compose", "verify"),
+            *([("compose", "review"), ("review", "verify")] if review else [("compose", "verify")]),
             ("verify", END),
         ],
         branches=list(triage.branches),

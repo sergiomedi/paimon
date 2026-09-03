@@ -10,8 +10,8 @@ criteria move cannot be compared across topics or across weeks — which is the
 only way a gap report is useful, because the point is to watch the gaps close.
 """
 
+from paimon.agents.collaborators import AgentCollaborators
 from paimon.agents.support import load_documents
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.agents import (
     END,
     AgentState,
@@ -21,7 +21,7 @@ from paimon.domain.agents import (
     StateUpdate,
     StepReport,
 )
-from paimon.domain.ports import ChatModel, DocumentRepository, SearchFilters, TokenCounter
+from paimon.domain.ports import SearchFilters
 from paimon.rag.citations import resolve_citations
 from paimon.rag.prompting import DEFAULT_CONTEXT_TOKENS, build_prompt
 
@@ -57,25 +57,23 @@ SURVEY_FAILED = (
 
 
 def build_gaps_graph(
-    retrieve: RetrieveChunks,
-    chat_model: ChatModel,
-    repository: DocumentRepository,
-    token_counter: TokenCounter,
+    collaborators: AgentCollaborators,
     *,
     max_context_tokens: int = DEFAULT_CONTEXT_TOKENS,
 ) -> GraphSpec:
     """Assemble the gap analysis agent.
 
     Args:
-        retrieve: Retrieval, already configured.
-        chat_model: Called once, to assess.
-        repository: Loads the documents behind cited chunks.
-        token_counter: Enforces the context budget.
+        collaborators: The ports and use cases this agent's nodes call.
         max_context_tokens: Budget for the sources section of the prompt.
 
     Returns:
         A validated graph specification.
     """
+    retrieve = collaborators.retrieve
+    chat_model = collaborators.chat_model
+    repository = collaborators.repository
+    token_counter = collaborators.token_counter
 
     async def survey(state: AgentState) -> StateUpdate:
         """Gather everything the corpus has on the topic."""

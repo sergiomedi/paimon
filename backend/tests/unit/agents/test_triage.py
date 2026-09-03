@@ -26,9 +26,7 @@ from paimon.infrastructure.orchestration import LangGraphWorkflow
 
 def graph(harness: Harness) -> GraphSpec:
     """Build the triage agent from a harness's collaborators."""
-    return build_triage_graph(
-        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
-    )
+    return build_triage_graph(harness.collaborators())
 
 
 def node(harness: Harness, name: str) -> NodeSpec:

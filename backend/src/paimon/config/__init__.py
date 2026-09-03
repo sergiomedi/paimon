@@ -7,6 +7,7 @@ receive what they need as explicit arguments.
 """
 
 from paimon.config.settings import (
+    AgentSettings,
     AuthSettings,
     AzureOpenAISettings,
     AzureSearchSettings,
@@ -24,6 +25,7 @@ from paimon.config.settings import (
 )
 
 __all__ = [
+    "AgentSettings",
     "AuthSettings",
     "AzureOpenAISettings",
     "AzureSearchSettings",

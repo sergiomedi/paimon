@@ -10,6 +10,7 @@ from tests.fakes import (
     InMemoryVectorStore,
 )
 
+from paimon.agents import AgentCollaborators
 from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.entities import Chunk, Document
 from paimon.domain.errors import EmbeddingError
@@ -100,6 +101,15 @@ class Harness:
         self.checkpointer = InMemoryCheckpointer()
         self.retrieve = RetrieveChunks(self.store, self.embedding_model)
         self.token_counter = HeuristicTokenCounter()
+
+    def collaborators(self) -> AgentCollaborators:
+        """The set every agent builder now takes."""
+        return AgentCollaborators(
+            retrieve=self.retrieve,
+            chat_model=self.chat_model,
+            repository=self.repository,
+            token_counter=self.token_counter,
+        )
 
     async def index(self) -> None:
         chunks = [

@@ -66,6 +66,18 @@ class DatabaseSettings(BaseModel):
         return f"postgresql+asyncpg://{self.user}:{password}@{self.host}:{self.port}/{self.name}"
 
     @property
+    def psycopg_dsn(self) -> str:
+        """Connection string for the graph checkpointer.
+
+        The same database as :attr:`dsn`, reached by psycopg rather than asyncpg
+        (ADR-0017). Derived from the same fields rather than configured
+        separately: two connection strings for one database is one more chance
+        for a deployment to point half of itself somewhere else.
+        """
+        password = self.password.get_secret_value()
+        return f"postgresql://{self.user}:{password}@{self.host}:{self.port}/{self.name}"
+
+    @property
     def total_connections(self) -> int:
         """Maximum connections a single process can hold open."""
         return self.pool_size + self.max_overflow + self.agent_pool_size
@@ -257,6 +269,18 @@ class RetrievalSettings(BaseModel):
         return self
 
 
+class AgentSettings(BaseModel):
+    """How agent runs behave."""
+
+    # Off by default: resumable runs cost a second connection pool on a second
+    # driver, and a deployment that never suspends a run should not pay for it.
+    resumable: bool = False
+    step_limit: int = Field(default=25, ge=1, le=200)
+    # The one agent whose output an organization publishes, so the one where
+    # waiting for a person is worth it when someone asks for it.
+    review_postmortems: bool = False
+
+
 class ObservabilitySettings(BaseModel):
     """Logging and, from Phase 5, tracing configuration."""
 
@@ -287,6 +311,7 @@ class Settings(BaseSettings):
     redis: RedisSettings
     auth: AuthSettings
     embedding: EmbeddingSettings = EmbeddingSettings()
+    agents: AgentSettings = AgentSettings()
     azure_openai: AzureOpenAISettings = AzureOpenAISettings()
     azure_search: AzureSearchSettings = AzureSearchSettings()
     chat: ChatSettings = ChatSettings()

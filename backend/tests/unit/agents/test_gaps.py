@@ -19,15 +19,11 @@ COVERAGE = (
 
 
 def graph(harness: Harness) -> object:
-    return build_gaps_graph(
-        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
-    )
+    return build_gaps_graph(harness.collaborators())
 
 
 def node(harness: Harness, name: str) -> NodeSpec:
-    spec = build_gaps_graph(
-        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
-    )
+    spec = build_gaps_graph(harness.collaborators())
     return next(item for item in spec.nodes if item.name == name)
 
 

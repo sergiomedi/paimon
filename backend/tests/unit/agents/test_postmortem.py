@@ -21,15 +21,11 @@ TIMELINE = """09:00 drain started on node-7
 
 
 def graph(harness: Harness) -> object:
-    return build_postmortem_graph(
-        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
-    )
+    return build_postmortem_graph(harness.collaborators())
 
 
 def node(harness: Harness, name: str) -> NodeSpec:
-    spec = build_postmortem_graph(
-        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
-    )
+    spec = build_postmortem_graph(harness.collaborators())
     return next(item for item in spec.nodes if item.name == name)
 
 

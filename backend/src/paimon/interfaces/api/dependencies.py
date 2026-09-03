@@ -10,16 +10,18 @@ which is what keeps the dependency inversion real rather than nominal.
 """
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
-from typing import Annotated, Protocol, runtime_checkable
+from typing import Annotated, Any, Protocol, runtime_checkable
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from paimon.agents import AGENTS
+from paimon.agents import AgentCollaborators, build_all
 from paimon.application.use_cases import (
     AnswerQuestion,
     CheckReadiness,
@@ -62,7 +64,7 @@ from paimon.infrastructure.embedding import (
     OpenAICompatibleEmbeddingModel,
 )
 from paimon.infrastructure.identity import build_identity_provider
-from paimon.infrastructure.orchestration import LangGraphWorkflow
+from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.persistence import (
     PgVectorStore,
@@ -92,6 +94,7 @@ class Resources:
     chunker: Chunker
     token_counter: TokenCounter
     checkpointer: AgentCheckpointer
+    graph_saver: BaseCheckpointSaver[Any] | None
 
 
 @runtime_checkable
@@ -111,6 +114,24 @@ async def _close(resource: object) -> None:
     """Release a resource if it holds anything."""
     if isinstance(resource, _Closeable):
         await resource.aclose()
+
+
+def _graph_saver(settings: Settings) -> AbstractAsyncContextManager[AsyncPostgresSaver] | None:
+    """Open the graph checkpointer, when this deployment wants resumable runs.
+
+    Returns None when human-in-the-loop is off, and the workflows are then built
+    without one: they run exactly as before and refuse to resume with a message
+    that says why, rather than failing somewhere inside the framework.
+
+    The connection string is psycopg's, not SQLAlchemy's — the same database
+    reached by a second driver, which ADR-0017 accepted rather than
+    reimplementing a resumption protocol to avoid.
+    """
+    if not settings.agents.resumable:
+        return None
+    return AsyncPostgresSaver.from_conn_string(
+        settings.database.psycopg_dsn, serde=build_serializer()
+    )
 
 
 def _build_embedding_model(settings: Settings) -> EmbeddingModel:
@@ -243,6 +264,12 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     chat_model = _build_chat_model(settings)
     token_counter = HeuristicTokenCounter()
     vector_store = _build_vector_store(settings, engine, embedding_model)
+    # Graph state, kept separately from the platform's own run records and on a
+    # separate driver (ADR-0017). Its pool is opened here so that a deployment
+    # that never resumes a run still pays for it exactly once, at startup,
+    # rather than on whichever request happens to be the first to suspend.
+    saver_context = _graph_saver(settings)
+    saver = await saver_context.__aenter__() if saver_context else None
     try:
         yield Resources(
             settings=settings,
@@ -268,8 +295,11 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
             # record that dies with the process cannot be inspected after the
             # incident it was investigating, which is when anyone looks.
             checkpointer=PostgresCheckpointer(engine),
+            graph_saver=saver,
         )
     finally:
+        if saver_context is not None:
+            await saver_context.__aexit__(None, None, None)
         await _close(vector_store)
         await _close(chat_model)
         await _close(embedding_model)
@@ -381,18 +411,23 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
     Returns:
         Each agent's runnable workflow, by name.
     """
-    retrieve = build_retrieve_chunks(resources)
+    collaborators = AgentCollaborators(
+        retrieve=build_retrieve_chunks(resources),
+        chat_model=resources.chat_model,
+        repository=resources.document_repository,
+        token_counter=resources.token_counter,
+    )
     return {
         name: LangGraphWorkflow(
-            builder(
-                retrieve,
-                resources.chat_model,
-                resources.document_repository,
-                resources.token_counter,
-            ),
+            spec,
             resources.checkpointer,
+            saver=resources.graph_saver,
+            step_limit=resources.settings.agents.step_limit,
         )
-        for name, builder in AGENTS.items()
+        for name, spec in build_all(
+            collaborators,
+            review_postmortems=resources.settings.agents.review_postmortems,
+        ).items()
     }
 
 

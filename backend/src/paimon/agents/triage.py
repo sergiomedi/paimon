@@ -17,9 +17,9 @@ deduplication earns its place: both framings routinely find the same chunk.
 
 from collections.abc import Callable
 
+from paimon.agents.collaborators import AgentCollaborators
 from paimon.agents.support import load_documents
 from paimon.application.use_cases.answer_question import NO_MATERIAL
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.agents import (
     END,
     AgentState,
@@ -30,7 +30,7 @@ from paimon.domain.agents import (
     StepReport,
 )
 from paimon.domain.entities import Chunk
-from paimon.domain.ports import ChatModel, DocumentRepository, SearchFilters, TokenCounter
+from paimon.domain.ports import SearchFilters
 from paimon.rag.citations import resolve_citations
 from paimon.rag.prompting import DEFAULT_CONTEXT_TOKENS, build_prompt
 
@@ -60,10 +60,7 @@ def frame_symptom(symptom: str) -> tuple[str, str]:
 
 
 def build_triage_graph(
-    retrieve: RetrieveChunks,
-    chat_model: ChatModel,
-    repository: DocumentRepository,
-    token_counter: TokenCounter,
+    collaborators: AgentCollaborators,
     *,
     max_context_tokens: int = DEFAULT_CONTEXT_TOKENS,
 ) -> GraphSpec:
@@ -74,16 +71,16 @@ def build_triage_graph(
     in a test without constructing an agent.
 
     Args:
-        retrieve: Retrieval, already configured with a store and an embedding model.
-        chat_model: Used at one node, to draft.
-        repository: Loads the documents behind cited chunks, so a citation can
-            resolve to a span of the source rather than to a chunk id.
-        token_counter: Enforces the context budget.
+        collaborators: The ports and use cases this agent's nodes call.
         max_context_tokens: Budget for the sources section of the prompt.
 
     Returns:
         A validated graph specification.
     """
+    retrieve = collaborators.retrieve
+    chat_model = collaborators.chat_model
+    repository = collaborators.repository
+    token_counter = collaborators.token_counter
 
     async def frame(state: AgentState) -> StateUpdate:
         """Record the symptom under investigation. No model, no retrieval."""

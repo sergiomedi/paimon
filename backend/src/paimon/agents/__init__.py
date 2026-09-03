@@ -5,6 +5,7 @@ state, the graph description — lives in :mod:`paimon.domain.agents`, because t
 orchestration adapter has to speak it too.
 """
 
-from paimon.agents.registry import AGENT_DESCRIPTIONS, AGENTS, GraphBuilder
+from paimon.agents.collaborators import AgentCollaborators
+from paimon.agents.registry import AGENT_DESCRIPTIONS, AGENTS, GraphBuilder, build_all
 
-__all__ = ["AGENTS", "AGENT_DESCRIPTIONS", "GraphBuilder"]
+__all__ = ["AGENTS", "AGENT_DESCRIPTIONS", "AgentCollaborators", "GraphBuilder", "build_all"]

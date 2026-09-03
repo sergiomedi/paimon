@@ -10,14 +10,10 @@ building any of them.
 from collections.abc import Callable, Mapping
 
 from paimon.agents import gaps, postmortem, triage
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
+from paimon.agents.collaborators import AgentCollaborators
 from paimon.domain.agents import GraphSpec
-from paimon.domain.ports import ChatModel, DocumentRepository, TokenCounter
 
-GraphBuilder = Callable[
-    [RetrieveChunks, ChatModel, DocumentRepository, TokenCounter],
-    GraphSpec,
-]
+GraphBuilder = Callable[[AgentCollaborators], GraphSpec]
 
 AGENTS: Mapping[str, GraphBuilder] = {
     triage.AGENT_NAME: triage.build_triage_graph,
@@ -26,10 +22,11 @@ AGENTS: Mapping[str, GraphBuilder] = {
 }
 """Every agent the platform offers, by the name its runs are recorded under.
 
-The three builders share a signature on purpose. It is the smallest set of
-collaborators any of them needs, and keeping it uniform is what lets the
-composition root wire all of them in one loop rather than three special cases —
-each of which would be somewhere for them to drift apart.
+The three builders share a signature on purpose: one
+:class:`~paimon.agents.collaborators.AgentCollaborators`, and whatever options
+that agent has as keyword arguments with defaults. That uniformity is what lets
+the composition root wire all of them in one loop rather than three special
+cases, each of which would be somewhere for them to drift apart.
 """
 
 AGENT_DESCRIPTIONS: Mapping[str, str] = {
@@ -46,3 +43,31 @@ AGENT_DESCRIPTIONS: Mapping[str, str] = {
         "and which it leaves undocumented."
     ),
 }
+
+
+def build_all(
+    collaborators: AgentCollaborators, *, review_postmortems: bool = False
+) -> dict[str, GraphSpec]:
+    """Build every agent, applying the options a deployment has chosen.
+
+    Written out rather than looped over :data:`AGENTS`, because exactly one agent
+    has an option and a loop that pretended otherwise would need the options
+    threaded through a signature none of the others use. One agent being special
+    is cheaper to state than to abstract; a test keeps this in step with the
+    registry so the two cannot drift.
+
+    Args:
+        collaborators: The ports and use cases the agents' nodes call.
+        review_postmortems: Suspend a postmortem run for a reviewer before it is
+            finalised.
+
+    Returns:
+        Each agent's validated graph, by name.
+    """
+    return {
+        triage.AGENT_NAME: triage.build_triage_graph(collaborators),
+        postmortem.AGENT_NAME: postmortem.build_postmortem_graph(
+            collaborators, review=review_postmortems
+        ),
+        gaps.AGENT_NAME: gaps.build_gaps_graph(collaborators),
+    }
