@@ -30,6 +30,7 @@ from paimon.config import Settings
 from paimon.domain.entities import Principal
 from paimon.domain.errors import InvalidTokenError
 from paimon.domain.ports import (
+    AgentCheckpointer,
     ChatModel,
     DocumentParser,
     DocumentRepository,
@@ -62,6 +63,7 @@ from paimon.infrastructure.identity import build_identity_provider
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.persistence import (
     PgVectorStore,
+    PostgresCheckpointer,
     PostgresDocumentRepository,
     PostgresHealthProbe,
     build_engine,
@@ -86,6 +88,7 @@ class Resources:
     parser: DocumentParser
     chunker: Chunker
     token_counter: TokenCounter
+    checkpointer: AgentCheckpointer
 
 
 @runtime_checkable
@@ -258,6 +261,10 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
                 token_counter,
             ),
             token_counter=token_counter,
+            # PostgreSQL rather than the in-memory implementation, always: a run
+            # record that dies with the process cannot be inspected after the
+            # incident it was investigating, which is when anyone looks.
+            checkpointer=PostgresCheckpointer(engine),
         )
     finally:
         await _close(vector_store)

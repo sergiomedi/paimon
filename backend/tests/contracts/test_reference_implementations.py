@@ -9,6 +9,7 @@ import pytest
 
 from paimon.domain.ports import (
     AgentCheckpointer,
+    AgentMemory,
     ChatModel,
     DocumentRepository,
     EmbeddingModel,
@@ -16,6 +17,7 @@ from paimon.domain.ports import (
     VectorStore,
 )
 from tests.contracts.agent_checkpointer import AgentCheckpointerContract
+from tests.contracts.agent_memory import AgentMemoryContract
 from tests.contracts.chat_model import ChatModelContract
 from tests.contracts.document_repository import DocumentRepositoryContract
 from tests.contracts.embedding_model import EmbeddingModelContract
@@ -23,6 +25,7 @@ from tests.contracts.vector_store import VectorStoreContract
 from tests.fakes import (
     FakeChatModel,
     FakeEmbeddingModel,
+    InMemoryAgentMemory,
     InMemoryCheckpointer,
     InMemoryDocumentRepository,
     InMemoryVectorStore,
@@ -69,3 +72,9 @@ class TestInMemoryCheckpointer(AgentCheckpointerContract):
     @pytest.fixture
     def checkpointer(self) -> AgentCheckpointer:
         return InMemoryCheckpointer()
+
+
+class TestInMemoryAgentMemory(AgentMemoryContract):
+    @pytest.fixture
+    def memory(self) -> AgentMemory:
+        return InMemoryAgentMemory(FakeEmbeddingModel(dimensions=DIMENSIONS))

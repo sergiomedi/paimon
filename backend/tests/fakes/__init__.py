@@ -1,5 +1,6 @@
 """Reference implementations used by the contract suite and by use-case tests."""
 
+from tests.fakes.agent_memory import InMemoryAgentMemory
 from tests.fakes.azure_search_service import FakeAzureSearchService
 from tests.fakes.chat import FakeChatModel
 from tests.fakes.checkpointer import InMemoryCheckpointer
@@ -11,6 +12,7 @@ __all__ = [
     "FakeAzureSearchService",
     "FakeChatModel",
     "FakeEmbeddingModel",
+    "InMemoryAgentMemory",
     "InMemoryCheckpointer",
     "InMemoryDocumentRepository",
     "InMemoryHybridVectorStore",
