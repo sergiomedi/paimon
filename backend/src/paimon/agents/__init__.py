@@ -4,3 +4,7 @@ Framework-free by contract (ADR-0015). The vocabulary these are written in — t
 state, the graph description — lives in :mod:`paimon.domain.agents`, because the
 orchestration adapter has to speak it too.
 """
+
+from paimon.agents.registry import AGENT_DESCRIPTIONS, AGENTS, GraphBuilder
+
+__all__ = ["AGENTS", "AGENT_DESCRIPTIONS", "GraphBuilder"]

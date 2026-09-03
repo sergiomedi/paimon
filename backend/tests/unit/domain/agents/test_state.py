@@ -3,7 +3,13 @@
 from dataclasses import fields
 from datetime import UTC, datetime, timedelta
 
-from paimon.domain.agents import AgentState, StateUpdate, append_steps, merge_evidence
+from paimon.domain.agents import (
+    AgentState,
+    StateUpdate,
+    add_usage,
+    append_steps,
+    merge_evidence,
+)
 from paimon.domain.entities import AgentStep, Chunk
 from paimon.domain.value_objects import Citation
 
@@ -49,6 +55,20 @@ class TestMergeEvidence:
     def test_the_first_occurrence_wins_so_the_merge_is_deterministic(self) -> None:
         merged = merge_evidence((chunk("c-1", "left"),), (chunk("c-1", "right"),))
         assert [item.text for item in merged] == ["left"]
+
+
+class TestAddUsage:
+    def test_it_accumulates_across_nodes(self) -> None:
+        assert add_usage((80, 20), (40, 10)) == (120, 30)
+
+    def test_it_survives_the_empty_left_the_framework_starts_a_run_with(self) -> None:
+        # An orchestrator initialises an aggregating channel from the zero value
+        # of the annotated type, and for a tuple that is () rather than (0, 0).
+        # Without this, the first model call of every run raises IndexError.
+        assert add_usage((), (80, 20)) == (80, 20)
+
+    def test_a_run_that_called_no_model_stays_at_zero(self) -> None:
+        assert add_usage((), ()) == (0, 0)
 
 
 class TestAgentState:

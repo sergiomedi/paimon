@@ -92,7 +92,11 @@ def build_gaps_graph(
         completion = await chat_model.complete(list(prompt.messages))
         documents = await load_documents(repository, prompt.sources, state.tenant_id)
         cited = resolve_citations(completion.text, prompt.sources, documents)
-        return {"draft": cited.text, "citations": cited.citations}
+        return {
+            "draft": cited.text,
+            "citations": cited.citations,
+            "usage": (completion.input_tokens, completion.output_tokens),
+        }
 
     async def summarise(state: AgentState) -> StateUpdate:
         """Record which aspects the report mentions, and how much it rests on.

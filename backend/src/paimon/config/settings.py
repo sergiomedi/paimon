@@ -323,6 +323,11 @@ class Settings(BaseSettings):
 
         An authentication bypass that can be switched on by a stray environment
         variable is a vulnerability, not a convenience.
+
+        The shipped credentials are refused for the same reason. ``.env.example``
+        carries values that make a fresh clone work against the local Compose
+        stack, which is exactly what makes them dangerous: they are published, so
+        a deployment that inherits one is a deployment with a public password.
         """
         if self.environment.is_deployed:
             if self.auth.provider == "dev":
@@ -334,7 +339,35 @@ class Settings(BaseSettings):
             if self.database.echo_sql:
                 msg = f"SQL echo leaks query parameters and is not allowed in {self.environment}"
                 raise ValueError(msg)
+            if self.database.password.get_secret_value() in SHIPPED_CREDENTIALS:
+                msg = (
+                    "the database password is one of the values shipped in "
+                    f".env.example, which is public; {self.environment} needs its own"
+                )
+                raise ValueError(msg)
+            signing_key = self.auth.dev_signing_key
+            if signing_key and signing_key.get_secret_value() in SHIPPED_CREDENTIALS:
+                msg = (
+                    "the development signing key shipped in .env.example is public "
+                    f"and is not allowed in {self.environment}"
+                )
+                raise ValueError(msg)
         return self
+
+
+SHIPPED_CREDENTIALS = frozenset(
+    {
+        "paimon",
+        "change-me",
+        "local-development-only-not-a-real-secret-value",
+    }
+)
+"""Secrets that appear in ``.env.example`` and are therefore not secret.
+
+Listed rather than pattern-matched: a heuristic for "looks like a placeholder"
+either rejects a legitimate password or misses one of these, and both failures
+are worse than a list that has to be kept in step with one file.
+"""
 
 
 def _known_environment_variables() -> frozenset[str]:

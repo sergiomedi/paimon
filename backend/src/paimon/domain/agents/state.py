@@ -29,6 +29,32 @@ def append_steps(left: Sequence[AgentStep], right: Sequence[AgentStep]) -> tuple
     return (*left, *right)
 
 
+def _pair(value: Sequence[int]) -> tuple[int, int]:
+    """Read a token pair from a sequence that may be shorter than two.
+
+    Not defensiveness for its own sake. An orchestrator initialises an
+    aggregating channel from the zero value of the annotated type, and for a
+    tuple that is ``()`` rather than ``(0, 0)`` — so the first reduction of every
+    run arrives with an empty left operand. A reducer that assumes two elements
+    fails on the first model call of every run, and the traceback names this
+    module rather than the framework that supplied the value.
+    """
+    return (value[0] if len(value) > 0 else 0, value[1] if len(value) > 1 else 0)
+
+
+def add_usage(left: Sequence[int], right: Sequence[int]) -> tuple[int, int]:
+    """Add two (input, output) token pairs.
+
+    Usage accumulates rather than replaces, so ``state.usage`` is what the run
+    has spent so far and a branch can be taken on it — a graph deciding whether
+    it can afford another model call needs the running total, not the last
+    node's share.
+    """
+    left_in, left_out = _pair(left)
+    right_in, right_out = _pair(right)
+    return (left_in + right_in, left_out + right_out)
+
+
 def merge_evidence(left: Sequence[Chunk], right: Sequence[Chunk]) -> tuple[Chunk, ...]:
     """Combine retrieved chunks, keeping the first occurrence and dropping repeats.
 
@@ -63,6 +89,9 @@ class AgentState:
         citations: Sources the draft actually referred to.
         draft: The answer under construction.
         steps: Append-only record of the nodes that have run.
+        usage: Input and output tokens the run has spent so far, summed by the
+            reducer. A node that calls a model reports its own share and the
+            adapter attributes it to that node's step.
         notes: A scratchpad. What one part of a run worked out and a later part
             needs, when the two are separated by nodes that neither produce nor
             consume it — a sub-agent's conclusion, read by the node that composes
@@ -79,6 +108,7 @@ class AgentState:
     draft: str = ""
     notes: str = ""
     steps: Annotated[tuple[AgentStep, ...], append_steps] = ()
+    usage: Annotated[tuple[int, int], add_usage] = (0, 0)
     awaiting: str = ""
     failure: str = ""
 
@@ -106,5 +136,6 @@ class StateUpdate(TypedDict, total=False):
     draft: str
     notes: str
     steps: tuple[AgentStep, ...]
+    usage: tuple[int, int]
     awaiting: str
     failure: str

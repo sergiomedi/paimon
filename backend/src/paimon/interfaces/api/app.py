@@ -23,9 +23,9 @@ from paimon.domain.errors import (
     InvalidTokenError,
     UnsupportedMediaTypeError,
 )
-from paimon.interfaces.api.dependencies import build_resources
+from paimon.interfaces.api.dependencies import build_agent_workflows, build_resources
 from paimon.interfaces.api.middleware import CorrelationIdMiddleware
-from paimon.interfaces.api.routers import health, identity, knowledge
+from paimon.interfaces.api.routers import agents, health, identity, knowledge
 from paimon.interfaces.api.schemas import ErrorResponse
 from paimon.observability import configure_logging, get_logger
 
@@ -52,6 +52,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with build_resources(resolved) as resources:
             app.state.resources = resources
+            # Compiled once, here, so a malformed graph aborts startup instead
+            # of surfacing as a 500 to whoever first asks for that agent.
+            app.state.agent_workflows = build_agent_workflows(resources)
             logger.info(
                 "application_started",
                 environment=resolved.environment.value,
@@ -78,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(identity.router, prefix=API_PREFIX)
     app.include_router(knowledge.router, prefix=API_PREFIX)
+    app.include_router(agents.router, prefix=API_PREFIX)
     return app
 
 

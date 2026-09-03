@@ -19,6 +19,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from paimon.agents import AGENTS
 from paimon.application.use_cases import (
     AnswerQuestion,
     CheckReadiness,
@@ -31,6 +32,7 @@ from paimon.domain.entities import Principal
 from paimon.domain.errors import InvalidTokenError
 from paimon.domain.ports import (
     AgentCheckpointer,
+    AgentWorkflow,
     ChatModel,
     DocumentParser,
     DocumentRepository,
@@ -60,6 +62,7 @@ from paimon.infrastructure.embedding import (
     OpenAICompatibleEmbeddingModel,
 )
 from paimon.infrastructure.identity import build_identity_provider
+from paimon.infrastructure.orchestration import LangGraphWorkflow
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.persistence import (
     PgVectorStore,
@@ -365,6 +368,45 @@ async def get_current_principal(
     return await identity_provider.authenticate(credentials.credentials)
 
 
+def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
+    """Compile every registered agent once.
+
+    At startup rather than per request: compiling is pure work over a static
+    description, so doing it per call would pay for it on every request and delay
+    a structural error in a graph until the first caller hit that agent.
+
+    Args:
+        resources: The process-lifetime object graph.
+
+    Returns:
+        Each agent's runnable workflow, by name.
+    """
+    retrieve = build_retrieve_chunks(resources)
+    return {
+        name: LangGraphWorkflow(
+            builder(
+                retrieve,
+                resources.chat_model,
+                resources.document_repository,
+                resources.token_counter,
+            ),
+            resources.checkpointer,
+        )
+        for name, builder in AGENTS.items()
+    }
+
+
+def get_agent_workflows(request: Request) -> dict[str, AgentWorkflow]:
+    """Return the workflows compiled at startup."""
+    workflows: dict[str, AgentWorkflow] = request.app.state.agent_workflows
+    return workflows
+
+
+def get_checkpointer(resources: ResourcesDep) -> AgentCheckpointer:
+    """Return the configured run store, as the port."""
+    return resources.checkpointer
+
+
 def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
     """Return the ingestion use case for a request."""
     return build_ingest_document(resources)
@@ -380,6 +422,8 @@ def get_answer_question(resources: ResourcesDep) -> AnswerQuestion:
     return build_answer_question(resources)
 
 
+AgentWorkflowsDep = Annotated[dict[str, AgentWorkflow], Depends(get_agent_workflows)]
+AgentCheckpointerDep = Annotated[AgentCheckpointer, Depends(get_checkpointer)]
 AnswerQuestionDep = Annotated[AnswerQuestion, Depends(get_answer_question)]
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
 IngestDocumentDep = Annotated[IngestDocument, Depends(get_ingest_document)]

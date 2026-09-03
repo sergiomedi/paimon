@@ -25,6 +25,7 @@ from paimon.domain.agents.graph import (
 from paimon.domain.agents.state import (
     AgentState,
     StateUpdate,
+    add_usage,
     append_steps,
     merge_evidence,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "NodeSpec",
     "StateUpdate",
     "StepReport",
+    "add_usage",
     "append_steps",
     "embed",
     "merge_evidence",

@@ -241,3 +241,47 @@ class TestAzureProviders:
         assert settings.embedding.provider == "local"
         assert settings.retrieval.store == "pgvector"
         assert settings.azure_openai.endpoint is None
+
+
+DEPLOYED = {
+    "PAIMON_ENVIRONMENT": "production",
+    "PAIMON_AUTH__PROVIDER": "entra",
+    "PAIMON_AUTH__TENANT_ID": "t",
+    "PAIMON_AUTH__AUDIENCE": "a",
+}
+
+
+class TestShippedCredentialsAreRefusedWhenDeployed:
+    """The values in .env.example are published, so they are not secrets.
+
+    The point is not that they are weak strings. It is that anyone who has read
+    the repository knows them, which is exactly what makes a deployment that
+    inherits one indefensible.
+    """
+
+    def test_the_shipped_database_password_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        with pytest.raises(ValidationError, match="shipped in"):
+            build(monkeypatch, **DEPLOYED, PAIMON_DATABASE__PASSWORD="paimon")  # noqa: S106
+
+    def test_the_older_placeholder_is_refused_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # It was the shipped value until this batch, so a deployment set up from
+        # an earlier clone still carries it.
+        with pytest.raises(ValidationError, match="shipped in"):
+            build(monkeypatch, **DEPLOYED, PAIMON_DATABASE__PASSWORD="change-me")  # noqa: S106
+
+    def test_a_password_of_its_own_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = build(
+            monkeypatch,
+            **DEPLOYED,
+            PAIMON_DATABASE__PASSWORD="a-value-this-repository-never-published",  # noqa: S106
+        )
+        assert settings.environment.is_deployed
+
+    def test_the_same_password_is_fine_locally(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Scoped to deployed environments: locally the published value costs
+        # nothing, and refusing it would break the clone-and-run path the
+        # example file exists to provide.
+        settings = build(monkeypatch, PAIMON_DATABASE__PASSWORD="paimon")  # noqa: S106
+        assert settings.database.password.get_secret_value() == "paimon"

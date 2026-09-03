@@ -128,6 +128,12 @@ class LangGraphWorkflow:
 
             elapsed = time.perf_counter() - began
             report = node.describe(state, update)
+            # A node that called a model reports its own share of the tokens in
+            # the update; the reducer adds it to the run's running total, and it
+            # is attributed here to the step that spent it. Without this the run
+            # would total zero however many models it called, which is the kind
+            # of number that is wrong in only one direction.
+            spent = update.get("usage", (0, 0))
             step = AgentStep(
                 name=node.name,
                 summary=report.summary,
@@ -136,8 +142,8 @@ class LangGraphWorkflow:
                 # reading: a clock that steps backwards mid-node would otherwise
                 # produce a step that finishes before it starts.
                 finished_at=started_at.fromtimestamp(started_at.timestamp() + elapsed, tz=UTC),
-                input_tokens=report.input_tokens,
-                output_tokens=report.output_tokens,
+                input_tokens=report.input_tokens or spent[0],
+                output_tokens=report.output_tokens or spent[1],
                 details=report.details,
             )
             existing = update.get("steps", ())

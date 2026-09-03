@@ -124,7 +124,11 @@ def build_triage_graph(
         completion = await chat_model.complete(list(prompt.messages))
         documents = await load_documents(repository, prompt.sources, state.tenant_id)
         cited = resolve_citations(completion.text, prompt.sources, documents)
-        return {"draft": cited.text, "citations": cited.citations}
+        return {
+            "draft": cited.text,
+            "citations": cited.citations,
+            "usage": (completion.input_tokens, completion.output_tokens),
+        }
 
     async def verify(state: AgentState) -> StateUpdate:
         """Refuse a draft that cites nothing, after the model has spoken.
