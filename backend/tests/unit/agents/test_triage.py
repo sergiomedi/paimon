@@ -7,13 +7,7 @@ together correctly is a set of nodes that works and an agent that does not.
 """
 
 import pytest
-from tests.fakes import (
-    FakeChatModel,
-    FakeEmbeddingModel,
-    InMemoryCheckpointer,
-    InMemoryDocumentRepository,
-    InMemoryVectorStore,
-)
+from tests.unit.agents.conftest import RUNBOOK, TENANT, Harness, chunk
 
 from paimon.agents.triage import (
     AGENT_NAME,
@@ -24,101 +18,25 @@ from paimon.agents.triage import (
     frame_symptom,
 )
 from paimon.application.use_cases.answer_question import NO_MATERIAL
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.agents import AgentState, GraphSpec, NodeSpec
-from paimon.domain.entities import Chunk, Document, RunStatus
-from paimon.domain.ports import ChunkRecord, IndexDescriptor
+from paimon.domain.entities import RunStatus
 from paimon.infrastructure.orchestration import LangGraphWorkflow
-from paimon.infrastructure.tokenization import HeuristicTokenCounter
-
-TENANT = "tenant-a"
-DIMENSIONS = 64
-
-RUNBOOK = """# Node maintenance
-
-## Draining
-
-Cordon the node first so the scheduler stops placing new pods on it. Eviction
-stalls indefinitely when a disruption budget cannot be satisfied.
-"""
-
-POSTMORTEM = """# INC-2451
-
-## What happened
-
-A drain stalled for forty minutes because a disruption budget could not be met.
-"""
 
 
-def chunk(chunk_id: str, document_id: str, text: str, ordinal: int = 0) -> Chunk:
-    return Chunk(
-        chunk_id=chunk_id,
-        document_id=document_id,
-        tenant_id=TENANT,
-        ordinal=ordinal,
-        text=text,
-        start_char=0,
-        end_char=len(text),
-        token_count=max(len(text.split()), 1),
+def graph(harness: Harness) -> GraphSpec:
+    """Build the triage agent from a harness's collaborators."""
+    return build_triage_graph(
+        harness.retrieve, harness.chat_model, harness.repository, harness.token_counter
     )
 
 
-def document(document_id: str, text: str) -> Document:
-    return Document(
-        document_id=document_id,
-        tenant_id=TENANT,
-        source_uri=f"https://example.test/{document_id}",
-        title=document_id,
-        text=text,
-        content_hash=f"hash-{document_id}",
-        media_type="text/markdown",
-    )
+def node(harness: Harness, name: str) -> NodeSpec:
+    """One node of the triage graph, for calling with no runtime."""
+    return next(item for item in graph(harness).nodes if item.name == name)
 
 
-class Harness:
-    """Everything the agent needs, wired to in-memory implementations."""
-
-    def __init__(self, answer: str = "Cordon the node first [1].") -> None:
-        self.embedding_model = FakeEmbeddingModel(dimensions=DIMENSIONS)
-        self.store = InMemoryVectorStore(
-            IndexDescriptor(
-                name="in-memory",
-                embedding_model_id=self.embedding_model.model_id,
-                dimensions=DIMENSIONS,
-            )
-        )
-        self.repository = InMemoryDocumentRepository()
-        self.chat_model = FakeChatModel(answer=answer)
-        self.checkpointer = InMemoryCheckpointer()
-
-    async def index(self) -> None:
-        chunks = [
-            chunk("c-run", "runbook", RUNBOOK),
-            chunk("c-inc", "incident", POSTMORTEM),
-        ]
-        embeddings = await self.embedding_model.embed_documents([item.text for item in chunks])
-        await self.store.upsert(
-            [
-                ChunkRecord(chunk=item, embedding=embedding)
-                for item, embedding in zip(chunks, embeddings, strict=True)
-            ]
-        )
-        await self.repository.save(document("runbook", RUNBOOK))
-        await self.repository.save(document("incident", POSTMORTEM))
-
-    def graph(self) -> GraphSpec:
-        return build_triage_graph(
-            RetrieveChunks(self.store, self.embedding_model),
-            self.chat_model,
-            self.repository,
-            HeuristicTokenCounter(),
-        )
-
-    def workflow(self) -> LangGraphWorkflow:
-        return LangGraphWorkflow(self.graph(), self.checkpointer)
-
-    def node(self, name: str) -> NodeSpec:
-        return next(node for node in self.graph().nodes if node.name == name)
+def workflow(harness: Harness) -> LangGraphWorkflow:
+    return LangGraphWorkflow(graph(harness), harness.checkpointer)
 
 
 class TestFraming:
@@ -140,15 +58,15 @@ class TestNodesInIsolation:
         await harness.index()
         state = AgentState(question="eviction hangs", tenant_id=TENANT)
 
-        procedure = await harness.node("procedure").run(state)
-        history = await harness.node("history").run(state)
+        procedure = await node(harness, "procedure").run(state)
+        history = await node(harness, "history").run(state)
 
         assert procedure.get("evidence")
         assert history.get("evidence")
 
     async def test_refuse_does_not_call_a_model(self) -> None:
         harness = Harness()
-        update = await harness.node("refuse").run(
+        update = await node(harness, "refuse").run(
             AgentState(question="eviction hangs", tenant_id=TENANT)
         )
         assert update["draft"] == NO_MATERIAL
@@ -157,7 +75,7 @@ class TestNodesInIsolation:
     async def test_verify_leaves_a_supported_draft_alone(self) -> None:
         harness = Harness()
         await harness.index()
-        drafted = await harness.node("draft").run(
+        drafted = await node(harness, "draft").run(
             AgentState(
                 question="eviction hangs",
                 tenant_id=TENANT,
@@ -170,7 +88,7 @@ class TestNodesInIsolation:
             draft=drafted["draft"],
             citations=drafted["citations"],
         )
-        assert await harness.node("verify").run(state) == {}
+        assert await node(harness, "verify").run(state) == {}
 
     async def test_verify_withdraws_a_draft_that_cites_nothing(self) -> None:
         # The model answered, and cited nothing that resolved. Withdrawing is a
@@ -183,7 +101,7 @@ class TestNodesInIsolation:
             draft="Cordon the node first.",
             citations=(),
         )
-        assert (await harness.node("verify").run(state))["draft"] == UNSUPPORTED
+        assert (await node(harness, "verify").run(state))["draft"] == UNSUPPORTED
 
 
 class TestTheWholeAgent:
@@ -192,7 +110,7 @@ class TestTheWholeAgent:
         await harness.index()
         names = [
             step.name
-            async for step in harness.workflow().stream(
+            async for step in workflow(harness).stream(
                 "eviction hangs", thread_id="t-1", tenant_id=TENANT
             )
         ]
@@ -204,7 +122,7 @@ class TestTheWholeAgent:
         harness = Harness()
         names = [
             step.name
-            async for step in harness.workflow().stream(
+            async for step in workflow(harness).stream(
                 "eviction hangs", thread_id="t-1", tenant_id=TENANT
             )
         ]
@@ -219,7 +137,7 @@ class TestTheWholeAgent:
         await harness.index()
         assessment = [
             step
-            async for step in harness.workflow().stream(
+            async for step in workflow(harness).stream(
                 "eviction hangs", thread_id="t-1", tenant_id=TENANT
             )
             if step.name == "assess"
@@ -229,7 +147,7 @@ class TestTheWholeAgent:
     async def test_a_completed_run_is_recorded_under_the_agent_name(self) -> None:
         harness = Harness()
         await harness.index()
-        async for _ in harness.workflow().stream(
+        async for _ in workflow(harness).stream(
             "eviction hangs", thread_id="t-1", tenant_id=TENANT
         ):
             pass
@@ -241,7 +159,7 @@ class TestTheWholeAgent:
     async def test_an_unsupported_answer_is_withdrawn_end_to_end(self) -> None:
         harness = Harness(answer="Reboot everything immediately.")
         await harness.index()
-        async for _ in harness.workflow().stream(
+        async for _ in workflow(harness).stream(
             "eviction hangs", thread_id="t-1", tenant_id=TENANT
         ):
             pass
@@ -254,7 +172,7 @@ class TestTheWholeAgent:
         await harness.index()
         names = [
             step.name
-            async for step in harness.workflow().stream(
+            async for step in workflow(harness).stream(
                 "eviction hangs", thread_id="t-1", tenant_id="tenant-b"
             )
         ]
@@ -263,6 +181,6 @@ class TestTheWholeAgent:
 
 @pytest.mark.parametrize("node_name", ["frame", "procedure", "history", "assess", "draft"])
 def test_every_declared_node_is_reachable(node_name: str) -> None:
-    graph = Harness().graph()
-    graph.validate()
-    assert node_name in graph.node_names()
+    spec = graph(Harness())
+    spec.validate()
+    assert node_name in spec.node_names()

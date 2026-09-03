@@ -90,6 +90,87 @@ class Branch:
 
 
 @dataclass(frozen=True, slots=True)
+class EmbeddedGraph:
+    """One agent, prepared to be spliced into another.
+
+    Attributes:
+        entry: The name the embedded entry node now goes by.
+        nodes: The embedded nodes, renamed.
+        edges: The embedded edges, rewritten.
+        branches: The embedded branches, rewritten.
+    """
+
+    entry: str
+    nodes: tuple["NodeSpec", ...]
+    edges: tuple[tuple[str, str], ...]
+    branches: tuple["Branch", ...]
+
+
+def embed(spec: "GraphSpec", prefix: str, *, exit_to: str) -> EmbeddedGraph:
+    """Prepare one agent to run inside another.
+
+    This is the composition Uber's deployment demonstrated: a capable
+    domain-specific agent reused as a component rather than reimplemented. It is
+    performed on the description, not at runtime, so the result is one flat graph
+    the orchestrator runs without knowing that part of it came from elsewhere —
+    and so every node of the sub-agent still appears in the trace under its own
+    name, which a nested runtime would have hidden.
+
+    Nodes are renamed ``prefix.name`` so two embeddings of the same agent cannot
+    collide, and every edge that ended the sub-agent is redirected to ``exit_to``
+    so the parent continues where the sub-agent stopped.
+
+    **The embedded agent shares the parent's state.** There is no namespacing:
+    what it writes, the parent sees, and what the parent wrote, it reads. That is
+    what makes the reuse worth anything — the evidence the sub-agent gathers
+    merges into the parent's — but it means a parent must consume a field the
+    sub-agent writes before overwriting it. The alternative, a private state per
+    sub-agent, would isolate exactly the thing the parent wanted.
+
+    Args:
+        spec: The agent to embed. Validated first: splicing a broken graph into a
+            working one produces a broken graph whose error names the wrong agent.
+        prefix: Namespace for the embedded node names.
+        exit_to: Node in the parent that the sub-agent's endings lead to.
+
+    Returns:
+        The renamed nodes, edges and branches, and the new entry name.
+
+    Raises:
+        ValueError: If the prefix is blank or the sub-graph does not validate.
+    """
+    if not prefix.strip():
+        msg = "an embedded graph needs a prefix: it is what keeps two embeddings apart"
+        raise ValueError(msg)
+    spec.validate()
+
+    def renamed(name: str) -> str:
+        return f"{prefix}.{name}"
+
+    def retarget(target: str) -> str:
+        return exit_to if target == END else renamed(target)
+
+    return EmbeddedGraph(
+        entry=renamed(spec.entry),
+        nodes=tuple(
+            NodeSpec(
+                name=renamed(node.name), run=node.run, summary=node.summary, report=node.report
+            )
+            for node in spec.nodes
+        ),
+        edges=tuple((renamed(source), retarget(target)) for source, target in spec.edges),
+        branches=tuple(
+            Branch(
+                source=renamed(branch.source),
+                decide=branch.decide,
+                targets={decision: retarget(target) for decision, target in branch.targets.items()},
+            )
+            for branch in spec.branches
+        ),
+    )
+
+
+@dataclass(frozen=True, slots=True)
 class GraphSpec:
     """A complete agent, as data.
 

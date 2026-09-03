@@ -15,10 +15,12 @@ and the graphs they compose into. Neither imports an orchestration framework
 from paimon.domain.agents.graph import (
     END,
     Branch,
+    EmbeddedGraph,
     GraphSpec,
     Node,
     NodeSpec,
     StepReport,
+    embed,
 )
 from paimon.domain.agents.state import (
     AgentState,
@@ -31,11 +33,13 @@ __all__ = [
     "END",
     "AgentState",
     "Branch",
+    "EmbeddedGraph",
     "GraphSpec",
     "Node",
     "NodeSpec",
     "StateUpdate",
     "StepReport",
     "append_steps",
+    "embed",
     "merge_evidence",
 ]

@@ -15,8 +15,9 @@ their results are merged by the ``evidence`` reducer, which is where
 deduplication earns its place: both framings routinely find the same chunk.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 
+from paimon.agents.support import load_documents
 from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.agents import (
@@ -28,7 +29,7 @@ from paimon.domain.agents import (
     StateUpdate,
     StepReport,
 )
-from paimon.domain.entities import Chunk, Document
+from paimon.domain.entities import Chunk
 from paimon.domain.ports import ChatModel, DocumentRepository, SearchFilters, TokenCounter
 from paimon.rag.citations import resolve_citations
 from paimon.rag.prompting import DEFAULT_CONTEXT_TOKENS, build_prompt
@@ -121,7 +122,7 @@ def build_triage_graph(
         """Draft an answer from the merged evidence. The one model call."""
         prompt = build_prompt(state.question, state.evidence, token_counter, max_context_tokens)
         completion = await chat_model.complete(list(prompt.messages))
-        documents = await _load_documents(repository, prompt.sources, state.tenant_id)
+        documents = await load_documents(repository, prompt.sources, state.tenant_id)
         cited = resolve_citations(completion.text, prompt.sources, documents)
         return {"draft": cited.text, "citations": cited.citations}
 
@@ -204,15 +205,3 @@ def _report_assessment(state: AgentState, _update: StateUpdate) -> StepReport:
         summary=f"weighed {found} chunks from {documents} documents",
         details={"chunks": str(found), "documents": str(documents)},
     )
-
-
-async def _load_documents(
-    repository: DocumentRepository, sources: Sequence[Chunk], tenant_id: str
-) -> dict[str, Document]:
-    """Load each cited chunk's document once."""
-    documents: dict[str, Document] = {}
-    for document_id in sorted({chunk.document_id for chunk in sources}):
-        document = await repository.get(tenant_id, document_id)
-        if document is not None:
-            documents[document_id] = document
-    return documents

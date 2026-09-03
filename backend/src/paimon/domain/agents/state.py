@@ -63,6 +63,10 @@ class AgentState:
         citations: Sources the draft actually referred to.
         draft: The answer under construction.
         steps: Append-only record of the nodes that have run.
+        notes: A scratchpad. What one part of a run worked out and a later part
+            needs, when the two are separated by nodes that neither produce nor
+            consume it — a sub-agent's conclusion, read by the node that composes
+            over it before that node overwrites ``draft``.
         awaiting: What a human is being asked to decide, when the run is
             suspended; empty otherwise.
         failure: Why the run failed, when it did.
@@ -73,6 +77,7 @@ class AgentState:
     evidence: Annotated[tuple[Chunk, ...], merge_evidence] = ()
     citations: tuple[Citation, ...] = ()
     draft: str = ""
+    notes: str = ""
     steps: Annotated[tuple[AgentStep, ...], append_steps] = ()
     awaiting: str = ""
     failure: str = ""
@@ -99,6 +104,7 @@ class StateUpdate(TypedDict, total=False):
     evidence: tuple[Chunk, ...]
     citations: tuple[Citation, ...]
     draft: str
+    notes: str
     steps: tuple[AgentStep, ...]
     awaiting: str
     failure: str
