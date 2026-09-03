@@ -55,6 +55,24 @@ def add_usage(left: Sequence[int], right: Sequence[int]) -> tuple[int, int]:
     return (left_in + right_in, left_out + right_out)
 
 
+def combine_failures(left: str, right: str) -> str:
+    """Join the reasons a run failed, keeping each one once.
+
+    A reducer rather than the default replacement, and the reason is worth
+    stating because it took a real run to find. Any node can fail, and the
+    adapter records the failure as state — so two nodes running concurrently can
+    both fail, and two writes to one field in one step is an error the
+    orchestrator refuses outright. Retrieval that runs two framings in parallel
+    against an unreachable provider fails twice by construction, which makes this
+    the ordinary case rather than the exotic one.
+
+    Both reasons are kept: when two branches fail differently, the second is
+    usually what explains the first.
+    """
+    reasons = [reason for reason in (left, right) if reason]
+    return "; ".join(dict.fromkeys(reasons))
+
+
 def merge_evidence(left: Sequence[Chunk], right: Sequence[Chunk]) -> tuple[Chunk, ...]:
     """Combine retrieved chunks, keeping the first occurrence and dropping repeats.
 
@@ -98,7 +116,8 @@ class AgentState:
             over it before that node overwrites ``draft``.
         awaiting: What a human is being asked to decide, when the run is
             suspended; empty otherwise.
-        failure: Why the run failed, when it did.
+        failure: Why the run failed, when it did. Joined by the reducer, because
+            concurrent branches can fail independently and separately.
     """
 
     question: str
@@ -110,7 +129,7 @@ class AgentState:
     steps: Annotated[tuple[AgentStep, ...], append_steps] = ()
     usage: Annotated[tuple[int, int], add_usage] = (0, 0)
     awaiting: str = ""
-    failure: str = ""
+    failure: Annotated[str, combine_failures] = ""
 
     @property
     def grounded(self) -> bool:

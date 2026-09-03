@@ -1,5 +1,7 @@
 """A corpus and a wiring harness shared by the agent tests."""
 
+from collections.abc import Sequence
+
 from tests.fakes import (
     FakeChatModel,
     FakeEmbeddingModel,
@@ -10,7 +12,9 @@ from tests.fakes import (
 
 from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.entities import Chunk, Document
-from paimon.domain.ports import ChunkRecord, IndexDescriptor
+from paimon.domain.errors import EmbeddingError
+from paimon.domain.ports import ChunkRecord, EmbeddingModel, IndexDescriptor
+from paimon.domain.value_objects import Embedding
 from paimon.infrastructure.orchestration import LangGraphWorkflow
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
 
@@ -55,11 +59,35 @@ def document(document_id: str, text: str) -> Document:
     )
 
 
+class UnreachableEmbeddingModel:
+    """An embedding model whose provider is down.
+
+    Not a contrived case: it is what a local Ollama that is not running, or an
+    Azure endpoint behind a network blip, looks like from inside a node.
+    """
+
+    def __init__(self, dimensions: int = DIMENSIONS) -> None:
+        self.dimensions = dimensions
+        self.model_id = "unreachable"
+
+    async def embed_documents(self, texts: Sequence[str]) -> list[Embedding]:
+        msg = "embedding provider unreachable: All connection attempts failed"
+        raise EmbeddingError(msg)
+
+    async def embed_query(self, text: str) -> Embedding:
+        msg = "embedding provider unreachable: All connection attempts failed"
+        raise EmbeddingError(msg)
+
+
 class Harness:
     """In-memory everything, wired the way the composition root wires it."""
 
-    def __init__(self, answer: str = "Cordon the node first [1].") -> None:
-        self.embedding_model = FakeEmbeddingModel(dimensions=DIMENSIONS)
+    def __init__(
+        self, answer: str = "Cordon the node first [1].", *, reachable: bool = True
+    ) -> None:
+        self.embedding_model: EmbeddingModel = (
+            FakeEmbeddingModel(dimensions=DIMENSIONS) if reachable else UnreachableEmbeddingModel()
+        )
         self.store = InMemoryVectorStore(
             IndexDescriptor(
                 name="in-memory",

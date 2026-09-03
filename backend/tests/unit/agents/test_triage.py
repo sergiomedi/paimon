@@ -13,6 +13,7 @@ from paimon.agents.triage import (
     AGENT_NAME,
     HISTORY_FRAMING,
     PROCEDURE_FRAMING,
+    RETRIEVAL_FAILED,
     UNSUPPORTED,
     build_triage_graph,
     frame_symptom,
@@ -102,6 +103,56 @@ class TestNodesInIsolation:
             citations=(),
         )
         assert (await node(harness, "verify").run(state))["draft"] == UNSUPPORTED
+
+
+class TestWhenTheSearchItselfBreaks:
+    """Found by running the platform, not by imagining a case.
+
+    Two parallel retrievals against an unreachable embedding provider fail
+    together, which is the ordinary outcome rather than a rare one: whatever
+    broke the first branch is still true for the second.
+    """
+
+    async def test_both_branches_failing_does_not_abort_the_run(self) -> None:
+        harness = Harness(reachable=False)
+        names = [
+            step.name
+            async for step in workflow(harness).stream(
+                "eviction hangs", thread_id="t-1", tenant_id=TENANT
+            )
+        ]
+        assert names[-1] == "abort"
+
+    async def test_it_says_the_search_broke_rather_than_that_nothing_exists(self) -> None:
+        # "I have no indexed material" is a false statement about the corpus
+        # when nobody actually looked, and the difference matters most at the
+        # moment someone is relying on the answer.
+        harness = Harness(reachable=False)
+        update = await node(harness, "abort").run(
+            AgentState(question="eviction hangs", tenant_id=TENANT)
+        )
+        assert update["draft"] == RETRIEVAL_FAILED
+        assert update["draft"] != NO_MATERIAL
+
+    async def test_the_run_is_recorded_as_failed_with_both_reasons(self) -> None:
+        harness = Harness(reachable=False)
+        async for _ in workflow(harness).stream(
+            "eviction hangs", thread_id="t-1", tenant_id=TENANT
+        ):
+            pass
+        run = await harness.checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.FAILED
+        failed = [step for step in run.steps if "failed" in step.summary]
+        assert {step.name for step in failed} == {"procedure", "history"}
+
+    async def test_no_model_is_called_when_the_search_broke(self) -> None:
+        harness = Harness(reachable=False)
+        async for _ in workflow(harness).stream(
+            "eviction hangs", thread_id="t-1", tenant_id=TENANT
+        ):
+            pass
+        assert harness.chat_model.calls == []
 
 
 class TestTheWholeAgent:

@@ -2,7 +2,13 @@
 
 from tests.unit.agents.conftest import TENANT, Harness
 
-from paimon.agents.gaps import AGENT_NAME, ASPECTS, NOTHING_INDEXED, build_gaps_graph
+from paimon.agents.gaps import (
+    AGENT_NAME,
+    ASPECTS,
+    NOTHING_INDEXED,
+    SURVEY_FAILED,
+    build_gaps_graph,
+)
 from paimon.domain.agents import AgentState, NodeSpec
 from paimon.domain.entities import RunStatus
 
@@ -74,6 +80,31 @@ class TestAnEmptyCorpus:
             AgentState(question="node draining", tenant_id=TENANT)
         )
         assert update["draft"] == NOTHING_INDEXED
+
+
+class TestWhenTheSurveyBreaks:
+    """The asymmetry that makes this agent useful also makes it dangerous."""
+
+    async def test_a_broken_search_is_not_reported_as_undocumented(self) -> None:
+        # Finding nothing IS the finding here, so a search that failed silently
+        # becomes the strongest possible claim about the documentation. It is
+        # the one failure mode where being wrong looks like being right.
+        harness = Harness(reachable=False)
+        names = await run(harness)
+        assert names[-1] == "report_failure"
+
+    async def test_it_says_so_plainly(self) -> None:
+        harness = Harness(reachable=False)
+        update = await node(harness, "report_failure").run(
+            AgentState(question="node draining", tenant_id=TENANT)
+        )
+        assert update["draft"] == SURVEY_FAILED
+        assert update["draft"] != NOTHING_INDEXED
+
+    async def test_no_model_is_called(self) -> None:
+        harness = Harness(reachable=False)
+        await run(harness)
+        assert harness.chat_model.calls == []
 
 
 class TestCoverage:

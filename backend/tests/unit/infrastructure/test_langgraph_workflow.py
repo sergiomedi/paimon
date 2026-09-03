@@ -40,6 +40,11 @@ async def explode(state: AgentState) -> StateUpdate:
     raise RuntimeError(msg)
 
 
+async def refuse_differently(state: AgentState) -> StateUpdate:
+    msg = "the index is missing"
+    raise RuntimeError(msg)
+
+
 def two_step() -> GraphSpec:
     return GraphSpec(
         name="triage",
@@ -162,6 +167,66 @@ class TestFailure:
         assert "the provider refused" in run.steps[-1].summary
         # The successful step before the failure is still there.
         assert run.steps[0].name == "retrieve"
+
+    async def test_two_branches_can_fail_at_once(self) -> None:
+        # Found by running the platform against an unreachable provider, not by
+        # a test: two parallel retrievals both failed, both wrote the failure,
+        # and the orchestrator refused two writes to one field in one step. A
+        # graph that fans out has no exotic case here - it is the ordinary one,
+        # because whatever made the first branch fail is usually still true for
+        # the second.
+        checkpointer = InMemoryCheckpointer()
+        spec = GraphSpec(
+            name="fanout",
+            entry="frame",
+            nodes=[
+                NodeSpec(name="frame", run=retrieve),
+                NodeSpec(name="left", run=explode),
+                NodeSpec(name="right", run=explode),
+                NodeSpec(name="join", run=retrieve),
+            ],
+            edges=[
+                ("frame", "left"),
+                ("frame", "right"),
+                ("left", "join"),
+                ("right", "join"),
+                ("join", END),
+            ],
+        )
+        names = await steps_of(LangGraphWorkflow(spec, checkpointer))
+
+        assert sorted(names) == ["frame", "join", "left", "right"]
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.FAILED
+
+    async def test_both_reasons_are_kept_when_two_branches_fail(self) -> None:
+        # When two branches fail differently, the second is usually what
+        # explains the first.
+        spec = GraphSpec(
+            name="fanout",
+            entry="frame",
+            nodes=[
+                NodeSpec(name="frame", run=retrieve),
+                NodeSpec(name="left", run=explode),
+                NodeSpec(name="right", run=refuse_differently),
+                NodeSpec(name="join", run=retrieve),
+            ],
+            edges=[
+                ("frame", "left"),
+                ("frame", "right"),
+                ("left", "join"),
+                ("right", "join"),
+                ("join", END),
+            ],
+        )
+        checkpointer = InMemoryCheckpointer()
+        await steps_of(LangGraphWorkflow(spec, checkpointer))
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        summaries = " ".join(step.summary for step in run.steps)
+        assert "the provider refused" in summaries
+        assert "the index is missing" in summaries
 
     async def test_a_malformed_graph_fails_at_construction_not_on_the_first_question(
         self,

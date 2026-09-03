@@ -27,6 +27,7 @@ from paimon.domain.agents.state import (
     StateUpdate,
     add_usage,
     append_steps,
+    combine_failures,
     merge_evidence,
 )
 
@@ -42,6 +43,7 @@ __all__ = [
     "StepReport",
     "add_usage",
     "append_steps",
+    "combine_failures",
     "embed",
     "merge_evidence",
 ]

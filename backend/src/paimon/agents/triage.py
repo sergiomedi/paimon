@@ -47,6 +47,11 @@ UNSUPPORTED = (
     "so I am not offering it as an answer."
 )
 
+RETRIEVAL_FAILED = (
+    "I could not search the corpus, so I do not know whether anything covers this. "
+    "That is different from having looked and found nothing."
+)
+
 
 def frame_symptom(symptom: str) -> tuple[str, str]:
     """Return the procedure framing and the history framing of a symptom."""
@@ -108,6 +113,18 @@ def build_triage_graph(
         """
         return {}
 
+    async def abort(_state: AgentState) -> StateUpdate:
+        """Say that retrieval broke, which is not the same as finding nothing.
+
+        Without this node the two are indistinguishable to a reader: an empty
+        result reaches the same branch whether the corpus is silent or the
+        provider was unreachable, and "I have no indexed material" is a false
+        statement about the corpus when what actually happened is that nobody
+        looked. The distinction matters most at exactly the moment someone is
+        relying on the answer.
+        """
+        return {"draft": RETRIEVAL_FAILED, "citations": ()}
+
     async def refuse(_state: AgentState) -> StateUpdate:
         """Say there is nothing, without calling a model.
 
@@ -166,6 +183,7 @@ def build_triage_graph(
                 report=_report_assessment,
             ),
             NodeSpec(name="refuse", run=refuse, summary="found nothing to answer from"),
+            NodeSpec(name="abort", run=abort, summary="could not search the corpus"),
             NodeSpec(name="draft", run=draft, summary="drafted a grounded answer"),
             NodeSpec(name="verify", run=verify, summary="checked the draft is supported"),
         ],
@@ -175,17 +193,29 @@ def build_triage_graph(
             ("procedure", "assess"),
             ("history", "assess"),
             ("refuse", END),
+            ("abort", END),
             ("draft", "verify"),
             ("verify", END),
         ],
         branches=[
             Branch(
                 source="assess",
-                decide=lambda state: "draft" if state.evidence else "refuse",
-                targets={"draft": "draft", "refuse": "refuse"},
+                # Evidence first: one framing failing does not waste what the
+                # other found, and the failure stays on the run's record either
+                # way. Only with nothing at all does it matter whether the
+                # silence came from the corpus or from a broken search.
+                decide=_route,
+                targets={"draft": "draft", "refuse": "refuse", "abort": "abort"},
             )
         ],
     )
+
+
+def _route(state: AgentState) -> str:
+    """Choose between drafting, refusing, and admitting the search broke."""
+    if state.evidence:
+        return "draft"
+    return "abort" if state.failure else "refuse"
 
 
 def _report_evidence(retriever: str) -> Callable[[AgentState, StateUpdate], StepReport]:

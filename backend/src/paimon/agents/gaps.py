@@ -50,6 +50,11 @@ NOTHING_INDEXED = (
     "finding: every aspect is undocumented."
 )
 
+SURVEY_FAILED = (
+    "I could not search the corpus, so this is not a finding about the "
+    "documentation. Nothing was assessed."
+)
+
 
 def build_gaps_graph(
     retrieve: RetrieveChunks,
@@ -84,6 +89,16 @@ def build_gaps_graph(
         what a gap analysis exists to discover, so it is reported as a finding.
         """
         return {"draft": NOTHING_INDEXED, "citations": ()}
+
+    async def report_failure(_state: AgentState) -> StateUpdate:
+        """Refuse to call an unsearched corpus undocumented.
+
+        The asymmetry that makes this agent useful also makes it dangerous:
+        finding nothing IS the finding, so a broken search silently becomes the
+        strongest possible claim about the documentation. It is the one failure
+        mode where being wrong looks like being right.
+        """
+        return {"draft": SURVEY_FAILED, "citations": ()}
 
     async def analyse(state: AgentState) -> StateUpdate:
         """Ask, once, which aspects the retrieved material covers."""
@@ -125,6 +140,11 @@ def build_gaps_graph(
                 run=report_nothing,
                 summary="found nothing indexed on the topic",
             ),
+            NodeSpec(
+                name="report_failure",
+                run=report_failure,
+                summary="could not search the corpus",
+            ),
             NodeSpec(name="analyse", run=analyse, summary="assessed coverage per aspect"),
             NodeSpec(
                 name="summarise",
@@ -135,17 +155,29 @@ def build_gaps_graph(
         ],
         edges=[
             ("report_nothing", END),
+            ("report_failure", END),
             ("analyse", "summarise"),
             ("summarise", END),
         ],
         branches=[
             Branch(
                 source="survey",
-                decide=lambda state: "analyse" if state.evidence else "nothing",
-                targets={"analyse": "analyse", "nothing": "report_nothing"},
+                decide=_route,
+                targets={
+                    "analyse": "analyse",
+                    "nothing": "report_nothing",
+                    "failed": "report_failure",
+                },
             )
         ],
     )
+
+
+def _route(state: AgentState) -> str:
+    """Choose between assessing, reporting a gap, and admitting the search broke."""
+    if state.evidence:
+        return "analyse"
+    return "failed" if state.failure else "nothing"
 
 
 def _mentioned(draft: str) -> tuple[str, ...]:
