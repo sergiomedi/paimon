@@ -6,12 +6,14 @@ from tests.fakes.chat import FakeChatModel
 from tests.fakes.checkpointer import InMemoryCheckpointer
 from tests.fakes.embedding import FakeEmbeddingModel
 from tests.fakes.repository import InMemoryDocumentRepository
+from tests.fakes.tool_chat import FakeToolCallingChatModel
 from tests.fakes.vector_store import InMemoryHybridVectorStore, InMemoryVectorStore
 
 __all__ = [
     "FakeAzureSearchService",
     "FakeChatModel",
     "FakeEmbeddingModel",
+    "FakeToolCallingChatModel",
     "InMemoryAgentMemory",
     "InMemoryCheckpointer",
     "InMemoryDocumentRepository",

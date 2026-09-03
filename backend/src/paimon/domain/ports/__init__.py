@@ -5,7 +5,16 @@ the union of what every possible backend can do. Implementations live in the
 infrastructure layer and are bound to these protocols at the composition root.
 """
 
-from paimon.domain.ports.chat import ChatModel, Completion, Message, Role
+from paimon.domain.ports.chat import (
+    ChatModel,
+    Completion,
+    Message,
+    Role,
+    ToolCall,
+    ToolCallingChatModel,
+    ToolCompletion,
+    ToolDefinition,
+)
 from paimon.domain.ports.embedding import EmbeddingModel
 from paimon.domain.ports.health import HealthProbe
 from paimon.domain.ports.identity import IdentityProvider
@@ -48,5 +57,9 @@ __all__ = [
     "SearchFilters",
     "SearchHit",
     "TokenCounter",
+    "ToolCall",
+    "ToolCallingChatModel",
+    "ToolCompletion",
+    "ToolDefinition",
     "VectorStore",
 ]

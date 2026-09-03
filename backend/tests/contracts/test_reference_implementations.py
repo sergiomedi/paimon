@@ -14,6 +14,8 @@ from paimon.domain.ports import (
     DocumentRepository,
     EmbeddingModel,
     IndexDescriptor,
+    ToolCall,
+    ToolCallingChatModel,
     VectorStore,
 )
 from tests.contracts.agent_checkpointer import AgentCheckpointerContract
@@ -21,10 +23,12 @@ from tests.contracts.agent_memory import AgentMemoryContract
 from tests.contracts.chat_model import ChatModelContract
 from tests.contracts.document_repository import DocumentRepositoryContract
 from tests.contracts.embedding_model import EmbeddingModelContract
+from tests.contracts.tool_calling import ToolCallingChatModelContract
 from tests.contracts.vector_store import VectorStoreContract
 from tests.fakes import (
     FakeChatModel,
     FakeEmbeddingModel,
+    FakeToolCallingChatModel,
     InMemoryAgentMemory,
     InMemoryCheckpointer,
     InMemoryDocumentRepository,
@@ -78,3 +82,25 @@ class TestInMemoryAgentMemory(AgentMemoryContract):
     @pytest.fixture
     def memory(self) -> AgentMemory:
         return InMemoryAgentMemory(FakeEmbeddingModel(dimensions=DIMENSIONS))
+
+
+class TestFakeToolCallingChatModel(ToolCallingChatModelContract):
+    @pytest.fixture
+    def tool_model(self) -> ToolCallingChatModel:
+        return FakeToolCallingChatModel(
+            tool_calls=[
+                ToolCall(
+                    call_id="call-1",
+                    name="search_corpus",
+                    arguments={"query": "draining"},
+                )
+            ]
+        )
+
+    @pytest.fixture
+    def text_only_model(self) -> ToolCallingChatModel:
+        return FakeToolCallingChatModel(text="Cordon the node first.")
+
+    @pytest.fixture
+    def empty_model(self) -> ToolCallingChatModel:
+        return FakeToolCallingChatModel()

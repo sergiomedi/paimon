@@ -18,9 +18,10 @@ from typing import Any
 import httpx
 
 from paimon.domain.errors import EmbeddingError, GenerationError
-from paimon.domain.ports import Completion, Message
+from paimon.domain.ports import Completion, Message, ToolCompletion, ToolDefinition
 from paimon.domain.value_objects import Embedding
 from paimon.infrastructure.azure.credentials import AzureCredential
+from paimon.infrastructure.chat._tools import encode_message, encode_tools, parse_tool_completion
 from paimon.infrastructure.embedding._responses import parse_embeddings
 
 COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
@@ -209,9 +210,7 @@ class AzureOpenAIChatModel:
     ) -> Completion:
         """Generate an answer."""
         payload: dict[str, Any] = {
-            "messages": [
-                {"role": message.role, "content": message.content} for message in messages
-            ],
+            "messages": [encode_message(message) for message in messages],
             "temperature": self._temperature if temperature is None else temperature,
         }
         limit = max_output_tokens or self._max_output_tokens
@@ -241,6 +240,52 @@ class AzureOpenAIChatModel:
             input_tokens=int(usage.get("prompt_tokens") or 0),
             output_tokens=int(usage.get("completion_tokens") or 0),
         )
+
+    async def complete_with_tools(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        *,
+        temperature: float = 0.0,
+        max_output_tokens: int | None = None,
+    ) -> ToolCompletion:
+        """Generate, offering the model a set of tools it may ask for.
+
+        Args:
+            messages: Conversation so far, oldest first.
+            tools: What the model may request.
+            temperature: Sampling temperature.
+            max_output_tokens: Upper bound on the answer length, if any.
+
+        Returns:
+            The text produced, the tools requested, and what it cost.
+
+        Raises:
+            GenerationError: If the provider failed, or returned something this
+                platform cannot act on.
+        """
+        payload: dict[str, Any] = {
+            "messages": [encode_message(message) for message in messages],
+            "temperature": temperature,
+        }
+        if tools:
+            payload["tools"] = encode_tools(tools)
+        limit = max_output_tokens or self._max_output_tokens
+        if limit is not None:
+            payload["max_tokens"] = limit
+
+        body = await self._transport.post("chat/completions", payload, GenerationError)
+        try:
+            return parse_tool_completion(body, self._config.deployment)
+        except GenerationError as error:
+            # An empty response here is usually the content filter, and the
+            # generic message would send whoever reads it looking for a bug in
+            # the prompt instead.
+            reason = _filter_reason(body)
+            if not reason:
+                raise
+            msg = f"{error}{reason}"
+            raise GenerationError(msg) from error
 
 
 def _filter_reason(body: Any) -> str:

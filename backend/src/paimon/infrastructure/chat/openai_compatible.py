@@ -7,7 +7,13 @@ from typing import Any
 import httpx
 
 from paimon.domain.errors import GenerationError
-from paimon.domain.ports import Completion, Message
+from paimon.domain.ports import (
+    Completion,
+    Message,
+    ToolCompletion,
+    ToolDefinition,
+)
+from paimon.infrastructure.chat._tools import encode_message, encode_tools, parse_tool_completion
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
@@ -88,19 +94,56 @@ class OpenAICompatibleChatModel:
         """
         payload: dict[str, Any] = {
             "model": self._config.model,
-            "messages": [
-                {"role": message.role, "content": message.content} for message in messages
-            ],
+            "messages": [encode_message(message) for message in messages],
             "temperature": (self._config.temperature if temperature is None else temperature),
         }
         limit = max_output_tokens or self._config.max_output_tokens
         if limit is not None:
             payload["max_tokens"] = limit
 
+        return self._parse(await self._post(payload))
+
+    async def complete_with_tools(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[ToolDefinition],
+        *,
+        temperature: float = 0.0,
+        max_output_tokens: int | None = None,
+    ) -> ToolCompletion:
+        """Generate, offering the model a set of tools it may ask for.
+
+        Args:
+            messages: Conversation so far, oldest first.
+            tools: What the model may request.
+            temperature: Sampling temperature.
+            max_output_tokens: Upper bound on the answer length, if any.
+
+        Returns:
+            The text produced, the tools requested, and what it cost.
+
+        Raises:
+            GenerationError: If the provider failed, or returned something this
+                platform cannot act on.
+        """
+        payload: dict[str, Any] = {
+            "model": self._config.model,
+            "messages": [encode_message(message) for message in messages],
+            "temperature": temperature,
+        }
+        if tools:
+            payload["tools"] = encode_tools(tools)
+        limit = max_output_tokens or self._config.max_output_tokens
+        if limit is not None:
+            payload["max_tokens"] = limit
+        body = await self._post(payload)
+        return parse_tool_completion(body, self._config.model)
+
+    async def _post(self, payload: dict[str, Any]) -> Any:
         try:
             response = await self._client.post("/chat/completions", json=payload)
             response.raise_for_status()
-            body = response.json()
+            return response.json()
         except httpx.HTTPStatusError as error:
             msg = f"chat provider returned {error.response.status_code}"
             raise GenerationError(msg) from error
@@ -110,8 +153,6 @@ class OpenAICompatibleChatModel:
         except ValueError as error:
             msg = f"chat provider returned a malformed body: {error}"
             raise GenerationError(msg) from error
-
-        return self._parse(body)
 
     def _parse(self, body: Any) -> Completion:
         try:

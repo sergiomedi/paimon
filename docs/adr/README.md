@@ -28,6 +28,7 @@ reasoning trail, and rewriting history destroys it.
 | [0015](0015-agent-state-lives-in-the-domain.md) | Agent state lives in the domain, the graph in infrastructure | Accepted |
 | [0016](0016-deterministic-workflows-before-autonomous-agents.md) | Deterministic workflows before autonomous agents | Accepted |
 | [0017](0017-agent-persistence-on-the-existing-driver.md) | Persist agent runs on the drivers the platform already has | Accepted |
+| [0018](0018-tool-calling-as-a-capability.md) | Tool calling is a capability, and the tool surface stays small | Accepted |
 
 ## Writing a new ADR
 
