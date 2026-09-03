@@ -17,6 +17,18 @@ from paimon.domain.agents import (
     StateUpdate,
     StepReport,
 )
+from paimon.domain.entities import Chunk
+
+CHUNK = Chunk(
+    chunk_id="c-1",
+    document_id="doc-1",
+    tenant_id="tenant-a",
+    ordinal=0,
+    text="a passage",
+    start_char=0,
+    end_char=9,
+    token_count=2,
+)
 
 
 async def noop(state: AgentState) -> StateUpdate:
@@ -104,30 +116,39 @@ class TestValidation:
         ).validate()
 
 
+ARRIVED = AgentState(question="why?", tenant_id="tenant-a")
+
+
 class TestNodeDescription:
     def test_a_node_without_a_report_uses_its_fixed_summary(self) -> None:
-        assert node("retrieve", summary="looked for material").describe({}).summary == (
-            "looked for material"
-        )
+        described = node("retrieve", summary="looked for material").describe(ARRIVED, {})
+        assert described.summary == "looked for material"
 
     def test_a_node_with_neither_falls_back_to_its_name(self) -> None:
-        assert node("retrieve").describe({}).summary == "retrieve"
+        assert node("retrieve").describe(ARRIVED, {}).summary == "retrieve"
 
-    def test_a_report_can_describe_what_actually_happened(self) -> None:
-        described = node(
-            "retrieve",
-            summary="looked for material",
-            report=lambda update: StepReport(
-                summary=f"retrieved {len(update.get('evidence', ()))} chunks"
-            ),
-        ).describe({"evidence": ()})
+    def test_a_report_can_describe_what_the_node_changed(self) -> None:
+        def report(_state: AgentState, update: StateUpdate) -> StepReport:
+            return StepReport(summary=f"retrieved {len(update.get('evidence', ()))} chunks")
+
+        described = node("retrieve", summary="looked", report=report).describe(
+            ARRIVED, {"evidence": ()}
+        )
         assert described.summary == "retrieved 0 chunks"
 
+    def test_a_report_can_describe_what_the_node_saw(self) -> None:
+        # The reason report() takes the state: a node that merges two branches
+        # changes nothing and has the most worth saying about what arrived.
+        def report(state: AgentState, _update: StateUpdate) -> StepReport:
+            return StepReport(summary=f"weighed {len(state.evidence)} chunks")
+
+        arrived = AgentState(question="why?", tenant_id="tenant-a", evidence=(CHUNK,))
+        assert node("assess", report=report).describe(arrived, {}).summary == "weighed 1 chunks"
+
     def test_a_report_that_only_counts_tokens_keeps_the_fixed_summary(self) -> None:
-        described = node(
-            "answer",
-            summary="drafted an answer",
-            report=lambda _: StepReport(input_tokens=80, output_tokens=20),
-        ).describe({})
+        def report(_state: AgentState, _update: StateUpdate) -> StepReport:
+            return StepReport(input_tokens=80, output_tokens=20)
+
+        described = node("answer", summary="drafted an answer", report=report).describe(ARRIVED, {})
         assert described.summary == "drafted an answer"
         assert described.input_tokens == 80

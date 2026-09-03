@@ -43,19 +43,21 @@ class NodeSpec:
         name: How this node appears in a run's trace. Must be unique in a graph.
         run: The work. A coroutine from a state to the fields it changed.
         summary: A fixed description, used when ``report`` is not given.
-        report: Turns the node's own update into a step record, when what is
-            worth reporting depends on what happened.
+        report: Turns what the node saw and what it changed into a step record.
+            Takes the input state as well as the update, because what is worth
+            reporting is often about what arrived — a node that merges two
+            branches changes nothing and has the most to say.
     """
 
     name: str
     run: Node
     summary: str = ""
-    report: Callable[[StateUpdate], StepReport] | None = None
+    report: Callable[[AgentState, StateUpdate], StepReport] | None = None
 
-    def describe(self, update: StateUpdate) -> StepReport:
+    def describe(self, state: AgentState, update: StateUpdate) -> StepReport:
         """Return the step record for one execution of this node."""
         if self.report is not None:
-            reported = self.report(update)
+            reported = self.report(state, update)
             if reported.summary:
                 return reported
             return StepReport(

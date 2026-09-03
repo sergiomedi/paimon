@@ -31,6 +31,10 @@ async def answer(state: AgentState) -> StateUpdate:
     return {"draft": state.draft.upper()}
 
 
+def count_tokens(_state: AgentState, _update: StateUpdate) -> StepReport:
+    return StepReport(input_tokens=80, output_tokens=20)
+
+
 async def explode(state: AgentState) -> StateUpdate:
     msg = "the provider refused"
     raise RuntimeError(msg)
@@ -104,7 +108,7 @@ class TestRunning:
                     name="answer",
                     run=answer,
                     summary="drafted",
-                    report=lambda _: StepReport(input_tokens=80, output_tokens=20),
+                    report=count_tokens,
                 )
             ],
             edges=[("answer", END)],

@@ -127,7 +127,7 @@ class LangGraphWorkflow:
                 return {"steps": (step,), "failure": f"{node.name}: {error}"}
 
             elapsed = time.perf_counter() - began
-            report = node.describe(update)
+            report = node.describe(state, update)
             step = AgentStep(
                 name=node.name,
                 summary=report.summary,
