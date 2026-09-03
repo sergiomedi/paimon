@@ -90,21 +90,35 @@ layers with a strictly inward dependency direction.
 ```mermaid
 flowchart RL
     interfaces["<b>interfaces/</b><br/>FastAPI routers, request/response<br/>schemas, dependency wiring"]
+    agents["<b>agents/</b><br/>Node bodies, graph descriptions,<br/>the tools a model may ask for"]
     application["<b>application/</b><br/>Use cases, orchestration,<br/>transaction boundaries"]
-    domain["<b>domain/</b><br/>Entities, value objects,<br/><b>ports</b> (protocols)"]
-    infrastructure["<b>infrastructure/</b><br/>Adapters: Azure OpenAI, Azure AI Search,<br/>SQLAlchemy, Redis, Entra ID"]
+    rag["<b>rag/</b><br/>Chunking, rank fusion,<br/>prompt assembly, citations"]
+    domain["<b>domain/</b><br/>Entities, value objects, agent state,<br/><b>ports</b> (protocols)"]
+    infrastructure["<b>infrastructure/</b><br/>Adapters: Azure OpenAI, Azure AI Search,<br/>SQLAlchemy, Redis, Entra ID, LangGraph"]
 
-    interfaces --> application
-    application --> domain
+    interfaces --> agents
+    agents --> application
+    application --> rag
+    rag --> domain
     infrastructure --> domain
 ```
 
 | Layer | May import | Must never import |
 |---|---|---|
 | `domain` | stdlib, `pydantic` | anything else in the project, any framework |
-| `application` | `domain` | `infrastructure`, `interfaces`, FastAPI |
-| `infrastructure` | `domain` | `application`, `interfaces` |
-| `interfaces` | `application`, `domain` | `infrastructure` (except at the composition root) |
+| `rag` | `domain` | everything above it, `paimon.config` |
+| `application` | `domain`, `rag` | `infrastructure`, `interfaces`, FastAPI |
+| `agents` | `application`, `rag`, `domain` | `infrastructure`, **`langgraph`** |
+| `infrastructure` | `domain` | `application`, `agents`, `interfaces` |
+| `interfaces` | everything above `infrastructure` | `infrastructure` (except at the composition root) |
+
+The row that looks strangest is the useful one: **`agents` may not import LangGraph.** An
+agent is a description — named nodes, edges, and branches whose decisions are plain functions
+— and `infrastructure/orchestration/` is what turns one into a running graph. So a node body is
+an ordinary coroutine that a unit test calls and awaits, with no runtime involved
+([ADR-0015](../adr/0015-agent-state-lives-in-the-domain.md)). The agent state and the graph
+vocabulary live in `domain/agents/`, because the `AgentWorkflow` port is written in them and
+any adapter has to speak them.
 
 The composition root — the single place where concrete adapters are bound to ports — is
 `interfaces/api/dependencies.py`. It is the only module allowed to import from
@@ -146,6 +160,52 @@ model or Azure OpenAI, is decided at startup by configuration.
 
 ---
 
+## 4b. Agent flow: incident triage
+
+Agents are **workflows before they are agents**: the steps are fixed, and a model decides
+content at one node rather than deciding what happens next
+([ADR-0016](../adr/0016-deterministic-workflows-before-autonomous-agents.md)). That is what
+makes a run reproducible at temperature zero, boundable in cost before it starts, and scoreable
+by the Phase 6 benchmark.
+
+```mermaid
+flowchart TD
+    frame["<b>frame</b><br/>normalise the symptom"]
+    procedure["<b>procedure</b><br/>retrieve: what do I do"]
+    history["<b>history</b><br/>retrieve: has this happened"]
+    assess{"<b>assess</b><br/>what came back?"}
+    draft["<b>draft</b><br/>the one model call"]
+    verify["<b>verify</b><br/>does it cite anything?"]
+    refuse["<b>refuse</b><br/>nothing is indexed"]
+    abort["<b>abort</b><br/>the search itself failed"]
+
+    frame --> procedure & history
+    procedure & history --> assess
+    assess -->|evidence| draft
+    assess -->|nothing, no failure| refuse
+    assess -->|nothing, and a failure| abort
+    draft --> verify
+```
+
+A symptom is two questions — *what do I do* lives in runbooks, *has this happened before* lives
+in postmortems — and one embedding of the raw symptom sits between them and retrieves neither
+well. The two framings run concurrently and their results are merged by a reducer that
+deduplicates by chunk id, because both routinely reach the same passage.
+
+The three terminal states are deliberately distinct. `refuse` means the corpus was searched and
+holds nothing. `abort` means the search could not be performed, which is **not** a statement
+about the corpus — conflating the two would have the platform assert that nothing is documented
+because a provider was unreachable. `verify` withdraws a draft whose citations resolved to
+nothing, and it is ordinary code: a model asked whether it is grounded will usually agree with
+itself, while whether a marker resolved is a fact the platform already holds.
+
+Postmortem drafting embeds this whole agent as a sub-component under a `precedent.*` prefix,
+spliced at the description rather than run as a nested graph — so the orchestrator executes one
+flat graph, one run is recorded, and every embedded node still appears in the trace under its
+own name.
+
+---
+
 ## 5. Non-functional posture
 
 | Concern | Phase 1 position | Where it grows |
@@ -165,7 +225,14 @@ Recorded honestly rather than hidden — each is scheduled, not forgotten.
 
 - **Multi-tenancy** is modelled in the domain (`tenant_id` on every aggregate) but not yet
   enforced at the database level. Row-level security lands with the RAG system in Phase 2.
-- **The agent runtime shares the API process.** Acceptable while agent runs are short;
-  revisited in Phase 3 when long-running graphs appear.
+- **The agent runtime shares the API process.** Still true, and now measured rather than
+  assumed: agents hold a connection from a pool sized separately from the one HTTP handlers
+  use, so a burst of runs degrades runs rather than the API. A run that outlives a deployment
+  is a Phase 7 problem.
+- **Tool calling has no consumer.** The capability and the two tools exist and are tested; the
+  MCP server in Phase 4 is what will call them ([ADR-0018](../adr/0018-tool-calling-as-a-capability.md)).
+- **A suspending node runs twice.** That is how the orchestrator replays an interrupt. Node
+  bodies are pure so it is wasteful rather than wrong, but nothing enforces that the suspending
+  node is a cheap one ([ADR-0019](../adr/0019-suspend-runs-through-state.md)).
 - **No rate limiting on LLM calls yet.** Redis is provisioned for it; the token-bucket
   implementation lands with the first real Azure OpenAI adapter.

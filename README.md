@@ -17,14 +17,15 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 and 2 complete. Phase 3 — agents — next.**
-> Ingestion, hybrid retrieval and grounded answering with citations work end to end,
-> the retrieval benchmark runs, and the same ports are implemented twice: locally
-> (pgvector, any OpenAI-compatible endpoint) and on Azure (Azure OpenAI, Azure AI
-> Search). This README is updated as each phase lands, and nothing is described here as
-> working before it works: see [What works today](#what-works-today) for the current,
-> verified surface — including what the Azure adapters have and have not been tested
-> against.
+> **Project status: Phases 1 to 3 complete. Phase 4 — MCP — next.**
+> Ingestion, hybrid retrieval and grounded answering with citations work end to end; the
+> retrieval benchmark runs; three agents run as LangGraph workflows over the same use
+> cases, streaming their steps and pausing for a person when asked to; and every port is
+> implemented twice — locally (pgvector, any OpenAI-compatible endpoint) and on Azure
+> (Azure OpenAI, Azure AI Search). This README is updated as each phase lands, and nothing
+> is described here as working before it works: see
+> [What works today](#what-works-today) for the current, verified surface, including what
+> the Azure adapters have and have not been tested against.
 
 ---
 
@@ -63,7 +64,8 @@ Paimon is an operational layer over organizational knowledge. It is not a chatbo
 Phase 1 is a thin vertical slice through every layer, so the wiring is proven before
 anything is built on top of it. Phase 2 fills that slice in: real chunking, real
 embeddings, hybrid retrieval, citations that resolve, a benchmark that scores them, and
-a second implementation of every port on Azure.
+a second implementation of every port on Azure. Phase 3 puts agents on top of those use
+cases without changing any of them.
 
 | Endpoint | Behaviour |
 |---|---|
@@ -71,6 +73,10 @@ a second implementation of every port on Azure.
 | `POST /api/v1/answers` | Retrieves by meaning and by wording, fuses the rankings, and answers **only** from what was retrieved — with citations that resolve to an exact span of the source. |
 | `GET /api/v1/health/live` | Reports that the process is running. Touches no dependency, so a database outage cannot get the container restarted. |
 | `GET /api/v1/health/ready` | Probes PostgreSQL and Redis concurrently, each under a timeout. Returns `503` when any is unusable, and names which one and why. |
+| `GET /api/v1/agents` | Lists the agents this deployment offers, each with what it is for. |
+| `POST /api/v1/agents/{agent}/runs` | Runs an agent, streaming each completed step as NDJSON. Returns the thread id in a header, so a client that loses the connection loses the stream and not the record. |
+| `GET /api/v1/agents/runs` · `GET .../runs/{id}` | Reads runs back: every step, its duration, and what the run cost in tokens. A run belonging to another tenant is reported as absent, not as forbidden. |
+| `POST /api/v1/agents/runs/{id}/decision` | Answers a run that stopped for a person, and continues it. |
 | `GET /api/v1/me` | Validates a bearer token and returns the caller as a domain `Principal`. |
 
 A citation is not a filename. Each one carries the document, the enclosing
@@ -123,12 +129,43 @@ adapter can find inconsistencies; it cannot find wrong assumptions. The numbers 
 [Evaluation](#evaluation) come from the local backend, which has been run against real
 PostgreSQL and a real model server.
 
+### Three agents, and why they are workflows
+
+- **Incident triage** — a symptom is two questions, so it is framed twice and retrieved
+  concurrently: *what do I do* against runbooks, *has this happened before* against
+  postmortems. The results are merged and deduplicated, then answered with citations or not
+  at all.
+- **Postmortem drafting** — reads an incident timeline, **reuses the triage agent whole** as a
+  sub-component to gather precedent, and drafts the sections. The timeline itself becomes a
+  citable source, so a claim resting on it resolves like any other.
+- **Documentation gap analysis** — reports which operational aspects a topic's material covers
+  and which it leaves undocumented, against a checklist fixed in code so that two reports are
+  comparable.
+
+A model is called at **one node** in each. Framing is a template, routing is a comparison, and
+the check that a draft is actually supported is a lookup — so a run is reproducible at
+temperature zero, its cost is bounded before it starts, and a failure names the node that
+produced it. That is a deliberate choice with a stated condition for revisiting it
+([ADR-0016](docs/adr/0016-deterministic-workflows-before-autonomous-agents.md)).
+
+The distinction the agents work hardest to preserve: **"I searched and found nothing" and "I
+could not search" are different answers**. Conflating them lets a provider outage become a
+confident claim about your documentation.
+
+Runs stream their steps, are checkpointed after each one, and can pause for a person and
+continue — the graph is described in framework-free Python and compiled onto LangGraph by a
+single adapter, which is the one module in the platform that imports it
+([ADR-0015](docs/adr/0015-agent-state-lives-in-the-domain.md),
+[ADR-0019](docs/adr/0019-suspend-runs-through-state.md)).
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
-that covers library output too, five machine-enforced architecture contracts, and a CI
+that covers library output too, six machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: agents, MCP and observability — Phases 3 to 5.
+Not yet built: MCP and observability — Phases 4 and 5. Tool calling exists as a capability with
+both adapters implementing it, but nothing calls it yet; the MCP server is what will
+([ADR-0018](docs/adr/0018-tool-calling-as-a-capability.md)).
 
 ## Architecture
 
@@ -174,6 +211,11 @@ including the negative ones.
 | [0012](docs/adr/0012-fuse-retrieval-by-rank.md) | Fuse retrieval results by rank, not by score |
 | [0013](docs/adr/0013-anchor-ground-truth-to-quotations.md) | Anchor evaluation ground truth to quotations |
 | [0014](docs/adr/0014-azure-adapters-and-authentication.md) | Azure adapters and selectable authentication |
+| [0015](docs/adr/0015-agent-state-lives-in-the-domain.md) | Agent state in the domain, the graph in infrastructure |
+| [0016](docs/adr/0016-deterministic-workflows-before-autonomous-agents.md) | Deterministic workflows before autonomous agents |
+| [0017](docs/adr/0017-agent-persistence-on-the-existing-driver.md) | Persist agent runs on the drivers already in the project |
+| [0018](docs/adr/0018-tool-calling-as-a-capability.md) | Tool calling as a capability, with a small tool surface |
+| [0019](docs/adr/0019-suspend-runs-through-state.md) | A run suspends by writing state, not by calling the runtime |
 
 ## Technology
 
@@ -181,7 +223,7 @@ including the negative ones.
 |---|---|---|
 | Backend | FastAPI · Python 3.13 | Async throughout, native OpenAPI, first-class typing |
 | Frontend | Next.js 16 · TypeScript · Tailwind · shadcn/ui | Streaming UI, strict types |
-| Agents | LangGraph | Explicit state machines over implicit agent loops |
+| Agents | LangGraph | Explicit state machines over implicit agent loops — and confined to one adapter ([ADR-0015](docs/adr/0015-agent-state-lives-in-the-domain.md)) |
 | LLM | Azure OpenAI · local OpenAI-compatible | Both implemented, behind one port — [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md), [ADR-0010](docs/adr/0010-separate-embedding-and-chat-ports.md) |
 | Retrieval | Azure AI Search · pgvector | Two adapters, one contract suite, selected by configuration |
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
@@ -197,7 +239,7 @@ previous one is complete.
 
 - [x] **Phase 1 — Foundation** · architecture, ADRs, repository skeleton, dev environment, CI
 - [x] **Phase 2 — RAG** · ingestion, chunking, embeddings, hybrid retrieval, citations
-- [ ] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
+- [x] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
 - [ ] **Phase 4 — MCP** · MCP server and tools, client integration
 - [ ] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
 - [ ] **Phase 6 — Evaluation** · benchmark set, faithfulness and groundedness metrics
@@ -248,6 +290,31 @@ pnpm dev                       # http://localhost:3000
 
 To run the backend stack in containers instead: `docker compose -f docker/compose.yaml
 --profile app up --build`.
+
+### Running an agent
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"input":"eviction hangs"}' \
+  localhost:8000/api/v1/agents/incident-triage/runs
+```
+
+Each completed step arrives as its own line while the run is still going:
+
+```text
+{"name":"frame","summary":"framed the symptom","duration_ms":0.003,...}
+{"name":"procedure","summary":"procedure: retrieved 3 chunks",...}
+{"name":"history","summary":"history: retrieved 2 chunks",...}
+{"name":"assess","summary":"weighed 4 chunks from 2 documents",...}
+{"name":"draft","summary":"drafted a grounded answer","input_tokens":812,...}
+{"name":"verify","summary":"checked the draft is supported",...}
+```
+
+Set `PAIMON_AGENTS__RESUMABLE=true` and `PAIMON_AGENTS__REVIEW_POSTMORTEMS=true` and a
+postmortem run stops for a person: it reports `awaiting_input`, and
+`POST /api/v1/agents/runs/{id}/decision` continues it. Both are off by default, because
+resumable runs cost a second connection pool and a deployment that never suspends a run should
+not pay for one.
 
 ### Running against Azure
 
@@ -340,9 +407,14 @@ pnpm build
 ```
 
 `lint-imports` is the one worth explaining: it fails the build when a layer imports
-outward, or when the domain imports a framework. Clean Architecture here is a test, not a
-diagram. The contracts are themselves tested against a package that violates them on
-purpose — a guard never observed to fail is not a guard.
+outward, when the domain imports a framework, or when agent logic imports the orchestration
+framework. Clean Architecture here is a test, not a diagram. The contracts are themselves
+tested against a package that violates them on purpose — a guard never observed to fail is not
+a guard.
+
+That last contract earned its keep during Phase 3: it rejected the first placement of the agent
+state, because compiling a graph meant infrastructure importing a layer above it. The fix was
+not an exception — it was moving the code to where the failure said it belonged.
 
 Integration tests skip when PostgreSQL and Redis are unreachable, so a contributor without
 Docker still gets a useful run. CI sets `PAIMON_TEST_REQUIRE_INTEGRATION=1`, which turns that
@@ -355,9 +427,12 @@ backend/
   src/paimon/
     domain/          Entities, value objects, ports. No framework imports
     application/     Use cases
+    domain/agents/   Agent state and the graph vocabulary. No framework
     rag/             Chunking, rank fusion, prompt assembly. Pure functions
+    agents/          The three agents: node bodies, graphs, tools, registry
     evaluation/      Golden set, metrics, benchmark runner
-    infrastructure/  Adapters: identity, persistence, embedding, chat, azure/
+    infrastructure/  Adapters: identity, persistence, embedding, chat,
+                     azure/, orchestration/ (the only LangGraph import)
     interfaces/api/  Routers, schemas, composition root
     interfaces/cli/  The benchmark entry point
   tests/             unit, e2e, integration, architecture, contracts, fakes
@@ -375,7 +450,7 @@ evaluation/          Corpus, golden set, manifest
 infrastructure/      Infrastructure as code, Azure  (Phase 7)
 ```
 
-`agents/` joins the backend package in Phase 3.
+`mcp/` joins the backend package in Phase 4.
 
 ## Demo
 
