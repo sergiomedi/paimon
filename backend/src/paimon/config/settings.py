@@ -306,6 +306,22 @@ class McpSettings(BaseModel):
     # this is an API for programs, and a page that wants to call it directly is
     # the case the rebinding protection exists to catch.
     allowed_origins: tuple[str, ...] = ()
+    # The canonical URI clients name when asking their authorization server for
+    # a token for this server (RFC 8707). It has to be the address clients
+    # actually reach — behind a proxy that is the public one, not the container's
+    # — because a token minted for one audience and checked against another is
+    # rejected with no useful explanation on either side.
+    resource_url: str | None = None
+    # Where tokens for it come from. Unset means this deployment does not publish
+    # protected resource metadata and authenticates inside the call instead,
+    # which is what the dev identity provider does: it is not an OAuth issuer and
+    # advertising one that does not exist would send clients somewhere useless.
+    authorization_server: str | None = None
+
+    @property
+    def publishes_metadata(self) -> bool:
+        """Whether this deployment can describe itself as a protected resource."""
+        return bool(self.resource_url and self.authorization_server)
 
     @model_validator(mode="after")
     def _hosts_must_be_listed(self) -> Self:

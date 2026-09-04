@@ -13,6 +13,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from mcp.server.transport_security import TransportSecuritySettings
+from starlette.types import ASGIApp
 
 from paimon.config import Settings, get_settings
 from paimon.domain.errors import (
@@ -32,7 +33,12 @@ from paimon.interfaces.api.dependencies import (
 from paimon.interfaces.api.middleware import CorrelationIdMiddleware
 from paimon.interfaces.api.routers import agents, health, identity, knowledge
 from paimon.interfaces.api.schemas import ErrorResponse
-from paimon.interfaces.mcp import McpToolGateway, build_mcp_server
+from paimon.interfaces.mcp import (
+    McpToolGateway,
+    RequireBearerToken,
+    build_mcp_server,
+    protected_resource_routes,
+)
 from paimon.observability import configure_logging, get_logger
 
 API_PREFIX = "/api/v1"
@@ -67,7 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         gateway: McpToolGateway = app.state.mcp_gateway()
         return gateway
 
-    mcp_app = (
+    mcp_transport = (
         build_mcp_server(resolve_mcp_gateway).streamable_http_app(
             streamable_http_path="/",
             stateless_http=True,
@@ -79,6 +85,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if resolved.mcp.enabled
         else None
     )
+    mcp_app: ASGIApp | None = mcp_transport
+    if mcp_transport is not None and resolved.mcp.publishes_metadata:
+        # Wrapped rather than replaced: the lifespan belongs to the Starlette
+        # application underneath, and the parent still has to enter that one.
+        mcp_app = RequireBearerToken(
+            mcp_transport,
+            lambda: app.state.resources.identity_provider,
+            resolved.mcp.resource_url or "",
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -88,12 +103,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # of surfacing as a 500 to whoever first asks for that agent.
             app.state.agent_workflows = build_agent_workflows(resources)
             app.state.mcp_gateway = lambda: build_mcp_gateway(resources)
-            if mcp_app is not None:
+            if mcp_transport is not None:
                 # Starlette does not run a mounted application's lifespan, and
                 # the MCP transport keeps its session manager there. Entering it
                 # from the parent is what stops every MCP request from failing
                 # on a manager that was never started.
-                await stack.enter_async_context(mcp_app.router.lifespan_context(mcp_app))
+                await stack.enter_async_context(
+                    mcp_transport.router.lifespan_context(mcp_transport)
+                )
             logger.info(
                 "application_started",
                 environment=resolved.environment.value,
@@ -123,6 +140,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(knowledge.router, prefix=API_PREFIX)
     app.include_router(agents.router, prefix=API_PREFIX)
     if mcp_app is not None:
+        if resolved.mcp.publishes_metadata:
+            # On the parent, at the root. RFC 9728 §3.1 puts this document at
+            # /.well-known/oauth-protected-resource with the resource's path
+            # appended, and a client looks for it there — not under the path the
+            # server happens to be mounted at. The transport registers its own
+            # copy inside the mount, which is harmless and unreachable by that
+            # rule; this is the one clients find.
+            app.router.routes.extend(
+                protected_resource_routes(
+                    resolved.mcp.resource_url or "", resolved.mcp.authorization_server or ""
+                )
+            )
         # Outside the versioned API prefix on purpose: the protocol carries its
         # own version, and a client that has to guess which of our prefixes an
         # MCP endpoint sits behind is a client we made work for no reason.
