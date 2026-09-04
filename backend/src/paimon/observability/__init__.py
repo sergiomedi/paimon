@@ -12,10 +12,16 @@ from paimon.observability.logging import (
     configure_logging,
     get_logger,
 )
+from paimon.observability.metrics import (
+    build_meter_provider,
+)
+from paimon.observability.metrics import install as install_meter_provider
+from paimon.observability.metrics import shutdown as shutdown_meter_provider
 from paimon.observability.tracing import (
     CORRELATION_ID_ATTRIBUTE,
     INSTRUMENTATION_SCOPE,
     annotate_current_span,
+    build_resource,
     build_tracer_provider,
     current_trace_context,
     get_tracer,
@@ -34,13 +40,17 @@ __all__ = [
     "INSTRUMENTATION_SCOPE",
     "annotate_current_span",
     "bind_correlation_id",
+    "build_meter_provider",
+    "build_resource",
     "build_tracer_provider",
     "clear_log_context",
     "configure_logging",
     "current_trace_context",
     "get_logger",
     "get_tracer",
+    "install_meter_provider",
     "install_tracer_provider",
     "record_error",
+    "shutdown_meter_provider",
     "shutdown_tracer_provider",
 ]

@@ -450,13 +450,106 @@ class TracingSettings(BaseModel):
         return self
 
 
+class ModelPrice(BaseModel):
+    """What one model costs, per million tokens.
+
+    Per million rather than per token because that is the unit every provider
+    publishes, and converting at the point of configuration is where a factor of
+    a thousand goes unnoticed.
+
+    Attributes:
+        input: Price per million input tokens, in the currency below.
+        output: Price per million output tokens.
+    """
+
+    input: float = Field(ge=0.0)
+    output: float = Field(ge=0.0)
+
+
+class PricingSettings(BaseModel):
+    """A price list, and what it is worth trusting for.
+
+    Cost is **not** in the semantic conventions and is not measured: it is token
+    counts multiplied by a table somebody typed. The provider's invoice is the
+    authority. What this buys is the shape of a bill before it arrives — which
+    tenant, which model, which day — and that is worth having as long as nobody
+    mistakes it for the bill.
+
+    Attributes:
+        currency: What the prices are denominated in. Recorded on every
+            measurement, because a chart mixing two currencies is worse than no
+            chart.
+        revision: A label for this table — a date, a version, anything stable.
+            Recorded on every measurement so that a number can be traced back to
+            the prices that produced it. Without it, last month's figures are
+            uninterpretable the moment the table changes.
+        models: Price per model id, as the provider reports the model. A model
+            absent from the table produces no cost measurement rather than a
+            zero: zero is a claim, and the honest answer is silence.
+    """
+
+    currency: str = "USD"
+    revision: str = "unset"
+    models: Mapping[str, ModelPrice] = Field(default_factory=dict)
+
+    def cost(self, model: str, *, input_tokens: int, output_tokens: int) -> float | None:
+        """Estimate what one call cost, or None if the model is unpriced."""
+        price = self.models.get(model)
+        if price is None:
+            return None
+        return (input_tokens * price.input + output_tokens * price.output) / 1_000_000
+
+
+class MetricsSettings(BaseModel):
+    """Where measurements go.
+
+    Separate from tracing on purpose, and this is a trap worth naming: several
+    tracing backends — Langfuse among them — accept OTLP **traces** and nothing
+    else. Pointing metrics at a traces endpoint fails quietly, and the symptom is
+    an empty dashboard that looks like a platform emitting nothing. Metrics
+    usually want a collector, or a backend that takes them.
+
+    Attributes:
+        enabled: Whether to export measurements at all.
+        endpoint: OTLP/HTTP metrics collector.
+        headers: Sent with every export; the backend's credential goes here.
+        export_interval_seconds: How often measurements are pushed.
+        pricing: The price list, if this deployment has one.
+    """
+
+    enabled: bool = False
+    endpoint: str | None = None
+    headers: Mapping[str, str] = Field(default_factory=dict)
+    export_interval_seconds: float = Field(default=60.0, gt=0.0)
+    pricing: PricingSettings = PricingSettings()
+
+    @model_validator(mode="after")
+    def _enabled_needs_somewhere_to_send(self) -> Self:
+        if self.enabled and not self.endpoint:
+            msg = "metrics.enabled is true but metrics.endpoint is unset: there is nowhere to send"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_price_list_must_say_which_one_it_is(self) -> Self:
+        if self.pricing.models and self.pricing.revision == "unset":
+            msg = (
+                "metrics.pricing.revision must name this price list (a date will do): "
+                "a cost figure that cannot be traced back to the prices that produced it "
+                "is uninterpretable the moment the table changes"
+            )
+            raise ValueError(msg)
+        return self
+
+
 class ObservabilitySettings(BaseModel):
-    """Logging and tracing configuration."""
+    """Logging, tracing and metrics configuration."""
 
     service_name: str = "paimon-api"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
     tracing: TracingSettings = TracingSettings()
+    metrics: MetricsSettings = MetricsSettings()
 
 
 class Settings(BaseSettings):

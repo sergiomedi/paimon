@@ -32,6 +32,7 @@ from paimon.observability.genai import (
     Operation,
     operation_span,
 )
+from paimon.observability.recording import measured_tool
 
 BEARER = "bearer"
 
@@ -140,17 +141,21 @@ class McpToolGateway:
             ToolArgumentError: If the arguments do not fit the tool.
         """
         principal = await self.caller(headers)
-        with operation_span(
-            Operation.EXECUTE_TOOL,
-            name,
-            attributes={
-                TOOL_NAME: name,
-                TOOL_CALL_ID: call_id,
-                # "function" is what the conventions call a tool the platform
-                # runs itself, as opposed to one the provider runs for it.
-                TOOL_TYPE: "function",
-                TENANT: principal.tenant_id,
-            },
+        with (
+            measured_tool(name),
+            operation_span(
+                Operation.EXECUTE_TOOL,
+                name,
+                attributes={
+                    TOOL_NAME: name,
+                    TOOL_CALL_ID: call_id,
+                    # "function" is what the conventions call a tool the
+                    # platform runs itself, rather than one the provider runs
+                    # for it.
+                    TOOL_TYPE: "function",
+                    TENANT: principal.tenant_id,
+                },
+            ),
         ):
             executor = self.executor_for(principal)
             return await executor.run(

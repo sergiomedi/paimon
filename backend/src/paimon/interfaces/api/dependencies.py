@@ -219,6 +219,7 @@ def _build_chat_model(settings: Settings) -> ChatModel:
         _chat_adapter(settings),
         Provider.AZURE_OPENAI if settings.chat.provider == "azure" else Provider.OPENAI,
         capture_content=settings.observability.tracing.capture_content,
+        pricing=settings.observability.metrics.pricing,
     )
 
 

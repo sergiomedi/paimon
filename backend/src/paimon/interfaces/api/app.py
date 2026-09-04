@@ -46,10 +46,14 @@ from paimon.interfaces.mcp import (
     protected_resource_routes,
 )
 from paimon.observability import (
+    build_meter_provider,
+    build_resource,
     build_tracer_provider,
     configure_logging,
     get_logger,
+    install_meter_provider,
     install_tracer_provider,
+    shutdown_meter_provider,
     shutdown_tracer_provider,
 )
 from paimon.observability.instrumentation import (
@@ -89,6 +93,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     install_tracer_provider(tracer_provider)
     instrument_clients(tracer_provider)
+    # The same resource, so a backend reads traces and measurements as one
+    # service rather than as two with similar names. A separate endpoint,
+    # because several tracing backends accept OTLP traces and nothing else, and
+    # metrics sent to one of those disappear without an error (ADR-0028).
+    meter_provider = build_meter_provider(
+        resolved.observability.metrics,
+        resource=build_resource(
+            service_name=resolved.observability.service_name,
+            service_version=__version__,
+            environment=resolved.environment,
+        ),
+    )
+    install_meter_provider(meter_provider)
 
     # The server is built once; the gateway it authenticates through is resolved
     # per request from application state. That indirection is what lets the MCP
@@ -163,6 +180,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # in the batch. Without this the last export dies with the process, and
         # that is the batch describing how it died.
         shutdown_tracer_provider(tracer_provider)
+        # Metrics are pushed on an interval, so the measurements since the last
+        # push would otherwise die with the process — and a process shutting down
+        # unexpectedly is when that interval's numbers matter most.
+        shutdown_meter_provider(meter_provider)
 
     app = FastAPI(
         title="Paimon",

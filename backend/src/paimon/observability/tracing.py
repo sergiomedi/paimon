@@ -62,14 +62,12 @@ def build_tracer_provider(
     if not settings.enabled or not settings.endpoint:
         return None
 
-    resource = Resource.create(
-        {
-            ResourceAttributes.SERVICE_NAME: service_name,
-            ResourceAttributes.SERVICE_VERSION: service_version,
-            ResourceAttributes.DEPLOYMENT_ENVIRONMENT: environment.value,
-        }
+    provider = TracerProvider(
+        resource=build_resource(
+            service_name=service_name, service_version=service_version, environment=environment
+        ),
+        sampler=_sampler(settings.sample_ratio),
     )
-    provider = TracerProvider(resource=resource, sampler=_sampler(settings.sample_ratio))
     provider.add_span_processor(
         BatchSpanProcessor(
             OTLPSpanExporter(
@@ -80,6 +78,24 @@ def build_tracer_provider(
         )
     )
     return provider
+
+
+def build_resource(
+    *, service_name: str, service_version: str, environment: Environment
+) -> Resource:
+    """Describe this process, once, for everything it emits.
+
+    Traces and metrics share it deliberately. A backend lines the two up by
+    resource, and a service that described itself differently in each would
+    appear as two services that happen to have similar names.
+    """
+    return Resource.create(
+        {
+            ResourceAttributes.SERVICE_NAME: service_name,
+            ResourceAttributes.SERVICE_VERSION: service_version,
+            ResourceAttributes.DEPLOYMENT_ENVIRONMENT: environment.value,
+        }
+    )
 
 
 def _sampler(ratio: float) -> Sampler:
@@ -169,6 +185,7 @@ __all__ = [
     "CORRELATION_ID_ATTRIBUTE",
     "INSTRUMENTATION_SCOPE",
     "annotate_current_span",
+    "build_resource",
     "build_tracer_provider",
     "current_trace_context",
     "get_tracer",

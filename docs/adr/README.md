@@ -38,6 +38,7 @@ reasoning trail, and rewriting history destroys it.
 | [0025](0025-opentelemetry-as-the-only-instrumentation.md) | OpenTelemetry is the instrumentation; a backend is a destination | Accepted |
 | [0026](0026-tracing-by-decoration.md) | Model calls are traced by wrapping the port, not by editing the adapters | Accepted |
 | [0027](0027-tracing-retrieval-agents-and-tool-calls.md) | What a request looks like once retrieval, agents and tool calls are traced | Accepted |
+| [0028](0028-metrics-and-an-estimated-cost.md) | Tokens are measured, cost is estimated, and the two are labelled differently | Accepted |
 
 ## Writing a new ADR
 

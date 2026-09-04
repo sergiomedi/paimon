@@ -23,6 +23,7 @@ from typing import Protocol, runtime_checkable
 
 from opentelemetry.trace import Span
 
+from paimon.config import PricingSettings
 from paimon.domain.ports import (
     ChatModel,
     Completion,
@@ -46,6 +47,7 @@ from paimon.observability.genai import (
     model_span,
     record_usage,
 )
+from paimon.observability.recording import measured
 
 
 @runtime_checkable
@@ -63,7 +65,12 @@ class TracedChatModel:
     """A chat model that records a ``gen_ai`` span per call."""
 
     def __init__(
-        self, inner: ChatModel, provider: Provider, *, capture_content: bool = False
+        self,
+        inner: ChatModel,
+        provider: Provider,
+        *,
+        capture_content: bool = False,
+        pricing: PricingSettings | None = None,
     ) -> None:
         """Wrap a chat model.
 
@@ -74,10 +81,13 @@ class TracedChatModel:
                 default and refused in deployed environments — the conventions
                 mark content opt-in because it is likely to carry sensitive data,
                 and here that is an organization's documentation (ADR-0025).
+            pricing: The price list, when this deployment has one. Used only to
+                estimate cost; a model absent from it produces no cost figure.
         """
         self._inner = inner
         self._provider = provider
         self._capture_content = capture_content
+        self._pricing = pricing
 
     @property
     def model_id(self) -> str:
@@ -92,13 +102,16 @@ class TracedChatModel:
         max_output_tokens: int | None = None,
     ) -> Completion:
         """Generate an answer, recording the call."""
-        with model_span(
-            Operation.CHAT,
-            self._provider,
-            self._inner.model_id,
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-        ) as span:
+        with (
+            model_span(
+                Operation.CHAT,
+                self._provider,
+                self._inner.model_id,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            ) as span,
+            measured(Operation.CHAT, self._provider, self._inner.model_id) as measurement,
+        ):
             if self._capture_content:
                 span.set_attribute(INPUT_MESSAGES, _render(messages))
             completion = await self._inner.complete(
@@ -109,6 +122,11 @@ class TracedChatModel:
                 model=completion.model_id,
                 input_tokens=completion.input_tokens,
                 output_tokens=completion.output_tokens,
+            )
+            measurement.record_tokens(
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                pricing=self._pricing,
             )
             if self._capture_content:
                 span.set_attribute(OUTPUT_MESSAGES, completion.text)
@@ -124,10 +142,15 @@ class TracedToolCallingChatModel(TracedChatModel):
     """
 
     def __init__(
-        self, inner: ToolCallingChat, provider: Provider, *, capture_content: bool = False
+        self,
+        inner: ToolCallingChat,
+        provider: Provider,
+        *,
+        capture_content: bool = False,
+        pricing: PricingSettings | None = None,
     ) -> None:
         """Wrap a tool-calling chat model."""
-        super().__init__(inner, provider, capture_content=capture_content)
+        super().__init__(inner, provider, capture_content=capture_content, pricing=pricing)
         self._tool_calling = inner
 
     async def complete_with_tools(
@@ -139,13 +162,16 @@ class TracedToolCallingChatModel(TracedChatModel):
         max_output_tokens: int | None = None,
     ) -> ToolCompletion:
         """Generate with tools offered, recording the call."""
-        with model_span(
-            Operation.CHAT,
-            self._provider,
-            self.model_id,
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-        ) as span:
+        with (
+            model_span(
+                Operation.CHAT,
+                self._provider,
+                self.model_id,
+                temperature=temperature,
+                max_output_tokens=max_output_tokens,
+            ) as span,
+            measured(Operation.CHAT, self._provider, self.model_id) as measurement,
+        ):
             # How many definitions were sent, because they are sent on every turn
             # and are therefore input tokens paid again each time. A conversation
             # whose cost climbs for no visible reason usually has this at the
@@ -161,6 +187,11 @@ class TracedToolCallingChatModel(TracedChatModel):
                 model=completion.model_id,
                 input_tokens=completion.input_tokens,
                 output_tokens=completion.output_tokens,
+            )
+            measurement.record_tokens(
+                input_tokens=completion.input_tokens,
+                output_tokens=completion.output_tokens,
+                pricing=self._pricing,
             )
             # Names only. Which tools a model asked for is the shape of its
             # reasoning; the arguments are the caller's data and are not.
@@ -195,7 +226,14 @@ class TracedEmbeddingModel:
 
     async def embed_documents(self, texts: Sequence[str]) -> list[Embedding]:
         """Embed text destined for the index, recording the call."""
-        with model_span(Operation.EMBEDDINGS, self._provider, self._inner.model_id) as span:
+        with (
+            model_span(Operation.EMBEDDINGS, self._provider, self._inner.model_id) as span,
+            # Duration only. The port carries no token counts for an embedding —
+            # an embedding is a vector, not a completion — so there is nothing
+            # here to price, and a count from a tokenizer that is not the
+            # provider's would be an estimate reported as a measurement.
+            measured(Operation.EMBEDDINGS, self._provider, self._inner.model_id),
+        ):
             # The count, not the text: what is embedded during ingestion is
             # the corpus, and recording it would copy an organization's
             # documentation into a tracing backend one chunk at a time.
@@ -206,7 +244,10 @@ class TracedEmbeddingModel:
 
     async def embed_query(self, text: str) -> Embedding:
         """Embed a search query, recording the call."""
-        with model_span(Operation.EMBEDDINGS, self._provider, self._inner.model_id) as span:
+        with (
+            model_span(Operation.EMBEDDINGS, self._provider, self._inner.model_id) as span,
+            measured(Operation.EMBEDDINGS, self._provider, self._inner.model_id),
+        ):
             span.set_attribute(INPUT_COUNT, 1)
             embedding = await self._inner.embed_query(text)
             _record_embedding_usage(span, self._inner.model_id, 1)
@@ -214,7 +255,11 @@ class TracedEmbeddingModel:
 
 
 def trace_chat_model(
-    inner: ChatModel, provider: Provider, *, capture_content: bool = False
+    inner: ChatModel,
+    provider: Provider,
+    *,
+    capture_content: bool = False,
+    pricing: PricingSettings | None = None,
 ) -> ChatModel:
     """Wrap a chat model without losing what it can do.
 
@@ -222,6 +267,7 @@ def trace_chat_model(
         inner: The adapter to wrap.
         provider: Which provider it talks to.
         capture_content: Record prompts and completions on spans.
+        pricing: The price list, when this deployment has one.
 
     Returns:
         A wrapper that also satisfies :class:`ToolCallingChatModel` when the
@@ -229,8 +275,10 @@ def trace_chat_model(
         simply stop being offered tools, everywhere, silently.
     """
     if isinstance(inner, ToolCallingChat):
-        return TracedToolCallingChatModel(inner, provider, capture_content=capture_content)
-    return TracedChatModel(inner, provider, capture_content=capture_content)
+        return TracedToolCallingChatModel(
+            inner, provider, capture_content=capture_content, pricing=pricing
+        )
+    return TracedChatModel(inner, provider, capture_content=capture_content, pricing=pricing)
 
 
 def trace_embedding_model(inner: EmbeddingModel, provider: Provider) -> EmbeddingModel:

@@ -33,6 +33,7 @@ from paimon.observability.genai import (
     Operation,
     operation_span,
 )
+from paimon.observability.recording import measured_run
 from paimon.observability.tracing import record_error
 
 #: Guards against a graph that routes in a cycle forever. LangGraph's own default
@@ -309,10 +310,13 @@ class LangGraphWorkflow:
         # around the generator rather than inside it, so the span lasts as long
         # as the run does: a span closed at the first yield would time the setup
         # and nothing else.
-        with operation_span(
-            Operation.INVOKE_AGENT,
-            self.name,
-            attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id},
+        with (
+            operation_span(
+                Operation.INVOKE_AGENT,
+                self.name,
+                attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id},
+            ),
+            measured_run(self.name),
         ):
             async for step in self._drain(
                 AgentState(question=question, tenant_id=tenant_id), run, thread_id
@@ -349,10 +353,13 @@ class LangGraphWorkflow:
         # Its own span, and a separate trace from the one that started the run —
         # they are separate requests, minutes or hours apart. The thread id on
         # both is what joins them, which is why it is the conversation id.
-        with operation_span(
-            Operation.INVOKE_AGENT,
-            self.name,
-            attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id, RESUMED: True},
+        with (
+            operation_span(
+                Operation.INVOKE_AGENT,
+                self.name,
+                attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id, RESUMED: True},
+            ),
+            measured_run(self.name),
         ):
             async for _ in self._drain(Command(resume=decision), run, thread_id):
                 pass
