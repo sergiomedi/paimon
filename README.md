@@ -17,10 +17,13 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 3 complete. Phase 4 — MCP — next.**
+> **Project status: Phases 1 to 4 complete. Phase 5 — observability — next.**
 > Ingestion, hybrid retrieval and grounded answering with citations work end to end; the
 > retrieval benchmark runs; three agents run as LangGraph workflows over the same use
-> cases, streaming their steps and pausing for a person when asked to; and every port is
+> cases, streaming their steps and pausing for a person when asked to; the platform speaks
+> the Model Context Protocol in **both directions** — an authenticated, discoverable server
+> exposing search and the agents, and a client that indexes documentation out of GitHub;
+> and every port is
 > implemented twice — locally (pgvector, any OpenAI-compatible endpoint) and on Azure
 > (Azure OpenAI, Azure AI Search). This README is updated as each phase lands, and nothing
 > is described here as working before it works: see
@@ -52,8 +55,9 @@ Paimon is an operational layer over organizational knowledge. It is not a chatbo
 - **Multi-agent workflows.** LangGraph-orchestrated agents that perform real operational
   tasks — incident triage against runbook and postmortem history, postmortem drafting from
   incident timelines, documentation gap analysis.
-- **MCP integration.** Platform capabilities exposed over the Model Context Protocol, so
-  the same tools are reachable from any MCP-capable client.
+- **MCP in both directions.** Search, whole documents and the agents themselves are
+  exposed to any MCP client behind OAuth 2.1; and documentation is read *in* from external
+  MCP servers and indexed like anything else.
 - **Measured, not asserted.** An evaluation pipeline scores faithfulness, groundedness,
   relevance and latency against a versioned benchmark set. Retrieval changes are accepted or
   rejected on numbers.
@@ -65,7 +69,8 @@ Phase 1 is a thin vertical slice through every layer, so the wiring is proven be
 anything is built on top of it. Phase 2 fills that slice in: real chunking, real
 embeddings, hybrid retrieval, citations that resolve, a benchmark that scores them, and
 a second implementation of every port on Azure. Phase 3 puts agents on top of those use
-cases without changing any of them.
+cases without changing any of them. Phase 4 puts the platform on both sides of the Model
+Context Protocol without changing them either.
 
 | Endpoint | Behaviour |
 |---|---|
@@ -78,6 +83,9 @@ cases without changing any of them.
 | `GET /api/v1/agents/runs` · `GET .../runs/{id}` | Reads runs back: every step, its duration, and what the run cost in tokens. A run belonging to another tenant is reported as absent, not as forbidden. |
 | `POST /api/v1/agents/runs/{id}/decision` | Answers a run that stopped for a person, and continues it. |
 | `GET /api/v1/me` | Validates a bearer token and returns the caller as a domain `Principal`. |
+| `GET /api/v1/sources` | Lists the external systems this deployment is configured to read from. |
+| `POST /api/v1/sources/{name}/synchronizations` | Reads a configured source and indexes everything it offers, reporting what changed, what did not, and which documents could not be read — by name. |
+| `POST /mcp` | The MCP endpoint: `search_corpus`, `read_document` and `run_agent`, behind OAuth 2.1. Outside the `/api/v1` prefix, because the protocol carries its own version. |
 
 A citation is not a filename. Each one carries the document, the enclosing
 headings, the quoted text and the **character offsets** it came from, so a client
@@ -158,14 +166,60 @@ single adapter, which is the one module in the platform that imports it
 ([ADR-0015](docs/adr/0015-agent-state-lives-in-the-domain.md),
 [ADR-0019](docs/adr/0019-suspend-runs-through-state.md)).
 
+### MCP, in both directions
+
+**As a server**, the platform offers three tools — `search_corpus`, `read_document` and
+`run_agent`. The third is the one worth reaching for: `search_corpus` hands a calling model
+passages it then has to reason over, while an agent has already framed the question two ways,
+retrieved against each, checked its draft against what it found and refused to answer when it
+was not supported. Delegating the task beats fetching the material.
+
+The endpoint is an OAuth 2.1 **resource server**, which the specification is explicit about:
+it publishes RFC 9728 metadata so a client that gets a `401` can discover where to obtain a
+token, and it validates that a token was minted for *it*. It also publishes `server.json` at
+a well-known path, so something that has never met this server can learn it exists, what it
+speaks and what header to present — without a token, because requiring one to find out where
+to get one is a loop.
+
+Authentication happens twice per request and neither is redundant: the middleware at the door
+decides whether to serve the request at all, the gateway inside decides *whose* material it
+may read. Remove either and there is a real hole.
+
+**As a client**, the platform reads documentation out of GitHub through GitHub's official MCP
+server and indexes it through the same pipeline as everything else — so a second run over an
+untouched repository costs a hash comparison, not a round of embeddings. Three things make
+that safe to run:
+
+- **Sources are configuration, never a parameter.** A caller *names* one of the sources this
+  process started with. There is no field for a URL, because the endpoint that accepts one is
+  the endpoint that fetches `169.254.169.254` on request.
+- **Tool definitions are pinned by digest** and compared on every connection. Tool
+  descriptions are what a model reads, and a server can change them between sessions; a
+  change stops the synchronisation and names the tool.
+- **The endpoint is the read-only toolset.** A synchronisation that cannot call `delete_file`
+  cannot be talked into calling it.
+
+External tools are deliberately **not** handed to the agents. Loading somebody else's tool
+definitions into an agent's context costs tokens, invites tool confusion, and puts text this
+platform did not write where a model reads instructions.
+
+And the boundary all of it exists for: a document saying *"ignore all previous instructions"*
+is **indexed, not rejected** — filtering the phrase would break every runbook that quotes an
+incident and miss the next wording anyway. What is guaranteed is where the text may go: into
+the **user** turn as a numbered source, while the system turn stays the platform's own prompt,
+and never into a tool description. Both are asserted as tests, because a boundary nothing
+checks is one that moves.
+
+🔌 **[Connecting to Paimon over MCP](docs/mcp.md)** — the tools, the discovery documents,
+Claude's Custom Connectors, the Inspector, and configuring a GitHub source.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: MCP and observability — Phases 4 and 5. Tool calling exists as a capability with
-both adapters implementing it, but nothing calls it yet; the MCP server is what will
-([ADR-0018](docs/adr/0018-tool-calling-as-a-capability.md)).
+Not yet built: observability — Phase 5. Every LLM call is counted and attributed to the run
+that made it, but nothing is traced yet.
 
 ## Architecture
 
@@ -216,6 +270,11 @@ including the negative ones.
 | [0017](docs/adr/0017-agent-persistence-on-the-existing-driver.md) | Persist agent runs on the drivers already in the project |
 | [0018](docs/adr/0018-tool-calling-as-a-capability.md) | Tool calling as a capability, with a small tool surface |
 | [0019](docs/adr/0019-suspend-runs-through-state.md) | A run suspends by writing state, not by calling the runtime |
+| [0020](docs/adr/0020-mcp-server-inside-the-api.md) | The MCP server is an interface, mounted inside the API |
+| [0021](docs/adr/0021-mcp-as-an-oauth-resource-server.md) | The MCP endpoint is an OAuth 2.1 resource server, and says so |
+| [0022](docs/adr/0022-agents-as-mcp-tools.md) | Agents are MCP tools that run to completion; documents are not resources |
+| [0023](docs/adr/0023-mcp-client-as-a-document-source.md) | Consuming MCP servers as document sources, not as an agent's toolbox |
+| [0024](docs/adr/0024-a-discoverable-mcp-server.md) | The MCP server describes itself, at a path that is still an argument |
 
 ## Technology
 
@@ -224,6 +283,7 @@ including the negative ones.
 | Backend | FastAPI · Python 3.13 | Async throughout, native OpenAPI, first-class typing |
 | Frontend | Next.js 16 · TypeScript · Tailwind · shadcn/ui | Streaming UI, strict types |
 | Agents | LangGraph | Explicit state machines over implicit agent loops — and confined to one adapter ([ADR-0015](docs/adr/0015-agent-state-lives-in-the-domain.md)) |
+| Interoperability | Model Context Protocol | Server and client, spec 2026-07-28 — [ADR-0020](docs/adr/0020-mcp-server-inside-the-api.md) to [ADR-0024](docs/adr/0024-a-discoverable-mcp-server.md), and the [connection guide](docs/mcp.md) |
 | LLM | Azure OpenAI · local OpenAI-compatible | Both implemented, behind one port — [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md), [ADR-0010](docs/adr/0010-separate-embedding-and-chat-ports.md) |
 | Retrieval | Azure AI Search · pgvector | Two adapters, one contract suite, selected by configuration |
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
@@ -240,7 +300,7 @@ previous one is complete.
 - [x] **Phase 1 — Foundation** · architecture, ADRs, repository skeleton, dev environment, CI
 - [x] **Phase 2 — RAG** · ingestion, chunking, embeddings, hybrid retrieval, citations
 - [x] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
-- [ ] **Phase 4 — MCP** · MCP server and tools, client integration
+- [x] **Phase 4 — MCP** · MCP server and tools, client integration
 - [ ] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
 - [ ] **Phase 6 — Evaluation** · benchmark set, faithfulness and groundedness metrics
 - [ ] **Phase 7 — Cloud** · Azure deployment architecture
@@ -432,8 +492,10 @@ backend/
     agents/          The three agents: node bodies, graphs, tools, registry
     evaluation/      Golden set, metrics, benchmark runner
     infrastructure/  Adapters: identity, persistence, embedding, chat,
-                     azure/, orchestration/ (the only LangGraph import)
+                     azure/, orchestration/ (the only LangGraph import),
+                     sources/ (the MCP client, and the GitHub source over it)
     interfaces/api/  Routers, schemas, composition root
+    interfaces/mcp/  The MCP server: tools, gateway, authorization, discovery
     interfaces/cli/  The benchmark entry point
   tests/             unit, e2e, integration, architecture, contracts, fakes
 docker/              Dockerfile and the local Compose stack
@@ -449,8 +511,6 @@ frontend/
 evaluation/          Corpus, golden set, manifest
 infrastructure/      Infrastructure as code, Azure  (Phase 7)
 ```
-
-`mcp/` joins the backend package in Phase 4.
 
 ## Demo
 

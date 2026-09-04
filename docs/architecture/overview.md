@@ -53,7 +53,7 @@ flowchart TB
     subgraph platform["Paimon"]
         web["Web Application<br/><i>Next.js 16, TypeScript</i><br/>Chat, document management,<br/>evaluation dashboards"]
         api["API<br/><i>FastAPI, Python 3.13</i><br/>Use cases, RAG pipeline,<br/>agent runtime"]
-        mcp["MCP Server<br/><i>Python</i><br/>Tools exposed to<br/>external MCP clients"]
+        mcp["MCP Server<br/><i>Python</i><br/>search_corpus, read_document,<br/>run_agent — behind OAuth 2.1"]
         pg[("PostgreSQL 17<br/><i>+ pgvector</i><br/>Documents, users, agent state,<br/>local vector index")]
         redis[("Redis 7<br/>Embedding cache, rate limiting,<br/>agent checkpoints")]
     end
@@ -62,6 +62,8 @@ flowchart TB
     search["Azure AI Search"]
     entra["Microsoft Entra ID"]
     langfuse["Langfuse"]
+    client["External MCP client<br/><i>Claude, an IDE, another agent</i>"]
+    ghmcp["GitHub MCP Server<br/><i>repos toolset, read-only</i>"]
 
     engineer -->|HTTPS| web
     web -->|"JSON / SSE"| api
@@ -72,7 +74,15 @@ flowchart TB
     api -->|"JWKS"| entra
     api --> langfuse
     mcp --> api
+    client -->|"streamable HTTP"| mcp
+    api -->|"MCP client"| ghmcp
 ```
+
+**Both directions, and they are not symmetric.** As a *server* the platform decides what to
+expose and to whom; as a *client* it decides what to **trust**. The client refuses plaintext
+and private addresses, pins the definitions of the tools it calls, and delivers what it reads
+into ingestion rather than into an agent's context
+([ADR-0023](../adr/0023-mcp-client-as-a-document-source.md)).
 
 **Deployment note.** The agent runtime runs in-process with the API in Phases 1–6.
 It is a separate *logical* container from day one — its own module with its own ports —
@@ -229,8 +239,19 @@ Recorded honestly rather than hidden — each is scheduled, not forgotten.
   assumed: agents hold a connection from a pool sized separately from the one HTTP handlers
   use, so a burst of runs degrades runs rather than the API. A run that outlives a deployment
   is a Phase 7 problem.
-- **Tool calling has no consumer.** The capability and the two tools exist and are tested; the
-  MCP server in Phase 4 is what will call them ([ADR-0018](../adr/0018-tool-calling-as-a-capability.md)).
+- **Documents are not MCP resources.** A resource template's function is wrapped in pydantic's
+  `validate_call`, and a revalidated `Context` has lost its binding to the request — so a
+  template cannot read the bearer token, and a resource that served documents without
+  establishing whose they are is not worth having. `read_document` stays a tool until the SDK
+  exposes request state to templates ([ADR-0022](../adr/0022-agents-as-mcp-tools.md)).
+- **A source synchronisation runs inline in the request.** Honest at the document ceiling in
+  configuration and dishonest above it. A scheduled worker is Phase 7's; the ceiling is what
+  keeps the difference from arriving as a surprise.
+- **No per-tool-call audit log.** Security guidance for MCP consumers asks for one. It belongs
+  with the tracing work in Phase 5 rather than as a second logging scheme bolted on now.
+- **The discovery document's path is a convention.** `server.json` is versioned and stable;
+  the well-known path for serving it is still two competing proposals
+  ([ADR-0024](../adr/0024-a-discoverable-mcp-server.md)).
 - **A suspending node runs twice.** That is how the orchestrator replays an interrupt. Node
   bodies are pure so it is wasteful rather than wrong, but nothing enforces that the suspending
   node is a cheap one ([ADR-0019](../adr/0019-suspend-runs-through-state.md)).

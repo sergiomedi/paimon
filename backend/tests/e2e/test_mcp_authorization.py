@@ -14,6 +14,7 @@ from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from pydantic import SecretStr
 
+from paimon import __version__
 from paimon.config import (
     AuthSettings,
     DatabaseSettings,
@@ -25,6 +26,12 @@ from paimon.config import (
 )
 from paimon.infrastructure.identity import DevIdentityProvider
 from paimon.interfaces.api import create_app
+from paimon.interfaces.mcp.discovery import (
+    DISCOVERY_PATH,
+    SCHEMA_URL,
+    SERVER_ID,
+    server_json,
+)
 from tests.conftest import DEV_SIGNING_KEY
 
 RESOURCE_URL = "http://localhost/mcp"
@@ -137,3 +144,64 @@ class TestWhenAuthorizationIsNotConfigured:
         # OAuth issuer. Advertising one that does not exist would send clients
         # somewhere useless, so nothing is advertised.
         assert (await client.get(METADATA_PATH)).status_code == 404
+
+
+class TestTheDiscoveryDocument:
+    """``server.json`` — how something that has never met this server finds it."""
+
+    async def test_it_describes_the_endpoint_a_client_should_dial(
+        self, protected: httpx.AsyncClient
+    ) -> None:
+        body = json.loads((await protected.get(DISCOVERY_PATH)).text)
+        remote = body["remotes"][0]
+        assert remote["type"] == "streamable-http"
+        assert remote["url"] == RESOURCE_URL
+
+    async def test_it_claims_the_schema_it_satisfies(self, protected: httpx.AsyncClient) -> None:
+        # Versioned and explicit, so a registry validates it rather than guesses.
+        body = json.loads((await protected.get(DISCOVERY_PATH)).text)
+        assert body["$schema"] == SCHEMA_URL
+        assert body["name"] == SERVER_ID
+        assert body["version"] == __version__
+
+    async def test_it_says_a_token_is_required(self, protected: httpx.AsyncClient) -> None:
+        body = json.loads((await protected.get(DISCOVERY_PATH)).text)
+        header = body["remotes"][0]["headers"][0]
+        assert header["name"] == "Authorization"
+        assert header["isRequired"] is True
+        assert header["isSecret"] is True
+        # And where to get one, which is the other document.
+        assert "oauth-protected-resource" in header["description"]
+
+    async def test_it_needs_no_token_of_its_own(self, protected: httpx.AsyncClient) -> None:
+        # Requiring a token to learn where to send a token is a loop.
+        response = await protected.get(DISCOVERY_PATH)
+        assert response.status_code == 200
+        assert "WWW-Authenticate" not in response.headers
+
+    async def test_it_tells_a_browser_not_to_guess_what_it_is(
+        self, protected: httpx.AsyncClient
+    ) -> None:
+        response = await protected.get(DISCOVERY_PATH)
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+
+    async def test_it_lists_no_tools_no_tenants_and_no_corpus(
+        self, protected: httpx.AsyncClient
+    ) -> None:
+        # Unauthenticated by necessity, so it says what a stranger may know: the
+        # address and the header. Not what is indexed, and not who indexed it.
+        body = json.loads((await protected.get(DISCOVERY_PATH)).text)
+        assert set(body) == {"$schema", "name", "title", "description", "version", "remotes"}
+
+    async def test_an_unauthenticated_deployment_says_no_header_is_needed(self) -> None:
+        # Truthfully: without an authorization server there is nowhere to get a
+        # token, and asking for one would be describing a door with no key.
+        document = server_json(resource_url=RESOURCE_URL, version="1.2.3", authenticated=False)
+        assert "headers" not in document["remotes"][0]
+
+
+class TestWhenTheCanonicalUrlIsUnset:
+    async def test_nothing_is_published(self, client: httpx.AsyncClient) -> None:
+        # A discovery document naming a container's internal address would send
+        # every client that read it somewhere unreachable — worse than silence.
+        assert (await client.get(DISCOVERY_PATH)).status_code == 404

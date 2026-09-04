@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.types import ASGIApp
 
+from paimon import __version__
 from paimon.config import Settings, get_settings
 from paimon.domain.errors import (
     DomainError,
@@ -41,6 +42,7 @@ from paimon.interfaces.mcp import (
     McpToolGateway,
     RequireBearerToken,
     build_mcp_server,
+    discovery_routes,
     protected_resource_routes,
 )
 from paimon.observability import configure_logging, get_logger
@@ -133,7 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Paimon",
-        version="0.1.0",
+        version=__version__,
         summary="An AI Operations Platform for engineering organizations.",
         lifespan=lifespan,
         # Interactive docs are a development affordance; deployed environments
@@ -161,6 +163,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.router.routes.extend(
                 protected_resource_routes(
                     resolved.mcp.resource_url or "", resolved.mcp.authorization_server or ""
+                )
+            )
+        if resolved.mcp.resource_url:
+            # The registry's own schema, served where deployments publishing to
+            # it serve theirs. Only when the canonical URL is configured: a
+            # discovery document naming a container's internal address would send
+            # every client that read it somewhere unreachable, which is worse
+            # than not being discoverable at all.
+            app.router.routes.extend(
+                discovery_routes(
+                    resource_url=resolved.mcp.resource_url,
+                    version=__version__,
+                    authenticated=resolved.mcp.publishes_metadata,
                 )
             )
         # Outside the versioned API prefix on purpose: the protocol carries its
