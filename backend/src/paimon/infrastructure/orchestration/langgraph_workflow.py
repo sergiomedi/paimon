@@ -18,11 +18,22 @@ from langgraph.graph import END as LANGGRAPH_END
 from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, interrupt
+from opentelemetry.trace import Span
 
 from paimon.domain.agents import END, AgentState, GraphSpec, NodeSpec, StateUpdate
 from paimon.domain.entities import AgentRun, AgentStep, RunStatus
 from paimon.domain.errors import AgentRunError, UnknownThreadError
 from paimon.domain.ports import AgentCheckpointer
+from paimon.observability.genai import (
+    AGENT_NAME,
+    AGENT_NODE,
+    AGENT_STEP_TOKENS,
+    CONVERSATION_ID,
+    RESUMED,
+    Operation,
+    operation_span,
+)
+from paimon.observability.tracing import record_error
 
 #: Guards against a graph that routes in a cycle forever. LangGraph's own default
 #: is 25; naming it here makes it a decision rather than an inherited default.
@@ -137,6 +148,24 @@ class LangGraphWorkflow:
         async def execute(state: AgentState) -> StateUpdate:
             started_at = _now()
             began = time.perf_counter()
+            # A span per node, opened around the timing that was already here.
+            # The conventions describe agents that choose their own next step and
+            # have no concept for a node of a fixed graph, so this is named in
+            # this platform's own namespace rather than bent into one of theirs.
+            with operation_span(
+                Operation.INVOKE_AGENT,
+                f"{self._spec.name}.{node.name}",
+                attributes={AGENT_NAME: self._spec.name, AGENT_NODE: node.name},
+            ) as span:
+                return await _run_node(node, state, span, started_at, began)
+
+        async def _run_node(
+            node: NodeSpec,
+            state: AgentState,
+            span: Span,
+            started_at: datetime,
+            began: float,
+        ) -> StateUpdate:
             try:
                 update = await node.run(state)
             except Exception as error:  # noqa: BLE001
@@ -146,6 +175,11 @@ class LangGraphWorkflow:
                 # error abort the run with no trace of how far it got, which is
                 # the one outcome an operator cannot investigate.
                 finished_at = _now()
+                # Recorded on the span too. A node failure is caught here and
+                # turned into a step rather than raised, so without this the
+                # trace would show a node that simply took some time and
+                # succeeded, which is the opposite of what happened.
+                record_error(span, error)
                 step = AgentStep(
                     name=node.name,
                     summary=f"failed: {error}",
@@ -188,6 +222,7 @@ class LangGraphWorkflow:
                 output_tokens=report.output_tokens or spent[1],
                 details=report.details,
             )
+            span.set_attribute(AGENT_STEP_TOKENS, step.total_tokens)
             existing = update.get("steps", ())
             return {**update, "steps": (*existing, step)}
 
@@ -270,10 +305,19 @@ class LangGraphWorkflow:
             status=RunStatus.RUNNING,
         )
         await self._checkpointer.save(run)
-        async for step in self._drain(
-            AgentState(question=question, tenant_id=tenant_id), run, thread_id
+        # One span for the run, with the node spans as its children. Opened
+        # around the generator rather than inside it, so the span lasts as long
+        # as the run does: a span closed at the first yield would time the setup
+        # and nothing else.
+        with operation_span(
+            Operation.INVOKE_AGENT,
+            self.name,
+            attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id},
         ):
-            yield step
+            async for step in self._drain(
+                AgentState(question=question, tenant_id=tenant_id), run, thread_id
+            ):
+                yield step
 
     async def resume(self, decision: str, *, thread_id: str) -> AgentRun:
         """Continue a run that stopped for a human decision.
@@ -302,8 +346,16 @@ class LangGraphWorkflow:
             msg = f"no run '{thread_id}' to resume"
             raise UnknownThreadError(msg)
 
-        async for _ in self._drain(Command(resume=decision), run, thread_id):
-            pass
+        # Its own span, and a separate trace from the one that started the run —
+        # they are separate requests, minutes or hours apart. The thread id on
+        # both is what joins them, which is why it is the conversation id.
+        with operation_span(
+            Operation.INVOKE_AGENT,
+            self.name,
+            attributes={AGENT_NAME: self.name, CONVERSATION_ID: thread_id, RESUMED: True},
+        ):
+            async for _ in self._drain(Command(resume=decision), run, thread_id):
+                pass
         resumed = await self._checkpointer.load(thread_id)
         if resumed is None:  # pragma: no cover - the drain just saved it
             msg = f"run '{thread_id}' disappeared while being resumed"

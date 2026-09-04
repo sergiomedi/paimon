@@ -14,7 +14,9 @@ reason about the ones that are missing.
 from fastapi import FastAPI
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.trace import TracerProvider
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 #: Health probes are excluded. A readiness check every few seconds from a load
 #: balancer produces more spans than the traffic being watched, and paying to
@@ -64,6 +66,26 @@ def instrument_clients(provider: TracerProvider | None) -> None:
     HTTPXClientInstrumentor().instrument(tracer_provider=provider)
 
 
+def instrument_database(engine: AsyncEngine, provider: TracerProvider | None) -> None:
+    """Open a span per SQL statement issued through this engine.
+
+    Without it the pgvector backend is a hole in the picture. Everything else the
+    platform calls goes over HTTP and is covered by the client instrumentation;
+    the database does not, so a retrieval span against pgvector would say the
+    search took forty milliseconds and nothing about what the search *did*. With
+    it, "retrieval was slow" and "the index scan was slow" stop being the same
+    observation.
+
+    Args:
+        engine: The async engine. The instrumentation attaches to the synchronous
+            engine underneath, which is where SQLAlchemy's events actually fire.
+        provider: The provider to record into, or None when tracing is off.
+    """
+    if provider is None:
+        return
+    SQLAlchemyInstrumentor().instrument(engine=engine.sync_engine, tracer_provider=provider)
+
+
 def uninstrument_clients() -> None:
     """Undo :func:`instrument_clients`.
 
@@ -77,6 +99,7 @@ def uninstrument_clients() -> None:
 __all__ = [
     "EXCLUDED_URLS",
     "instrument_clients",
+    "instrument_database",
     "instrument_server",
     "uninstrument_clients",
 ]

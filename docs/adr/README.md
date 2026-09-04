@@ -37,6 +37,7 @@ reasoning trail, and rewriting history destroys it.
 | [0024](0024-a-discoverable-mcp-server.md) | The MCP server describes itself, at a path that is still an argument | Accepted |
 | [0025](0025-opentelemetry-as-the-only-instrumentation.md) | OpenTelemetry is the instrumentation; a backend is a destination | Accepted |
 | [0026](0026-tracing-by-decoration.md) | Model calls are traced by wrapping the port, not by editing the adapters | Accepted |
+| [0027](0027-tracing-retrieval-agents-and-tool-calls.md) | What a request looks like once retrieval, agents and tool calls are traced | Accepted |
 
 ## Writing a new ADR
 

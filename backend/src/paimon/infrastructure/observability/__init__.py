@@ -13,11 +13,19 @@ from paimon.infrastructure.observability.models import (
     trace_chat_model,
     trace_embedding_model,
 )
+from paimon.infrastructure.observability.retrieval import (
+    TracedHybridVectorStore,
+    TracedVectorStore,
+    trace_vector_store,
+)
 
 __all__ = [
     "TracedChatModel",
     "TracedEmbeddingModel",
+    "TracedHybridVectorStore",
     "TracedToolCallingChatModel",
+    "TracedVectorStore",
     "trace_chat_model",
     "trace_embedding_model",
+    "trace_vector_store",
 ]

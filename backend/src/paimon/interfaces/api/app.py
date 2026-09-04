@@ -52,7 +52,11 @@ from paimon.observability import (
     install_tracer_provider,
     shutdown_tracer_provider,
 )
-from paimon.observability.instrumentation import instrument_clients, instrument_server
+from paimon.observability.instrumentation import (
+    instrument_clients,
+    instrument_database,
+    instrument_server,
+)
 
 API_PREFIX = "/api/v1"
 
@@ -125,6 +129,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         async with build_resources(resolved) as resources, AsyncExitStack() as stack:
             app.state.resources = resources
+            # Here rather than in create_app, because the engine does not exist
+            # until the resources are built.
+            instrument_database(resources.engine, tracer_provider)
             # Compiled once, here, so a malformed graph aborts startup instead
             # of surfacing as a 500 to whoever first asks for that agent.
             workflows = build_agent_workflows(resources)

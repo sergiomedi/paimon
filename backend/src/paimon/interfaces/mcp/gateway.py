@@ -24,6 +24,14 @@ from paimon.domain.ports import (
     IdentityProvider,
     ToolCall,
 )
+from paimon.observability.genai import (
+    TENANT,
+    TOOL_CALL_ID,
+    TOOL_NAME,
+    TOOL_TYPE,
+    Operation,
+    operation_span,
+)
 
 BEARER = "bearer"
 
@@ -117,14 +125,37 @@ class McpToolGateway:
     ) -> str:
         """Authenticate, then execute one tool call.
 
+        The span is the audit trail ADR-0023 left as an open item: every tool
+        call an external client makes, with who made it and which tool. Recorded
+        here rather than in the executor because the executor is agent logic and
+        does not import instrumentation (ADR-0025) — and because this is the edge
+        where the call comes from *outside*, which is the one worth auditing.
+
+        Arguments are not recorded. They are the caller's data, and a query is
+        what somebody asked.
+
         Raises:
             AuthenticationError: If the caller could not be established.
             UnknownToolError: If no tool has that name.
             ToolArgumentError: If the arguments do not fit the tool.
         """
         principal = await self.caller(headers)
-        executor = self.executor_for(principal)
-        return await executor.run(ToolCall(call_id=call_id, name=name, arguments=dict(arguments)))
+        with operation_span(
+            Operation.EXECUTE_TOOL,
+            name,
+            attributes={
+                TOOL_NAME: name,
+                TOOL_CALL_ID: call_id,
+                # "function" is what the conventions call a tool the platform
+                # runs itself, as opposed to one the provider runs for it.
+                TOOL_TYPE: "function",
+                TENANT: principal.tenant_id,
+            },
+        ):
+            executor = self.executor_for(principal)
+            return await executor.run(
+                ToolCall(call_id=call_id, name=name, arguments=dict(arguments))
+            )
 
     async def run_agent(
         self, agent: str, question: str, *, headers: Mapping[str, str] | None

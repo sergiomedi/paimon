@@ -47,6 +47,36 @@ TOOL_CALLS: Final = "paimon.gen_ai.tool_calls"
 INPUT_COUNT: Final = "paimon.gen_ai.input_count"
 EMBEDDINGS_RETURNED: Final = "paimon.gen_ai.embeddings_returned"
 
+#: Retrieval. The data source is the index a query went to, which is what makes
+#: two backends comparable in one dashboard.
+DATA_SOURCE: Final = "gen_ai.data_source.id"
+RETRIEVAL_TOP_K: Final = "gen_ai.retrieval.top_k"
+#: Opt-In in the conventions, for the same reason message content is.
+RETRIEVAL_QUERY: Final = "gen_ai.retrieval.query.text"
+
+#: Agents and tools.
+AGENT_NAME: Final = "gen_ai.agent.name"
+CONVERSATION_ID: Final = "gen_ai.conversation.id"
+TOOL_NAME: Final = "gen_ai.tool.name"
+TOOL_CALL_ID: Final = "gen_ai.tool.call.id"
+TOOL_TYPE: Final = "gen_ai.tool.type"
+#: Whose material a span acted on. Not in the conventions, and the single
+#: most useful thing on a span in a multi-tenant platform: a question about
+#: one organization's traffic is unanswerable without it.
+TENANT: Final = "paimon.tenant_id"
+
+#: Ours. How many hits came back, which is the difference between "retrieval was
+#: slow" and "retrieval found nothing", and between "the model was wrong" and
+#: "the model was given nothing to be right about".
+HITS_RETURNED: Final = "paimon.retrieval.hits"
+#: A node of a deterministic graph. The conventions have no concept for it: they
+#: describe agents that decide their own next step, and these do not.
+AGENT_NODE: Final = "paimon.agent.node"
+AGENT_STEP_TOKENS: Final = "paimon.agent.step_tokens"
+#: Whether this span continues a run that had stopped for a person. The two
+#: halves are separate traces, minutes or hours apart, joined by the thread id.
+RESUMED: Final = "paimon.agent.resumed"
+
 
 class Operation(StrEnum):
     """The operations this platform performs, named as the registry names them.
@@ -128,6 +158,42 @@ def model_span(
             raise
 
 
+@contextmanager
+def operation_span(
+    operation: Operation,
+    target: str,
+    *,
+    kind: SpanKind = SpanKind.INTERNAL,
+    attributes: dict[str, str | int | float] | None = None,
+) -> Iterator[Span]:
+    """Open a span for an operation that is not a call to a model provider.
+
+    Retrieval, a tool execution, an agent run. Named the same way — the operation
+    followed by what it acted on — because a reader scanning a trace should not
+    have to learn two naming schemes to read one request.
+
+    Args:
+        operation: What is happening.
+        target: The index, tool or agent it happens to.
+        kind: ``CLIENT`` when this platform is calling something outside itself,
+            ``INTERNAL`` when the work happens here.
+        attributes: Set on the span at creation, so a sampler can see them.
+
+    Yields:
+        The span.
+    """
+    with get_tracer().start_as_current_span(
+        f"{operation.value} {target}".strip(),
+        kind=kind,
+        attributes={OPERATION: operation.value, **(attributes or {})},
+    ) as span:
+        try:
+            yield span
+        except Exception as error:
+            record_error(span, error)
+            raise
+
+
 def record_usage(span: Span, *, model: str, input_tokens: int, output_tokens: int) -> None:
     """Record what a call returned and what it cost.
 
@@ -145,7 +211,13 @@ def record_usage(span: Span, *, model: str, input_tokens: int, output_tokens: in
 
 
 __all__ = [
+    "AGENT_NAME",
+    "AGENT_NODE",
+    "AGENT_STEP_TOKENS",
+    "CONVERSATION_ID",
+    "DATA_SOURCE",
     "EMBEDDINGS_RETURNED",
+    "HITS_RETURNED",
     "INPUT_COUNT",
     "INPUT_MESSAGES",
     "INPUT_TOKENS",
@@ -157,10 +229,18 @@ __all__ = [
     "REQUEST_MODEL",
     "REQUEST_TEMPERATURE",
     "RESPONSE_MODEL",
+    "RESUMED",
+    "RETRIEVAL_QUERY",
+    "RETRIEVAL_TOP_K",
+    "TENANT",
     "TOOL_CALLS",
+    "TOOL_CALL_ID",
     "TOOL_COUNT",
+    "TOOL_NAME",
+    "TOOL_TYPE",
     "Operation",
     "Provider",
     "model_span",
+    "operation_span",
     "record_usage",
 ]

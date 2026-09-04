@@ -6,7 +6,7 @@ the authentication path are what is new here, and none of them exist until an
 actual client connects.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 
 import httpx2
@@ -15,6 +15,9 @@ from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from paimon.agents import AGENTS
 from paimon.agents.tools import READ_DOCUMENT, SEARCH_CORPUS
@@ -23,6 +26,7 @@ from paimon.infrastructure.identity import DevIdentityProvider
 from paimon.interfaces.mcp import McpToolGateway
 from paimon.interfaces.mcp.gateway import UnknownAgentError
 from paimon.interfaces.mcp.server import RUN_AGENT
+from paimon.observability import genai
 from tests.conftest import DEV_SIGNING_KEY
 from tests.e2e.test_agents_api import TENANT, Backend
 
@@ -61,6 +65,17 @@ def connect(app: FastAPI, token: str | None) -> tuple[httpx2.AsyncClient, str]:
         ),
         MCP_URL,
     )
+
+
+@pytest.fixture(autouse=True)
+def spans(monkeypatch: pytest.MonkeyPatch) -> Iterator[InMemorySpanExporter]:
+    """Record spans into memory for the duration of a test."""
+    memory = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(memory))
+    monkeypatch.setattr(genai, "get_tracer", lambda: provider.get_tracer("paimon"))
+    yield memory
+    provider.shutdown()
 
 
 @pytest.fixture
@@ -250,3 +265,56 @@ class TestTheWiringTheApplicationBuildsForItself:
                 await gateway.run_agent("no-such-agent", "anything", headers=headers)
         offered = str(raised.value)
         assert all(name in offered for name in AGENTS)
+
+
+class TestToolCallsAreAudited:
+    """The audit trail ADR-0023 left as an open item.
+
+    Every tool call an external client makes, with which tool and whose corpus.
+    Recorded at the gateway rather than in the executor: the executor is agent
+    logic and does not import instrumentation, and this is the edge where a call
+    arrives from *outside*, which is the one worth auditing.
+    """
+
+    async def test_a_tool_call_records_who_called_what(
+        self, app: FastAPI, corpus: Backend, spans: InMemorySpanExporter
+    ) -> None:
+        async with session(app, token_for(corpus)) as client:
+            await client.call_tool(SEARCH_CORPUS.name, {"query": "draining"})
+        recorded = [
+            span
+            for span in spans.get_finished_spans()
+            if (span.attributes or {}).get(genai.TOOL_NAME) == SEARCH_CORPUS.name
+        ]
+        assert len(recorded) == 1
+        attributes = dict(recorded[0].attributes or {})
+        assert recorded[0].name == f"execute_tool {SEARCH_CORPUS.name}"
+        assert attributes[genai.TOOL_TYPE] == "function"
+        # Whose corpus. In a multi-tenant platform this is the single most useful
+        # attribute on a span: a question about one organization's traffic cannot
+        # be answered without it.
+        assert attributes[genai.TENANT] == TENANT
+        assert attributes[genai.TOOL_CALL_ID]
+
+    async def test_the_arguments_are_not_recorded(
+        self, app: FastAPI, corpus: Backend, spans: InMemorySpanExporter
+    ) -> None:
+        # They are the caller's data, and a query is what somebody asked.
+        async with session(app, token_for(corpus)) as client:
+            await client.call_tool(SEARCH_CORPUS.name, {"query": "a confidential incident"})
+        assert "confidential" not in str(
+            [dict(span.attributes or {}) for span in spans.get_finished_spans()]
+        )
+
+    async def test_an_unauthenticated_call_is_not_audited_as_a_tool_call(
+        self, app: FastAPI, corpus: Backend, spans: InMemorySpanExporter
+    ) -> None:
+        # Authentication happens first, so a caller who never got in never
+        # appears as having run anything.
+        async with session(app, None) as client:
+            await client.call_tool(SEARCH_CORPUS.name, {"query": "draining"})
+        assert not [
+            span
+            for span in spans.get_finished_spans()
+            if genai.TOOL_NAME in (span.attributes or {})
+        ]

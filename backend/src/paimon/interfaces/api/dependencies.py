@@ -66,7 +66,11 @@ from paimon.infrastructure.embedding import (
     OpenAICompatibleEmbeddingModel,
 )
 from paimon.infrastructure.identity import build_identity_provider
-from paimon.infrastructure.observability import trace_chat_model, trace_embedding_model
+from paimon.infrastructure.observability import (
+    trace_chat_model,
+    trace_embedding_model,
+    trace_vector_store,
+)
 from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.persistence import (
@@ -253,7 +257,24 @@ def _chat_adapter(settings: Settings) -> ChatModel:
 def _build_vector_store(
     settings: Settings, engine: AsyncEngine, embedding_model: EmbeddingModel
 ) -> VectorStore:
-    """Select the retrieval backend (ADR-0003).
+    """Select the retrieval backend (ADR-0003), and trace whichever is chosen.
+
+    ``trace_vector_store`` rather than a constructor, for the same reason the chat
+    model uses a function: the wrapper has to keep ``NativeHybridSearch`` when the
+    store has it. Losing it would not raise — Azure AI Search would quietly stop
+    using its own fusion and start being fused in-process, which is a change in
+    retrieval quality with nothing reporting it (ADR-0026).
+    """
+    return trace_vector_store(
+        _vector_store_adapter(settings, engine, embedding_model),
+        capture_content=settings.observability.tracing.capture_content,
+    )
+
+
+def _vector_store_adapter(
+    settings: Settings, engine: AsyncEngine, embedding_model: EmbeddingModel
+) -> VectorStore:
+    """Build the retrieval adapter itself.
 
     The index is described by the model that fills it, not by the model named in
     configuration, so a mismatched pair is refused on the first write rather than
