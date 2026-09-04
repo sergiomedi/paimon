@@ -66,6 +66,7 @@ from paimon.infrastructure.embedding import (
     OpenAICompatibleEmbeddingModel,
 )
 from paimon.infrastructure.identity import build_identity_provider
+from paimon.infrastructure.observability import trace_chat_model, trace_embedding_model
 from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 from paimon.infrastructure.parsing import MarkdownParser
 from paimon.infrastructure.persistence import (
@@ -85,6 +86,7 @@ from paimon.infrastructure.sources import (
 from paimon.infrastructure.sources.github import GET_FILE_CONTENTS
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
 from paimon.interfaces.mcp import McpToolGateway
+from paimon.observability.genai import Provider
 from paimon.rag.chunking import Chunker, ChunkingPolicy
 
 
@@ -146,7 +148,22 @@ def _graph_saver(settings: Settings) -> AbstractAsyncContextManager[AsyncPostgre
 
 
 def _build_embedding_model(settings: Settings) -> EmbeddingModel:
-    """Select the embedding adapter (ADR-0014)."""
+    """Select the embedding adapter (ADR-0014), and trace whichever is chosen.
+
+    Wrapped here rather than instrumented inside each adapter: one place decides
+    that model calls are traced, and an adapter added later is traced because it
+    was built here, not because its author remembered (ADR-0026).
+    """
+    return trace_embedding_model(_embedding_adapter(settings), _embedding_provider(settings))
+
+
+def _embedding_provider(settings: Settings) -> Provider:
+    """Which provider the embedding adapter talks to, as the registry spells it."""
+    return Provider.AZURE_OPENAI if settings.embedding.provider == "azure" else Provider.OPENAI
+
+
+def _embedding_adapter(settings: Settings) -> EmbeddingModel:
+    """Build the embedding adapter itself."""
     if settings.embedding.provider == "azure":
         azure = settings.azure_openai
         # Both are guaranteed by the startup validator; asserted so the type
@@ -188,7 +205,21 @@ def _build_embedding_model(settings: Settings) -> EmbeddingModel:
 
 
 def _build_chat_model(settings: Settings) -> ChatModel:
-    """Select the generation adapter (ADR-0014)."""
+    """Select the generation adapter (ADR-0014), and trace whichever is chosen.
+
+    ``trace_chat_model`` rather than a constructor, because the wrapper has to
+    keep the tool-calling capability when the adapter has it. A wrapper that
+    dropped it would raise nothing: agents would simply stop being offered tools.
+    """
+    return trace_chat_model(
+        _chat_adapter(settings),
+        Provider.AZURE_OPENAI if settings.chat.provider == "azure" else Provider.OPENAI,
+        capture_content=settings.observability.tracing.capture_content,
+    )
+
+
+def _chat_adapter(settings: Settings) -> ChatModel:
+    """Build the generation adapter itself."""
     if settings.chat.provider == "azure":
         azure = settings.azure_openai
         assert azure.endpoint  # noqa: S101  guaranteed by the startup validator
