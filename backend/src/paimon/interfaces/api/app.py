@@ -101,8 +101,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.resources = resources
             # Compiled once, here, so a malformed graph aborts startup instead
             # of surfacing as a 500 to whoever first asks for that agent.
-            app.state.agent_workflows = build_agent_workflows(resources)
-            app.state.mcp_gateway = lambda: build_mcp_gateway(resources)
+            workflows = build_agent_workflows(resources)
+            app.state.agent_workflows = workflows
+            # The same compiled graphs, not a second set: an agent reached over
+            # MCP is the agent reached over HTTP, down to the object.
+            app.state.mcp_gateway = lambda: build_mcp_gateway(resources, workflows)
             if mcp_transport is not None:
                 # Starlette does not run a mounted application's lifespan, and
                 # the MCP transport keeps its session manager there. Entering it

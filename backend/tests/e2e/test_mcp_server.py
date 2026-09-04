@@ -16,10 +16,13 @@ from fastapi import FastAPI
 from mcp.client import Client
 from mcp.client.streamable_http import streamable_http_client
 
+from paimon.agents import AGENTS
 from paimon.agents.tools import READ_DOCUMENT, SEARCH_CORPUS
 from paimon.application.use_cases import RetrieveChunks
 from paimon.infrastructure.identity import DevIdentityProvider
 from paimon.interfaces.mcp import McpToolGateway
+from paimon.interfaces.mcp.gateway import UnknownAgentError
+from paimon.interfaces.mcp.server import RUN_AGENT
 from tests.conftest import DEV_SIGNING_KEY
 from tests.e2e.test_agents_api import TENANT, Backend
 
@@ -43,6 +46,8 @@ def gateway_for(backend: Backend) -> McpToolGateway:
         DevIdentityProvider(signing_key=DEV_SIGNING_KEY),
         RetrieveChunks(backend.store, backend.embedding_model),
         backend.repository,
+        workflows=backend.workflows(),
+        checkpointer=backend.checkpointer,
     )
 
 
@@ -89,7 +94,7 @@ class TestDiscovery:
     async def test_it_offers_the_platform_tools(self, app: FastAPI, corpus: Backend) -> None:
         async with session(app, token_for(corpus)) as client:
             names = {tool.name for tool in (await client.list_tools()).tools}
-        assert names == {SEARCH_CORPUS.name, READ_DOCUMENT.name}
+        assert names == {SEARCH_CORPUS.name, READ_DOCUMENT.name, RUN_AGENT}
 
     async def test_the_descriptions_are_the_ones_the_platform_declares(
         self, app: FastAPI, corpus: Backend
@@ -153,3 +158,95 @@ class TestAuthentication:
         async with session(app, token) as client:
             result = await client.call_tool(SEARCH_CORPUS.name, {"query": "draining"})
         assert "Do not answer from memory" in str(result.content[0].text)  # type: ignore[union-attr]
+
+
+class TestDocumentsAreNotResources:
+    """A limitation, recorded so it is not mistaken for an oversight.
+
+    A resource template's function is wrapped in pydantic's ``validate_call``,
+    which revalidates its arguments — and a revalidated ``Context`` has lost its
+    binding to the request. No request means no token, no token means no tenant,
+    and a resource that served documents without establishing whose they are is
+    not worth having.
+    """
+
+    async def test_nothing_is_offered_as_a_resource(self, app: FastAPI, corpus: Backend) -> None:
+        async with session(app, token_for(corpus)) as client:
+            assert (await client.list_resources()).resources == []
+            assert (await client.list_resource_templates()).resource_templates == []
+
+    async def test_documents_are_still_reachable_as_a_tool(
+        self, app: FastAPI, corpus: Backend
+    ) -> None:
+        # Where the context does survive, so the tenant can be established.
+        async with session(app, token_for(corpus)) as client:
+            result = await client.call_tool(READ_DOCUMENT.name, {"document_id": "runbook"})
+        assert "Cordon the node first" in str(result.content[0].text)  # type: ignore[union-attr]
+
+
+class TestRunningAnAgent:
+    async def test_an_agent_runs_to_completion_and_reports_its_steps(
+        self, app: FastAPI, corpus: Backend
+    ) -> None:
+        async with session(app, token_for(corpus)) as client:
+            result = await client.call_tool(
+                RUN_AGENT, {"agent": "incident-triage", "input": "eviction hangs"}
+            )
+        rendered = str(result.content[0].text)  # type: ignore[union-attr]
+        assert "agent: incident-triage" in rendered
+        assert "status: succeeded" in rendered
+        assert "procedure:" in rendered
+
+    async def test_the_answer_is_returned_not_only_the_trace(
+        self, app: FastAPI, corpus: Backend
+    ) -> None:
+        # The gap this batch found: a run recorded without its answer is a run
+        # whose result existed once, for whoever was watching.
+        async with session(app, token_for(corpus)) as client:
+            result = await client.call_tool(
+                RUN_AGENT, {"agent": "incident-triage", "input": "eviction hangs"}
+            )
+        assert "Cordon the node first" in str(result.content[0].text)  # type: ignore[union-attr]
+
+    async def test_an_unknown_agent_names_the_ones_that_exist(
+        self, app: FastAPI, corpus: Backend
+    ) -> None:
+        async with session(app, token_for(corpus)) as client:
+            result = await client.call_tool(
+                RUN_AGENT, {"agent": "nonexistent", "input": "anything"}
+            )
+        rendered = str(result.content[0].text)  # type: ignore[union-attr]
+        assert "incident-triage" in rendered
+
+    async def test_a_run_started_here_is_readable_over_the_http_api(
+        self, app: FastAPI, corpus: Backend
+    ) -> None:
+        # One record, two surfaces. A run is not owned by the protocol that
+        # happened to start it.
+        async with session(app, token_for(corpus)) as client:
+            result = await client.call_tool(
+                RUN_AGENT, {"agent": "incident-triage", "input": "eviction hangs"}
+            )
+        thread_id = str(result.content[0].text).split("run: ")[1].split("\n")[0]  # type: ignore[union-attr]
+        stored = await corpus.checkpointer.load(thread_id)
+        assert stored is not None
+        assert stored.answer
+
+
+class TestTheWiringTheApplicationBuildsForItself:
+    """Not the gateway a test substitutes — the one the composition root builds.
+
+    Every other test in this file points the MCP surface at an in-memory backend,
+    which is what makes them fast and what would let the real wiring lose the
+    agents entirely without a single failure. It did, once: the gateway was built
+    without them and every test still passed.
+    """
+
+    async def test_the_agents_reach_mcp_as_they_are_wired_for_http(self, app: FastAPI) -> None:
+        async with LifespanManager(app):
+            gateway: McpToolGateway = app.state.mcp_gateway()
+            headers = {"authorization": f"Bearer {token_for(Backend())}"}
+            with pytest.raises(UnknownAgentError) as raised:
+                await gateway.run_agent("no-such-agent", "anything", headers=headers)
+        offered = str(raised.value)
+        assert all(name in offered for name in AGENTS)

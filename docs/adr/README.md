@@ -32,6 +32,7 @@ reasoning trail, and rewriting history destroys it.
 | [0019](0019-suspend-runs-through-state.md) | A run suspends by writing state, not by calling the runtime | Accepted |
 | [0020](0020-mcp-server-inside-the-api.md) | The MCP server is an interface, mounted inside the API | Accepted |
 | [0021](0021-mcp-as-an-oauth-resource-server.md) | The MCP endpoint is an OAuth 2.1 resource server, and says so | Accepted |
+| [0022](0022-agents-as-mcp-tools.md) | Agents are MCP tools that run to completion; documents are not resources | Accepted |
 
 ## Writing a new ADR
 

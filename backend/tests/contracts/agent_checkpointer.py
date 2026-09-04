@@ -28,12 +28,13 @@ def step(name: str, *, minutes: int = 0, tokens: int = 0) -> AgentStep:
     )
 
 
-def run(
+def run(  # noqa: PLR0913  a builder for tests: every field is one the contract pins
     thread_id: str,
     *,
     tenant_id: str = TENANT,
     status: RunStatus = RunStatus.RUNNING,
     steps: tuple[AgentStep, ...] = (),
+    answer: str = "",
     minutes: int = 0,
 ) -> AgentRun:
     """Build a run for use in a contract test."""
@@ -42,6 +43,7 @@ def run(
         agent="triage",
         tenant_id=tenant_id,
         status=status,
+        answer=answer,
         steps=steps,
         started_at=datetime(2026, 9, 3, 9, 0, tzinfo=UTC) + timedelta(minutes=minutes),
     )
@@ -96,6 +98,25 @@ class AgentCheckpointerContract:
         loaded = await checkpointer.load("t-1")
         assert loaded is not None
         assert loaded.total_tokens == 120
+
+    async def test_what_the_run_produced_survives_the_round_trip(
+        self, checkpointer: AgentCheckpointer
+    ) -> None:
+        # A run that reads back without its answer is a run whose result existed
+        # once, for whoever was watching. That is a notification, not a record.
+        await checkpointer.save(run("t-1", answer="Cordon the node first [1]."))
+        loaded = await checkpointer.load("t-1")
+        assert loaded is not None
+        assert loaded.answer == "Cordon the node first [1]."
+
+    async def test_a_later_save_replaces_the_answer(self, checkpointer: AgentCheckpointer) -> None:
+        # A node that withdraws a draft writes over it, so the record shows the
+        # withdrawal rather than both.
+        await checkpointer.save(run("t-1", answer="a draft"))
+        await checkpointer.save(run("t-1", answer="withdrawn: it cites nothing"))
+        loaded = await checkpointer.load("t-1")
+        assert loaded is not None
+        assert loaded.answer == "withdrawn: it cites nothing"
 
     async def test_a_suspended_run_keeps_its_status(self, checkpointer: AgentCheckpointer) -> None:
         await checkpointer.save(run("t-1", status=RunStatus.AWAITING_INPUT))

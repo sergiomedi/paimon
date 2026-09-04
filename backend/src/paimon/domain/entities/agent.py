@@ -87,12 +87,18 @@ class AgentRun:
     Identified by ``thread_id`` rather than by a surrogate key: resuming a
     suspended run means addressing the same thread, and a run that cannot be
     named cannot be resumed.
+
+    ``answer`` is what the run produced. It is on the record rather than only in
+    the stream because a run that can be read back without its answer is a run
+    whose result exists once, for whoever happened to be watching — which is not
+    a record, it is a notification.
     """
 
     thread_id: str
     agent: str
     tenant_id: str
     status: RunStatus
+    answer: str = ""
     steps: Sequence[AgentStep] = ()
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 

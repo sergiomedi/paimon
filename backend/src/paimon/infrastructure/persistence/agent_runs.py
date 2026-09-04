@@ -55,6 +55,7 @@ def _run(row: Any) -> AgentRun:
         agent=row["agent"],
         tenant_id=row["tenant_id"],
         status=RunStatus(row["status"]),
+        answer=row["answer"],
         steps=tuple(_decode(item) for item in row["steps"]),
         # A column declared with a timezone can still read back naive through
         # some drivers, and AgentStep refuses naive timestamps. Assuming UTC
@@ -88,6 +89,7 @@ class PostgresCheckpointer:
             "tenant_id": run.tenant_id,
             "agent": run.agent,
             "status": str(run.status),
+            "answer": run.answer,
             "steps": [_encode(step) for step in run.steps],
             "started_at": run.started_at,
         }
@@ -96,6 +98,7 @@ class PostgresCheckpointer:
             index_elements=[AgentRunRow.thread_id],
             set_={
                 "status": statement.excluded["status"],
+                "answer": statement.excluded["answer"],
                 "steps": statement.excluded["steps"],
                 "updated_at": datetime.now(UTC),
             },

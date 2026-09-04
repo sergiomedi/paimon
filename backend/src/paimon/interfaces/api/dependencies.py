@@ -9,7 +9,7 @@ build the object graph; everything downstream receives it already assembled,
 which is what keeps the dependency inversion real rather than nominal.
 """
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass
 from typing import Annotated, Any, Protocol, runtime_checkable
@@ -432,12 +432,25 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
     }
 
 
-def build_mcp_gateway(resources: Resources) -> McpToolGateway:
-    """Assemble the gateway the MCP server authenticates and executes through."""
+def build_mcp_gateway(
+    resources: Resources, workflows: Mapping[str, AgentWorkflow]
+) -> McpToolGateway:
+    """Assemble the gateway the MCP server authenticates and executes through.
+
+    Args:
+        resources: The process-lifetime object graph.
+        workflows: The agents compiled at startup, handed in rather than compiled
+            again here, so that MCP runs the same graphs the HTTP surface does.
+
+    Returns:
+        A gateway that can authenticate a caller, execute a tool and run an agent.
+    """
     return McpToolGateway(
         resources.identity_provider,
         build_retrieve_chunks(resources),
         resources.document_repository,
+        workflows=workflows,
+        checkpointer=resources.checkpointer,
     )
 
 

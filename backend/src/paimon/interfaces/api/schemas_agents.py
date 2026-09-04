@@ -57,6 +57,10 @@ class AgentStepResponse(BaseModel):
 class AgentRunResponse(BaseModel):
     """A run, as it stands.
 
+    ``answer`` is what the run produced. Streaming the steps is how a client
+    watches; this is how it finds out what happened, including after the stream
+    it was watching was interrupted.
+
     ``total_tokens`` is on the run rather than left to the caller to add up:
     cost per run is the number anyone asks for first.
     """
@@ -64,6 +68,7 @@ class AgentRunResponse(BaseModel):
     thread_id: str
     agent: str
     status: str
+    answer: str
     started_at: datetime
     total_tokens: int
     steps: list[AgentStepResponse]
@@ -75,6 +80,7 @@ class AgentRunResponse(BaseModel):
             thread_id=run.thread_id,
             agent=run.agent,
             status=str(run.status),
+            answer=run.answer,
             started_at=run.started_at,
             total_tokens=run.total_tokens,
             steps=[AgentStepResponse.from_step(step) for step in run.steps],

@@ -17,11 +17,27 @@ from typing import Annotated, Any
 from mcp.server.mcpserver import Context, MCPServer
 from pydantic import Field
 
+from paimon.agents import AGENTS
 from paimon.agents.tools import READ_DOCUMENT, SEARCH_CORPUS
+from paimon.domain.entities import AgentRun
 from paimon.domain.errors import DomainError
 from paimon.interfaces.mcp.gateway import GatewayFactory
 
 SERVER_NAME = "paimon"
+
+RUN_AGENT = "run_agent"
+
+#: Documents are **not** offered as MCP resources, and the reason is a limitation
+#: rather than a preference. A resource template's function is wrapped in
+#: pydantic's ``validate_call``, which revalidates its arguments — and a
+#: revalidated ``Context`` is a copy that has lost its binding to the request.
+#: Reading ``context.headers`` inside a template therefore raises "Context is not
+#: available outside of a request" even in the middle of one.
+#:
+#: No request means no bearer token, and no token means no tenant. A resource
+#: that served documents without establishing whose they are is not a feature
+#: worth having, so ``read_document`` remains a tool — where the context does
+#: survive — until the SDK exposes request state to templates.
 
 INSTRUCTIONS = """Paimon indexes an organization's operational knowledge — runbooks,
 postmortems, architecture decisions and API references — and answers from it with
@@ -78,4 +94,50 @@ def build_mcp_server(gateway: GatewayFactory) -> MCPServer:
         """Read a whole document by its identifier."""
         return await _run(context, READ_DOCUMENT.name, {"document_id": document_id})
 
+    @server.tool(
+        name=RUN_AGENT,
+        description=(
+            "Run one of this platform's operational agents to completion and return "
+            "its answer with the steps it took. Agents search the corpus themselves; "
+            "use this instead of search_corpus when the task is triaging an incident, "
+            "drafting a postmortem from a timeline, or assessing what a topic's "
+            "documentation leaves out."
+        ),
+    )
+    async def run_agent(
+        context: Context[Any, Any],
+        agent: Annotated[
+            str,
+            Field(description=f"Which agent to run. One of: {', '.join(sorted(AGENTS))}."),
+        ],
+        input: Annotated[  # noqa: A002  the protocol's own word for it
+            str,
+            Field(description="The symptom, incident timeline or topic, per the agent."),
+        ],
+    ) -> str:
+        """Run an agent and render what it produced."""
+        try:
+            run = await gateway().run_agent(agent, input, headers=context.headers)
+        except DomainError as error:
+            return f"error: {error}"
+        return render_run(run)
+
     return server
+
+
+def render_run(run: AgentRun) -> str:
+    """Render a finished run for a model to read.
+
+    The steps are included, not just the answer. A model deciding whether to
+    trust an answer benefits from seeing that retrieval found four passages
+    across two documents — and from seeing when it found none.
+    """
+    steps = "\n".join(f"  - {step.name}: {step.summary}" for step in run.steps)
+    return (
+        f"agent: {run.agent}\n"
+        f"run: {run.thread_id}\n"
+        f"status: {run.status}\n"
+        f"tokens: {run.total_tokens}\n"
+        f"steps:\n{steps}\n\n"
+        f"{run.answer or '(the run produced no text)'}"
+    )

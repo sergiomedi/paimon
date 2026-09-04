@@ -215,6 +215,7 @@ class LangGraphWorkflow:
         handed to the graph: a fresh state, or a command carrying a decision.
         """
         seen: list[AgentStep] = list(run.steps)
+        answer = run.answer
         failure = ""
         suspended = ""
         try:
@@ -227,13 +228,17 @@ class LangGraphWorkflow:
                         continue
                     update = cast("StateUpdate", value)
                     failure = update.get("failure", "") or failure
+                    # The last node to write a draft owns the answer. Nodes that
+                    # withdraw one write it too, so a withdrawal replaces the
+                    # draft it withdrew rather than leaving both on the record.
+                    answer = update.get("draft", "") or answer
                     for step in update.get("steps", ()):
                         seen.append(step)
-                        run = self._replace(run, RunStatus.RUNNING, seen)
+                        run = self._replace(run, RunStatus.RUNNING, seen, answer)
                         await self._checkpointer.save(run)
                         yield step
         except Exception as error:
-            await self._checkpointer.save(self._replace(run, RunStatus.FAILED, seen))
+            await self._checkpointer.save(self._replace(run, RunStatus.FAILED, seen, answer))
             msg = f"agent '{self.name}' could not complete run '{thread_id}': {error}"
             raise AgentRunError(msg) from error
 
@@ -243,7 +248,7 @@ class LangGraphWorkflow:
             status = RunStatus.AWAITING_INPUT
         else:
             status = RunStatus.FAILED if failure else RunStatus.SUCCEEDED
-        await self._checkpointer.save(self._replace(run, status, seen))
+        await self._checkpointer.save(self._replace(run, status, seen, answer))
 
     async def stream(
         self, question: str, *, thread_id: str, tenant_id: str
@@ -306,12 +311,13 @@ class LangGraphWorkflow:
         return resumed
 
     @staticmethod
-    def _replace(run: AgentRun, status: RunStatus, steps: list[AgentStep]) -> AgentRun:
+    def _replace(run: AgentRun, status: RunStatus, steps: list[AgentStep], answer: str) -> AgentRun:
         return AgentRun(
             thread_id=run.thread_id,
             agent=run.agent,
             tenant_id=run.tenant_id,
             status=status,
+            answer=answer,
             steps=tuple(steps),
             started_at=run.started_at,
         )
