@@ -281,6 +281,47 @@ class AgentSettings(BaseModel):
     review_postmortems: bool = False
 
 
+class McpSettings(BaseModel):
+    """Whether this deployment speaks the Model Context Protocol, and where."""
+
+    enabled: bool = True
+    # Mounted inside the API rather than run as its own service. One deployment
+    # unit, one authentication path, one set of pools — and the cost is that MCP
+    # traffic and API traffic share them, which is a Phase 7 problem once there
+    # are numbers to size it with.
+    path: str = "/mcp"
+    # Host header values this server answers to. The transport rejects anything
+    # else, which is protection against DNS rebinding: a browser page can be
+    # made to resolve an attacker's hostname to 127.0.0.1 and then talk to a
+    # local server, and the Host header is what gives that away. The defaults
+    # cover local development; a deployment behind a proxy must list its own
+    # names, and an empty list would refuse every request rather than allow any.
+    allowed_hosts: tuple[str, ...] = (
+        "localhost",
+        "127.0.0.1",
+        "localhost:8000",
+        "127.0.0.1:8000",
+    )
+    # Browser Origin values permitted to reach the endpoint. Empty by default:
+    # this is an API for programs, and a page that wants to call it directly is
+    # the case the rebinding protection exists to catch.
+    allowed_origins: tuple[str, ...] = ()
+
+    @model_validator(mode="after")
+    def _hosts_must_be_listed(self) -> Self:
+        if self.enabled and not self.allowed_hosts:
+            msg = "mcp.allowed_hosts cannot be empty: it would refuse every request"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _path_must_be_absolute(self) -> Self:
+        if not self.path.startswith("/") or self.path == "/":
+            msg = "mcp.path must be an absolute sub-path, for example '/mcp'"
+            raise ValueError(msg)
+        return self
+
+
 class ObservabilitySettings(BaseModel):
     """Logging and, from Phase 5, tracing configuration."""
 
@@ -312,6 +353,7 @@ class Settings(BaseSettings):
     auth: AuthSettings
     embedding: EmbeddingSettings = EmbeddingSettings()
     agents: AgentSettings = AgentSettings()
+    mcp: McpSettings = McpSettings()
     azure_openai: AzureOpenAISettings = AzureOpenAISettings()
     azure_search: AzureSearchSettings = AzureSearchSettings()
     chat: ChatSettings = ChatSettings()

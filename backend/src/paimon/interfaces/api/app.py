@@ -8,10 +8,11 @@ import infrastructure.
 """
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
+from mcp.server.transport_security import TransportSecuritySettings
 
 from paimon.config import Settings, get_settings
 from paimon.domain.errors import (
@@ -23,10 +24,15 @@ from paimon.domain.errors import (
     InvalidTokenError,
     UnsupportedMediaTypeError,
 )
-from paimon.interfaces.api.dependencies import build_agent_workflows, build_resources
+from paimon.interfaces.api.dependencies import (
+    build_agent_workflows,
+    build_mcp_gateway,
+    build_resources,
+)
 from paimon.interfaces.api.middleware import CorrelationIdMiddleware
 from paimon.interfaces.api.routers import agents, health, identity, knowledge
 from paimon.interfaces.api.schemas import ErrorResponse
+from paimon.interfaces.mcp import McpToolGateway, build_mcp_server
 from paimon.observability import configure_logging, get_logger
 
 API_PREFIX = "/api/v1"
@@ -48,17 +54,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or get_settings()
     configure_logging(resolved.observability)
 
+    # The server is built once; the gateway it authenticates through is resolved
+    # per request from application state. That indirection is what lets the MCP
+    # surface be pointed at substitutes in a test, the same way the HTTP surface
+    # can be — a mounted application is outside FastAPI's dependency overrides.
+    def resolve_mcp_gateway() -> McpToolGateway:
+        """Read the gateway out of application state, per request.
+
+        Deferred on purpose: the server is built before the lifespan runs, so
+        the gateway does not exist yet at this point and cannot be captured.
+        """
+        gateway: McpToolGateway = app.state.mcp_gateway()
+        return gateway
+
+    mcp_app = (
+        build_mcp_server(resolve_mcp_gateway).streamable_http_app(
+            streamable_http_path="/",
+            stateless_http=True,
+            transport_security=TransportSecuritySettings(
+                allowed_hosts=list(resolved.mcp.allowed_hosts),
+                allowed_origins=list(resolved.mcp.allowed_origins),
+            ),
+        )
+        if resolved.mcp.enabled
+        else None
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        async with build_resources(resolved) as resources:
+        async with build_resources(resolved) as resources, AsyncExitStack() as stack:
             app.state.resources = resources
             # Compiled once, here, so a malformed graph aborts startup instead
             # of surfacing as a 500 to whoever first asks for that agent.
             app.state.agent_workflows = build_agent_workflows(resources)
+            app.state.mcp_gateway = lambda: build_mcp_gateway(resources)
+            if mcp_app is not None:
+                # Starlette does not run a mounted application's lifespan, and
+                # the MCP transport keeps its session manager there. Entering it
+                # from the parent is what stops every MCP request from failing
+                # on a manager that was never started.
+                await stack.enter_async_context(mcp_app.router.lifespan_context(mcp_app))
             logger.info(
                 "application_started",
                 environment=resolved.environment.value,
                 identity_provider=resolved.auth.provider,
+                mcp_path=resolved.mcp.path if mcp_app is not None else None,
             )
             yield
             logger.info("application_stopping")
@@ -82,6 +122,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity.router, prefix=API_PREFIX)
     app.include_router(knowledge.router, prefix=API_PREFIX)
     app.include_router(agents.router, prefix=API_PREFIX)
+    if mcp_app is not None:
+        # Outside the versioned API prefix on purpose: the protocol carries its
+        # own version, and a client that has to guess which of our prefixes an
+        # MCP endpoint sits behind is a client we made work for no reason.
+        app.mount(resolved.mcp.path, mcp_app)
     return app
 
 

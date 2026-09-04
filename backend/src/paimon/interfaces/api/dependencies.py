@@ -74,6 +74,7 @@ from paimon.infrastructure.persistence import (
     build_engine,
 )
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
+from paimon.interfaces.mcp import McpToolGateway
 from paimon.rag.chunking import Chunker, ChunkingPolicy
 
 
@@ -429,6 +430,15 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
             review_postmortems=resources.settings.agents.review_postmortems,
         ).items()
     }
+
+
+def build_mcp_gateway(resources: Resources) -> McpToolGateway:
+    """Assemble the gateway the MCP server authenticates and executes through."""
+    return McpToolGateway(
+        resources.identity_provider,
+        build_retrieve_chunks(resources),
+        resources.document_repository,
+    )
 
 
 def get_agent_workflows(request: Request) -> dict[str, AgentWorkflow]:

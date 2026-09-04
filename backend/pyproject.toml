@@ -29,6 +29,7 @@ dependencies = [
     # than discovering it at runtime: a transitive dependency that cannot be
     # imported as installed is a broken install, not a configuration choice.
     "psycopg[binary]>=3.2.0",
+    "mcp>=2.1.1",
 ]
 
 # Entra ID authentication. Optional: a deployment using service keys needs

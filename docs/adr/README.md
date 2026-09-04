@@ -30,6 +30,7 @@ reasoning trail, and rewriting history destroys it.
 | [0017](0017-agent-persistence-on-the-existing-driver.md) | Persist agent runs on the drivers the platform already has | Accepted |
 | [0018](0018-tool-calling-as-a-capability.md) | Tool calling is a capability, and the tool surface stays small | Accepted |
 | [0019](0019-suspend-runs-through-state.md) | A run suspends by writing state, not by calling the runtime | Accepted |
+| [0020](0020-mcp-server-inside-the-api.md) | The MCP server is an interface, mounted inside the API | Accepted |
 
 ## Writing a new ADR
 
