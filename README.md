@@ -17,12 +17,14 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 4 complete. Phase 5 — observability — next.**
+> **Project status: Phases 1 to 5 complete. Phase 6 — evaluation — next.**
 > Ingestion, hybrid retrieval and grounded answering with citations work end to end; the
 > retrieval benchmark runs; three agents run as LangGraph workflows over the same use
 > cases, streaming their steps and pausing for a person when asked to; the platform speaks
 > the Model Context Protocol in **both directions** — an authenticated, discoverable server
-> exposing search and the agents, and a client that indexes documentation out of GitHub;
+> exposing search and the agents, and a client that indexes documentation out of GitHub; every
+> request, model call, retrieval and agent run is traced with OpenTelemetry, with tokens and an
+> honestly-labelled cost estimate as metrics;
 > and every port is
 > implemented twice — locally (pgvector, any OpenAI-compatible endpoint) and on Azure
 > (Azure OpenAI, Azure AI Search). This README is updated as each phase lands, and nothing
@@ -61,7 +63,8 @@ Paimon is an operational layer over organizational knowledge. It is not a chatbo
 - **Measured, not asserted.** An evaluation pipeline scores faithfulness, groundedness,
   relevance and latency against a versioned benchmark set. Retrieval changes are accepted or
   rejected on numbers.
-- **Observable.** Every LLM call traced, with token cost attributed per request.
+- **Observable.** Every request, model call, retrieval and agent run traced with plain
+  OpenTelemetry — no vendor SDK, so the backend is an endpoint rather than a dependency.
 
 ## What works today
 
@@ -213,13 +216,46 @@ checks is one that moves.
 🔌 **[Connecting to Paimon over MCP](docs/mcp.md)** — the tools, the discovery documents,
 Claude's Custom Connectors, the Inspector, and configuring a GitHub source.
 
+### Seeing what it did
+
+The platform emits **plain OpenTelemetry** — no vendor SDK anywhere in the code, so the backend
+is an endpoint and a credential rather than a dependency. Langfuse today, Azure Monitor in
+Phase 7, a collector fanning out to both: one setting.
+
+A request reads as a shape rather than a list. An agent run is one span with its nodes nested
+inside it; a node's model call covers the whole logical call with the HTTP attempts beneath it,
+so *"the model took nine seconds"* and *"the model took three attempts"* are visible at once.
+Retrieval spans say which strategy ran and how many hits came back — the difference between
+"the model was wrong" and "the model was given nothing to be right about". Every tool call
+arriving over MCP is audited with its tenant.
+
+Logs and traces join in both directions: each log line names the trace it was written inside,
+and each request's span carries the correlation id the logs are keyed by.
+
+Instrumentation is added by **wrapping the ports**, not by editing adapters — so an adapter added
+later is traced because of where it is built, not because its author remembered
+([ADR-0026](docs/adr/0026-tracing-by-decoration.md)).
+
+**On cost, the honest version.** There is no cost metric in the OpenTelemetry conventions; the
+ecosystem derives it from tokens and a price list. So does this, and says so: the metric is
+`paimon.gen_ai.cost.estimated`, a model missing from the price list produces **no measurement
+rather than a zero**, and every measurement carries the revision of the table that produced it —
+because a figure you cannot trace back to its prices stops meaning anything the moment the table
+changes. The provider's invoice remains the authority.
+
+Prompts and completions are **not** recorded by default and are refused outright in deployed
+environments. Tool arguments and embedded text are never recorded at all.
+
+📈 **[Observing Paimon](docs/observability.md)** — every span and metric, connecting Langfuse or
+a collector, sampling, the content switch, and the known gaps.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: observability — Phase 5. Every LLM call is counted and attributed to the run
-that made it, but nothing is traced yet.
+Not yet built: the evaluation pipeline of Phase 6 — the retrieval benchmark runs, but
+faithfulness and groundedness are not yet scored automatically.
 
 ## Architecture
 
@@ -275,6 +311,10 @@ including the negative ones.
 | [0022](docs/adr/0022-agents-as-mcp-tools.md) | Agents are MCP tools that run to completion; documents are not resources |
 | [0023](docs/adr/0023-mcp-client-as-a-document-source.md) | Consuming MCP servers as document sources, not as an agent's toolbox |
 | [0024](docs/adr/0024-a-discoverable-mcp-server.md) | The MCP server describes itself, at a path that is still an argument |
+| [0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md) | OpenTelemetry is the instrumentation; a backend is a destination |
+| [0026](docs/adr/0026-tracing-by-decoration.md) | Model calls are traced by wrapping the port, not by editing adapters |
+| [0027](docs/adr/0027-tracing-retrieval-agents-and-tool-calls.md) | Tracing retrieval, agent runs and tool calls |
+| [0028](docs/adr/0028-metrics-and-an-estimated-cost.md) | Tokens are measured, cost is estimated, and they are labelled differently |
 
 ## Technology
 
@@ -288,7 +328,7 @@ including the negative ones.
 | Retrieval | Azure AI Search · pgvector | Two adapters, one contract suite, selected by configuration |
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
-| Observability | Langfuse · OpenTelemetry | Traces, latency, token cost per request |
+| Observability | OpenTelemetry · any OTLP backend | Plain OTel in the code; Langfuse, Azure Monitor or a collector by configuration — [ADR-0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md), [guide](docs/observability.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
 | Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |
 
@@ -301,7 +341,7 @@ previous one is complete.
 - [x] **Phase 2 — RAG** · ingestion, chunking, embeddings, hybrid retrieval, citations
 - [x] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
 - [x] **Phase 4 — MCP** · MCP server and tools, client integration
-- [ ] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
+- [x] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
 - [ ] **Phase 6 — Evaluation** · benchmark set, faithfulness and groundedness metrics
 - [ ] **Phase 7 — Cloud** · Azure deployment architecture
 - [ ] **Phase 8 — Delivery** · automated build, deploy and release gating
@@ -496,6 +536,7 @@ backend/
                      sources/ (the MCP client, and the GitHub source over it)
     interfaces/api/  Routers, schemas, composition root
     interfaces/mcp/  The MCP server: tools, gateway, authorization, discovery
+    observability/   Logging, tracing, metrics — the conventions in one place
     interfaces/cli/  The benchmark entry point
   tests/             unit, e2e, integration, architecture, contracts, fakes
 docker/              Dockerfile and the local Compose stack

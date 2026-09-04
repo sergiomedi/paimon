@@ -26,15 +26,15 @@ flowchart TB
     aoai["Azure OpenAI<br/><i>chat + embedding models</i>"]
     search["Azure AI Search<br/><i>hybrid retrieval index</i>"]
     entra["Microsoft Entra ID<br/><i>identity provider</i>"]
-    github["GitHub<br/><i>source of engineering knowledge</i>"]
-    langfuse["Langfuse<br/><i>LLM tracing and cost</i>"]
+    github["GitHub<br/><i>source of engineering knowledge,<br/>reached over MCP</i>"]
+    telemetry["OTLP backend<br/><i>Langfuse, Azure Monitor,<br/>a collector — by configuration</i>"]
 
     engineer -->|"asks questions, launches workflows"| paimon
     paimon -->|"completions, embeddings"| aoai
     paimon -->|"hybrid search over the corpus"| search
     paimon -->|"OIDC token validation"| entra
     paimon -->|"repositories, issues, docs"| github
-    paimon -->|"traces, spans, cost"| langfuse
+    paimon -->|"OpenTelemetry: traces, metrics"| telemetry
 ```
 
 **Why this boundary.** Paimon owns orchestration, retrieval strategy, evaluation and
@@ -61,7 +61,7 @@ flowchart TB
     aoai["Azure OpenAI"]
     search["Azure AI Search"]
     entra["Microsoft Entra ID"]
-    langfuse["Langfuse"]
+    otlp["OTLP backend<br/><i>Langfuse, Azure Monitor,<br/>a collector</i>"]
     client["External MCP client<br/><i>Claude, an IDE, another agent</i>"]
     ghmcp["GitHub MCP Server<br/><i>repos toolset, read-only</i>"]
 
@@ -72,7 +72,7 @@ flowchart TB
     api --> aoai
     api --> search
     api -->|"JWKS"| entra
-    api --> langfuse
+    api -->|"OTLP: traces, metrics"| otlp
     mcp --> api
     client -->|"streamable HTTP"| mcp
     api -->|"MCP client"| ghmcp
@@ -247,8 +247,9 @@ Recorded honestly rather than hidden — each is scheduled, not forgotten.
 - **A source synchronisation runs inline in the request.** Honest at the document ceiling in
   configuration and dishonest above it. A scheduled worker is Phase 7's; the ceiling is what
   keeps the difference from arriving as a surprise.
-- **No per-tool-call audit log.** Security guidance for MCP consumers asks for one. It belongs
-  with the tracing work in Phase 5 rather than as a second logging scheme bolted on now.
+- **No audit log for tool calls an agent makes to itself.** Calls arriving over MCP are audited
+  with their tenant; a tool an agent calls inside a node is covered by that node's span and
+  nothing finer.
 - **The discovery document's path is a convention.** `server.json` is versioned and stable;
   the well-known path for serving it is still two competing proposals
   ([ADR-0024](../adr/0024-a-discoverable-mcp-server.md)).
@@ -257,3 +258,10 @@ Recorded honestly rather than hidden — each is scheduled, not forgotten.
   node is a cheap one ([ADR-0019](../adr/0019-suspend-runs-through-state.md)).
 - **No rate limiting on LLM calls yet.** Redis is provisioned for it; the token-bucket
   implementation lands with the first real Azure OpenAI adapter.
+- **The newest spans are the likeliest to be lost.** Exporting is batched, so a process that
+  dies badly takes with it the batch describing how it died. The shutdown path flushes; a hard
+  kill does not get to.
+- **A configured price list goes stale silently.** Every cost measurement carries the list's
+  revision, which makes staleness visible in the data rather than preventing it — the most a
+  platform can do about a number it does not own
+  ([ADR-0028](../adr/0028-metrics-and-an-estimated-cost.md)).
