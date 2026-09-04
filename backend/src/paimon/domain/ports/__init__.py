@@ -34,6 +34,11 @@ from paimon.domain.ports.retrieval import (
     SearchHit,
     VectorStore,
 )
+from paimon.domain.ports.sources import (
+    DocumentSource,
+    SourceContent,
+    SourceReference,
+)
 from paimon.domain.ports.tokenization import TokenCounter
 
 __all__ = [
@@ -45,6 +50,7 @@ __all__ = [
     "Completion",
     "DocumentParser",
     "DocumentRepository",
+    "DocumentSource",
     "EmbeddingModel",
     "HealthProbe",
     "HumanInTheLoop",
@@ -56,6 +62,8 @@ __all__ = [
     "Role",
     "SearchFilters",
     "SearchHit",
+    "SourceContent",
+    "SourceReference",
     "TokenCounter",
     "ToolCall",
     "ToolCallingChatModel",

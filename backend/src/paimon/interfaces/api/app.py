@@ -23,10 +23,14 @@ from paimon.domain.errors import (
     IdentityProviderUnavailableError,
     IngestionError,
     InvalidTokenError,
+    SourceError,
+    UnknownSourceError,
     UnsupportedMediaTypeError,
+    UntrustedSourceError,
 )
 from paimon.interfaces.api.dependencies import (
     build_agent_workflows,
+    build_document_sources,
     build_mcp_gateway,
     build_resources,
 )
@@ -103,6 +107,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # of surfacing as a 500 to whoever first asks for that agent.
             workflows = build_agent_workflows(resources)
             app.state.agent_workflows = workflows
+            # Assembled at startup for the same reason the graphs are: a source
+            # is built from configuration, so a misconfigured one is a startup
+            # problem, and finding out at synchronisation time is finding out late.
+            app.state.document_sources = build_document_sources(resources)
             # The same compiled graphs, not a second set: an agent reached over
             # MCP is the agent reached over HTTP, down to the object.
             app.state.mcp_gateway = lambda: build_mcp_gateway(resources, workflows)
@@ -210,6 +218,24 @@ def _register_exception_handlers(app: FastAPI) -> None:
         # fix it and reveals nothing they did not already provide.
         logger.info("ingestion_rejected", reason=str(exc))
         return _error_response(request, status.HTTP_400_BAD_REQUEST, str(exc))
+
+    @app.exception_handler(UnknownSourceError)
+    async def _unknown_source(request: Request, exc: UnknownSourceError) -> JSONResponse:
+        # The message lists what does exist, which is the useful half of a 404.
+        return _error_response(request, status.HTTP_404_NOT_FOUND, str(exc))
+
+    @app.exception_handler(UntrustedSourceError)
+    async def _untrusted_source(request: Request, exc: UntrustedSourceError) -> JSONResponse:
+        # Loud, and deliberately not a 503. An external server whose tool
+        # definitions changed under us is not a transient failure to retry
+        # through; somebody has to look at it before the next synchronisation.
+        logger.error("source_definition_changed", reason=str(exc))
+        return _error_response(request, status.HTTP_502_BAD_GATEWAY, str(exc))
+
+    @app.exception_handler(SourceError)
+    async def _source_unavailable(request: Request, exc: SourceError) -> JSONResponse:
+        logger.error("source_failed", error_type=type(exc).__name__, reason=str(exc))
+        return _error_response(request, status.HTTP_503_SERVICE_UNAVAILABLE, "source unavailable")
 
     @app.exception_handler(EmbeddingError)
     @app.exception_handler(GenerationError)

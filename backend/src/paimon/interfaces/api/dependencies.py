@@ -26,6 +26,7 @@ from paimon.application.use_cases import (
     AnswerQuestion,
     CheckReadiness,
     IngestDocument,
+    IngestSource,
     RetrievalPolicy,
     RetrieveChunks,
 )
@@ -38,6 +39,7 @@ from paimon.domain.ports import (
     ChatModel,
     DocumentParser,
     DocumentRepository,
+    DocumentSource,
     EmbeddingModel,
     HealthProbe,
     IdentityProvider,
@@ -73,6 +75,14 @@ from paimon.infrastructure.persistence import (
     PostgresHealthProbe,
     build_engine,
 )
+from paimon.infrastructure.sources import (
+    GitHubDocumentSource,
+    McpToolClient,
+    Repository,
+    ToolContract,
+    http_endpoint,
+)
+from paimon.infrastructure.sources.github import GET_FILE_CONTENTS
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
 from paimon.interfaces.mcp import McpToolGateway
 from paimon.rag.chunking import Chunker, ChunkingPolicy
@@ -470,6 +480,67 @@ def get_ingest_document(resources: ResourcesDep) -> IngestDocument:
     return build_ingest_document(resources)
 
 
+def build_document_sources(resources: Resources) -> dict[str, DocumentSource]:
+    """Assemble the external sources this deployment is configured to read.
+
+    Built from configuration and from nothing else. A source that could be
+    described in a request would let a caller choose which server this process
+    connects to, which is the shape of every server-side request forgery there
+    has ever been; here the caller may only name one of these.
+
+    Args:
+        resources: The process-lifetime object graph.
+
+    Returns:
+        Each configured source, by the name a caller uses to ask for it.
+    """
+    settings = resources.settings.sources
+    token = settings.github_token.get_secret_value() if settings.github_token else None
+    sources: dict[str, DocumentSource] = {}
+    for configured in settings.github:
+        client = McpToolClient(
+            http_endpoint(
+                settings.github_endpoint,
+                token,
+                allow_loopback=settings.allow_loopback_endpoints,
+            ),
+            [
+                ToolContract(name=name, digest=configured.pinned_tools.get(name))
+                for name in (GET_FILE_CONTENTS,)
+            ],
+            server=settings.github_endpoint,
+        )
+        sources[configured.name] = GitHubDocumentSource(
+            client,
+            Repository(
+                owner=configured.owner,
+                repo=configured.repo,
+                paths=configured.paths,
+                ref=configured.ref,
+                suffixes=configured.suffixes,
+                max_depth=configured.max_depth,
+                max_documents=configured.max_documents,
+            ),
+        )
+    return sources
+
+
+def build_ingest_source(resources: Resources) -> IngestSource:
+    """Assemble the synchronisation use case over the per-document pipeline."""
+    return IngestSource(build_ingest_document(resources))
+
+
+def get_document_sources(request: Request) -> dict[str, DocumentSource]:
+    """Return the sources assembled at startup."""
+    sources: dict[str, DocumentSource] = request.app.state.document_sources
+    return sources
+
+
+def get_ingest_source(resources: ResourcesDep) -> IngestSource:
+    """Return the synchronisation use case for a request."""
+    return build_ingest_source(resources)
+
+
 def get_retrieve_chunks(resources: ResourcesDep) -> RetrieveChunks:
     """Return the retrieval use case for a request."""
     return build_retrieve_chunks(resources)
@@ -485,5 +556,7 @@ AgentCheckpointerDep = Annotated[AgentCheckpointer, Depends(get_checkpointer)]
 AnswerQuestionDep = Annotated[AnswerQuestion, Depends(get_answer_question)]
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]
 IngestDocumentDep = Annotated[IngestDocument, Depends(get_ingest_document)]
+IngestSourceDep = Annotated[IngestSource, Depends(get_ingest_source)]
+DocumentSourcesDep = Annotated[dict[str, DocumentSource], Depends(get_document_sources)]
 CurrentPrincipal = Annotated[Principal, Depends(get_current_principal)]
 SettingsDep = Annotated[Settings, Depends(get_settings_dependency)]

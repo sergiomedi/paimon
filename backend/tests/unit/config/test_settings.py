@@ -9,6 +9,7 @@ from paimon.config import (
     get_settings,
     unknown_environment_variables,
 )
+from paimon.infrastructure.sources import READONLY_REPOS_URL
 
 BASE_ENV = {
     "PAIMON_ENVIRONMENT": "local",
@@ -185,6 +186,19 @@ class TestDeployedEnvironmentGuards:
                 PAIMON_AUTH__AUDIENCE="a",
             )
 
+    def test_loopback_source_endpoints_are_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # It switches off the guard that stops a client inside a server from
+        # being pointed at private addresses — the metadata endpoint included.
+        with pytest.raises(ValidationError, match="allow_loopback_endpoints"):
+            build(
+                monkeypatch,
+                PAIMON_ENVIRONMENT="production",
+                PAIMON_SOURCES__ALLOW_LOOPBACK_ENDPOINTS="true",
+                PAIMON_AUTH__PROVIDER="entra",
+                PAIMON_AUTH__TENANT_ID="t",
+                PAIMON_AUTH__AUDIENCE="a",
+            )
+
     def test_local_environment_allows_them(self, monkeypatch: pytest.MonkeyPatch) -> None:
         settings = build(monkeypatch, PAIMON_DEBUG="true", PAIMON_DATABASE__ECHO_SQL="true")
         assert settings.debug is True
@@ -285,3 +299,34 @@ class TestShippedCredentialsAreRefusedWhenDeployed:
         # example file exists to provide.
         settings = build(monkeypatch, PAIMON_DATABASE__PASSWORD="paimon")  # noqa: S106
         assert settings.database.password.get_secret_value() == "paimon"
+
+
+class TestSourceRegistry:
+    """Sources are configuration, and the registry has to be unambiguous."""
+
+    def test_repeated_source_names_are_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Two sources under one name means a caller asking for it gets whichever
+        # the dict kept, which is a coin toss written in a config file.
+        duplicated = (
+            '[{"name":"docs","owner":"a","repo":"b"},{"name":"docs","owner":"c","repo":"d"}]'
+        )
+        with pytest.raises(ValidationError, match="source names must be unique"):
+            build(monkeypatch, PAIMON_SOURCES__GITHUB=duplicated)
+
+    def test_the_default_endpoint_is_the_read_only_toolset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Pinned against the adapter's own constant, so the two cannot drift into
+        # a default that quietly grants write access.
+        assert build(monkeypatch).sources.github_endpoint == READONLY_REPOS_URL
+
+    def test_a_configured_source_is_parsed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = build(
+            monkeypatch,
+            PAIMON_SOURCES__GITHUB='[{"name":"handbook","owner":"acme","repo":"h",'
+            '"paths":["docs"],"pinned_tools":{"get_file_contents":"abc"}}]',
+        )
+        source = settings.sources.github[0]
+        assert source.name == "handbook"
+        assert source.paths == ("docs",)
+        assert source.pinned_tools["get_file_contents"] == "abc"

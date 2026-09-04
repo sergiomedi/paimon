@@ -338,6 +338,74 @@ class McpSettings(BaseModel):
         return self
 
 
+class GitHubSourceSettings(BaseModel):
+    """One repository this deployment synchronises from GitHub.
+
+    Attributes:
+        name: How this source is named in a request and in logs.
+        owner: Account or organization.
+        repo: Repository name.
+        paths: Directories to walk. Empty means the repository root, which is
+            almost never what you want on a repository that also holds code.
+        ref: Branch, tag or commit. Unset follows the default branch.
+        suffixes: Extensions to index.
+        max_depth: How deep the walk descends.
+        max_documents: Ceiling on one synchronisation.
+        pinned_tools: Fingerprints of the server's tool definitions, as recorded
+            when they were reviewed. Empty is allowed, and the first connection
+            logs the digests to put here.
+    """
+
+    name: str
+    owner: str
+    repo: str
+    paths: tuple[str, ...] = ()
+    ref: str | None = None
+    suffixes: tuple[str, ...] = (".md",)
+    max_depth: int = 4
+    max_documents: int = 200
+    pinned_tools: Mapping[str, str] = Field(default_factory=dict)
+
+
+class SourcesSettings(BaseModel):
+    """External systems this deployment reads documents from.
+
+    A registry, not a parameter. The endpoint that starts a synchronisation
+    names a source configured here; it does not accept a URL, a repository or a
+    credential from the caller. That is the difference between an integration
+    and a server-side request forgery gadget, and it is a property of where the
+    values come from rather than of anything that could be validated on the way
+    in.
+
+    Attributes:
+        github_endpoint: The MCP server GitHub sources talk to. The **read-only**
+            repository toolset by default (the same URL the adapter names as
+            ``READONLY_REPOS_URL``): a synchronisation has no business being able
+            to call ``delete_file``, and scoping it here means it cannot,
+            whatever it is later asked to do.
+        github_token: Credential presented to that server.
+        github: The repositories this deployment offers.
+        allow_loopback_endpoints: Permit an ``http://localhost`` MCP server.
+            Refused outside local and test environments, because the guard it
+            switches off is the one that stops a client running inside a server
+            from being pointed back at that server.
+    """
+
+    github_endpoint: str = "https://api.githubcopilot.com/mcp/x/repos/readonly"
+    github_token: SecretStr | None = None
+    github: tuple[GitHubSourceSettings, ...] = ()
+    allow_loopback_endpoints: bool = False
+
+    @model_validator(mode="after")
+    def _names_must_be_unique(self) -> Self:
+        names = [source.name for source in self.github]
+        duplicated = {name for name in names if names.count(name) > 1}
+        if duplicated:
+            msg = f"source names must be unique; repeated: {', '.join(sorted(duplicated))}"
+            raise ValueError(msg)
+        return self
+
+
 class ObservabilitySettings(BaseModel):
     """Logging and, from Phase 5, tracing configuration."""
 
@@ -370,6 +438,7 @@ class Settings(BaseSettings):
     embedding: EmbeddingSettings = EmbeddingSettings()
     agents: AgentSettings = AgentSettings()
     mcp: McpSettings = McpSettings()
+    sources: SourcesSettings = SourcesSettings()
     azure_openai: AzureOpenAISettings = AzureOpenAISettings()
     azure_search: AzureSearchSettings = AzureSearchSettings()
     chat: ChatSettings = ChatSettings()
@@ -421,6 +490,12 @@ class Settings(BaseSettings):
                 raise ValueError(msg)
             if self.database.echo_sql:
                 msg = f"SQL echo leaks query parameters and is not allowed in {self.environment}"
+                raise ValueError(msg)
+            if self.sources.allow_loopback_endpoints:
+                msg = (
+                    "sources.allow_loopback_endpoints disables the guard that stops this "
+                    f"process from dialling itself, and is not allowed in {self.environment}"
+                )
                 raise ValueError(msg)
             if self.database.password.get_secret_value() in SHIPPED_CREDENTIALS:
                 msg = (

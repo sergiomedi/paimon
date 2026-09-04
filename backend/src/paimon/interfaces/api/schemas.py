@@ -7,7 +7,12 @@ them means every domain refactor is a breaking API change.
 
 from pydantic import BaseModel, Field
 
-from paimon.application.use_cases import Answer, IngestionResult, ReadinessReport
+from paimon.application.use_cases import (
+    Answer,
+    IngestionResult,
+    ReadinessReport,
+    SynchronizationResult,
+)
 from paimon.domain.entities import Principal
 from paimon.domain.value_objects import Citation
 
@@ -74,6 +79,48 @@ class ErrorResponse(BaseModel):
 
     detail: str
     correlation_id: str | None = None
+
+
+class SourceListResponse(BaseModel):
+    """The external sources this deployment is configured to read."""
+
+    sources: list[str]
+
+
+class FailedDocument(BaseModel):
+    """One document a synchronisation could not index, and why."""
+
+    document_id: str
+    reason: str
+
+
+class SynchronizationResponse(BaseModel):
+    """What one pass over a source did.
+
+    The failures are listed rather than counted. A run that indexed ninety-nine
+    documents and could not read one has a name for the one, and a caller who
+    cannot see which it was has to diff two corpora to find out.
+    """
+
+    source: str
+    considered: int
+    indexed: int
+    unchanged: int
+    failed: list[FailedDocument]
+
+    @classmethod
+    def from_result(cls, result: SynchronizationResult) -> "SynchronizationResponse":
+        """Build the response from the use case's result."""
+        return cls(
+            source=result.source,
+            considered=result.considered,
+            indexed=result.indexed,
+            unchanged=result.unchanged,
+            failed=[
+                FailedDocument(document_id=document_id, reason=reason)
+                for document_id, reason in result.failed
+            ],
+        )
 
 
 class IngestDocumentRequest(BaseModel):

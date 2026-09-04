@@ -11,6 +11,10 @@ from paimon.application.use_cases.ingest_document import (
     IngestionResult,
     SourceDocument,
 )
+from paimon.application.use_cases.ingest_source import (
+    IngestSource,
+    SynchronizationResult,
+)
 from paimon.application.use_cases.retrieve_chunks import (
     RetrievalPolicy,
     RetrievalResult,
@@ -23,11 +27,13 @@ __all__ = [
     "CheckReadiness",
     "ComponentStatus",
     "IngestDocument",
+    "IngestSource",
     "IngestionResult",
     "ReadinessReport",
     "RetrievalPolicy",
     "RetrievalResult",
     "RetrieveChunks",
     "SourceDocument",
+    "SynchronizationResult",
     "Usage",
 ]

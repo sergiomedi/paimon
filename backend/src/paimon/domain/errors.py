@@ -82,6 +82,43 @@ class AgentMemoryError(AgentError):
     """
 
 
+class SourceError(DomainError):
+    """Base class for failures of an external document source."""
+
+
+class SourceUnavailableError(SourceError):
+    """The source could not be reached, or refused the credentials given.
+
+    Separate from :class:`SourceContentError` for the same reason
+    :class:`IdentityProviderUnavailableError` is separate from
+    :class:`InvalidTokenError`: one means a synchronisation should be retried,
+    the other means retrying it will fail the same way.
+    """
+
+
+class SourceContentError(SourceError):
+    """What the source returned was not the document that was asked for."""
+
+
+class UnknownSourceError(SourceError):
+    """A caller named a source this deployment does not offer.
+
+    A caller mistake rather than a platform failure, and kept distinct so it can
+    be answered as one: naming a source that was never configured is not the
+    same as a configured source being unreachable.
+    """
+
+
+class UntrustedSourceError(SourceError):
+    """A source did not present the interface it was registered with.
+
+    Raised when an external server's tool definitions no longer match what was
+    recorded for it. A server that changes a tool's description or its schema
+    between sessions may have been updated, or may have been compromised; from
+    here the two look identical, so the synchronisation stops and says so.
+    """
+
+
 class IngestionError(DomainError):
     """A document could not be ingested."""
 

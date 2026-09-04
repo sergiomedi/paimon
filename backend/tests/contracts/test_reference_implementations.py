@@ -12,6 +12,7 @@ from paimon.domain.ports import (
     AgentMemory,
     ChatModel,
     DocumentRepository,
+    DocumentSource,
     EmbeddingModel,
     IndexDescriptor,
     ToolCall,
@@ -22,6 +23,7 @@ from tests.contracts.agent_checkpointer import AgentCheckpointerContract
 from tests.contracts.agent_memory import AgentMemoryContract
 from tests.contracts.chat_model import ChatModelContract
 from tests.contracts.document_repository import DocumentRepositoryContract
+from tests.contracts.document_source import REQUIRED, DocumentSourceContract
 from tests.contracts.embedding_model import EmbeddingModelContract
 from tests.contracts.tool_calling import ToolCallingChatModelContract
 from tests.contracts.vector_store import VectorStoreContract
@@ -32,6 +34,7 @@ from tests.fakes import (
     InMemoryAgentMemory,
     InMemoryCheckpointer,
     InMemoryDocumentRepository,
+    InMemoryDocumentSource,
     InMemoryVectorStore,
 )
 
@@ -104,3 +107,9 @@ class TestFakeToolCallingChatModel(ToolCallingChatModelContract):
     @pytest.fixture
     def empty_model(self) -> ToolCallingChatModel:
         return FakeToolCallingChatModel()
+
+
+class TestInMemoryDocumentSource(DocumentSourceContract):
+    @pytest.fixture
+    def source(self) -> DocumentSource:
+        return InMemoryDocumentSource(REQUIRED)
