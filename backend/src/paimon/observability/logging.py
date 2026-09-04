@@ -13,12 +13,14 @@ the evidence is unqueryable.
 
 import logging
 import sys
+from collections.abc import MutableMapping
 from uuid import uuid4
 
 import structlog
 from structlog.typing import Processor
 
 from paimon.config import ObservabilitySettings
+from paimon.observability.tracing import current_trace_context
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
 """Header carrying the correlation id in and out of the service."""
@@ -40,6 +42,7 @@ def configure_logging(settings: ObservabilitySettings) -> None:
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         structlog.stdlib.add_logger_name,
+        _add_trace_context,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.UnicodeDecoder(),
@@ -85,6 +88,27 @@ def configure_logging(settings: ObservabilitySettings) -> None:
         library_logger.propagate = True
 
     structlog.contextvars.bind_contextvars(service=settings.service_name)
+
+
+def _add_trace_context(
+    _logger: object, _method: str, event: MutableMapping[str, object]
+) -> MutableMapping[str, object]:
+    """Stamp every log line with the trace and span it happened inside.
+
+    This is the join. The correlation id groups a request's log lines; these two
+    fields point at the trace that shows what those lines were doing and how long
+    it took — so a reader who starts from an error line reaches the timing, and a
+    reader who starts from a slow span reaches the words.
+
+    A processor rather than a context binding on purpose: the current span changes
+    many times within one request, and a value bound once would name the span that
+    happened to be open at the start and be wrong for everything after it.
+
+    Nothing is added when no span is recording, so logs are not padded with zeroes
+    in a deployment that does not trace.
+    """
+    event.update(current_trace_context())
+    return event
 
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:

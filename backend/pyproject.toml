@@ -30,6 +30,16 @@ dependencies = [
     # imported as installed is a broken install, not a configuration choice.
     "psycopg[binary]>=3.2.0",
     "mcp>=2.1.1",
+    # Tracing. The SDK and an OTLP exporter, and nothing vendor-specific: every
+    # backend this platform might send traces to — Langfuse, Azure Monitor, a
+    # collector — speaks OTLP, so the destination is configuration rather than a
+    # dependency (ADR-0025). The instrumentation packages carry a 0.x version
+    # because that is the versioning scheme OpenTelemetry uses for them, not
+    # because they are unfinished.
+    "opentelemetry-sdk>=1.30.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.30.0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-httpx>=0.51b0",
 ]
 
 # Entra ID authentication. Optional: a deployment using service keys needs

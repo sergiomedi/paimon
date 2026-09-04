@@ -45,7 +45,14 @@ from paimon.interfaces.mcp import (
     discovery_routes,
     protected_resource_routes,
 )
-from paimon.observability import configure_logging, get_logger
+from paimon.observability import (
+    build_tracer_provider,
+    configure_logging,
+    get_logger,
+    install_tracer_provider,
+    shutdown_tracer_provider,
+)
+from paimon.observability.instrumentation import instrument_clients, instrument_server
 
 API_PREFIX = "/api/v1"
 
@@ -65,6 +72,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     """
     resolved = settings or get_settings()
     configure_logging(resolved.observability)
+    # Before the application object exists, and before any resource is built:
+    # instrumentation installed after a client has been constructed does not
+    # apply to it, and a startup failure is exactly the thing worth having a
+    # trace of. Returns None when tracing is off, and everything downstream
+    # then runs against the API's no-op.
+    tracer_provider = build_tracer_provider(
+        resolved.observability.tracing,
+        service_name=resolved.observability.service_name,
+        service_version=__version__,
+        environment=resolved.environment,
+    )
+    install_tracer_provider(tracer_provider)
+    instrument_clients(tracer_provider)
 
     # The server is built once; the gateway it authenticates through is resolved
     # per request from application state. That indirection is what lets the MCP
@@ -132,6 +152,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
             yield
             logger.info("application_stopping")
+        # After the resources are released, so whatever their shutdown emitted is
+        # in the batch. Without this the last export dies with the process, and
+        # that is the batch describing how it died.
+        shutdown_tracer_provider(tracer_provider)
 
     app = FastAPI(
         title="Paimon",
@@ -182,6 +206,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # own version, and a client that has to guess which of our prefixes an
         # MCP endpoint sits behind is a client we made work for no reason.
         app.mount(resolved.mcp.path, mcp_app)
+    # Last, so every route registered above is covered — including the mount.
+    instrument_server(app, tracer_provider)
     return app
 
 

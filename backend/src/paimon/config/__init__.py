@@ -23,6 +23,7 @@ from paimon.config.settings import (
     RetrievalSettings,
     Settings,
     SourcesSettings,
+    TracingSettings,
     get_settings,
     unknown_environment_variables,
 )
@@ -44,6 +45,7 @@ __all__ = [
     "RetrievalSettings",
     "Settings",
     "SourcesSettings",
+    "TracingSettings",
     "get_settings",
     "unknown_environment_variables",
 ]

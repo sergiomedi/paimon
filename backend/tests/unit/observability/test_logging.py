@@ -6,6 +6,7 @@ from collections.abc import Iterator
 
 import pytest
 import structlog
+from opentelemetry.sdk.trace import TracerProvider
 
 from paimon.config import ObservabilitySettings
 from paimon.observability import (
@@ -119,3 +120,46 @@ class TestLibraryLogs:
 
         (record,) = emitted(capsys)
         assert "RuntimeError: ingestion failed" in str(record["exception"])
+
+
+class TestTheJoinWithTraces:
+    """A log line should say which trace it belongs to — when there is one."""
+
+    def test_a_record_carries_no_trace_fields_when_nothing_is_traced(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # The default deployment does not trace, and padding every line with
+        # zeroed ids would cost storage to say nothing.
+        configure_logging(ObservabilitySettings(log_format="json"))
+        get_logger("test.trace").info("nothing_traced")
+        record = emitted(capsys)[0]
+        assert "trace_id" not in record
+        assert "span_id" not in record
+
+    def test_a_record_inside_a_span_names_it(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # This is the half that makes an error line actionable: from the words,
+        # to the trace, to what was slow.
+        provider = TracerProvider()
+        configure_logging(ObservabilitySettings(log_format="json"))
+        with provider.get_tracer("test").start_as_current_span("request"):
+            get_logger("test.trace").info("inside_a_span")
+        record = emitted(capsys)[0]
+        assert len(str(record["trace_id"])) == 32
+        assert len(str(record["span_id"])) == 16
+
+    def test_the_ids_follow_the_span_rather_than_the_request(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        # Computed per line, not bound once. The current span changes many times
+        # within one request, and an id bound at the start would name the span
+        # that happened to be open then and be wrong for everything after it.
+        provider = TracerProvider()
+        tracer = provider.get_tracer("test")
+        configure_logging(ObservabilitySettings(log_format="json"))
+        with tracer.start_as_current_span("outer"):
+            get_logger("test.trace").info("in_outer")
+            with tracer.start_as_current_span("inner"):
+                get_logger("test.trace").info("in_inner")
+        outer, inner = emitted(capsys)
+        assert outer["trace_id"] == inner["trace_id"]
+        assert outer["span_id"] != inner["span_id"]

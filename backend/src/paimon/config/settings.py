@@ -406,12 +406,57 @@ class SourcesSettings(BaseModel):
         return self
 
 
+class TracingSettings(BaseModel):
+    """Where traces go, and how much of a request they are allowed to carry.
+
+    Attributes:
+        enabled: Whether to build a real tracer at all. Off by default: a
+            deployment with nowhere to send traces should pay nothing for them,
+            and the platform's own no-op tracer costs less than an exporter that
+            drops what it collects.
+        endpoint: OTLP/HTTP collector to export to. Any backend that speaks OTLP
+            — Langfuse, Azure Monitor, a collector in front of either — is a
+            change to this value and nothing else (ADR-0025).
+        headers: Sent with every export. This is where a backend's credential
+            goes; Langfuse, for instance, wants HTTP basic auth here.
+        sample_ratio: Fraction of traces to keep, between 0 and 1. Head-based:
+            the decision is made once at the root and inherited, so a sampled
+            trace is complete rather than full of holes.
+        capture_content: Record prompts and completions on spans. **Off, and
+            refused outright in deployed environments.** The semantic conventions
+            mark message content opt-in and warn it is likely to contain
+            sensitive data; here that content is an organization's internal
+            documentation and whatever its people typed. Turning it on where real
+            tenants' material flows should cost a code change and a review, and
+            this guard is what makes it cost one — an environment variable is too
+            easy a way to start exporting somebody's runbooks.
+        export_timeout_seconds: How long an export may take before it is
+            abandoned. A collector that stops answering must not become this
+            platform's outage.
+    """
+
+    enabled: bool = False
+    endpoint: str | None = None
+    headers: Mapping[str, str] = Field(default_factory=dict)
+    sample_ratio: float = Field(default=1.0, ge=0.0, le=1.0)
+    capture_content: bool = False
+    export_timeout_seconds: float = Field(default=10.0, gt=0.0)
+
+    @model_validator(mode="after")
+    def _enabled_needs_somewhere_to_send(self) -> Self:
+        if self.enabled and not self.endpoint:
+            msg = "tracing.enabled is true but tracing.endpoint is unset: there is nowhere to send"
+            raise ValueError(msg)
+        return self
+
+
 class ObservabilitySettings(BaseModel):
-    """Logging and, from Phase 5, tracing configuration."""
+    """Logging and tracing configuration."""
 
     service_name: str = "paimon-api"
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     log_format: Literal["json", "console"] = "json"
+    tracing: TracingSettings = TracingSettings()
 
 
 class Settings(BaseSettings):
@@ -490,6 +535,13 @@ class Settings(BaseSettings):
                 raise ValueError(msg)
             if self.database.echo_sql:
                 msg = f"SQL echo leaks query parameters and is not allowed in {self.environment}"
+                raise ValueError(msg)
+            if self.observability.tracing.capture_content:
+                msg = (
+                    "tracing.capture_content exports prompts and completions — an "
+                    "organization's documentation and whatever its people typed — to "
+                    f"whoever receives the traces, and is not allowed in {self.environment}"
+                )
                 raise ValueError(msg)
             if self.sources.allow_loopback_endpoints:
                 msg = (

@@ -35,6 +35,7 @@ reasoning trail, and rewriting history destroys it.
 | [0022](0022-agents-as-mcp-tools.md) | Agents are MCP tools that run to completion; documents are not resources | Accepted |
 | [0023](0023-mcp-client-as-a-document-source.md) | Consuming MCP servers as document sources, not as an agent's toolbox | Accepted |
 | [0024](0024-a-discoverable-mcp-server.md) | The MCP server describes itself, at a path that is still an argument | Accepted |
+| [0025](0025-opentelemetry-as-the-only-instrumentation.md) | OpenTelemetry is the instrumentation; a backend is a destination | Accepted |
 
 ## Writing a new ADR
 

@@ -6,7 +6,13 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
-from paimon.observability import CORRELATION_ID_HEADER, bind_correlation_id, clear_log_context
+from paimon.observability import (
+    CORRELATION_ID_ATTRIBUTE,
+    CORRELATION_ID_HEADER,
+    annotate_current_span,
+    bind_correlation_id,
+    clear_log_context,
+)
 
 
 class CorrelationIdMiddleware(BaseHTTPMiddleware):
@@ -26,6 +32,10 @@ class CorrelationIdMiddleware(BaseHTTPMiddleware):
         """Bind the correlation id for the duration of the request."""
         correlation_id = bind_correlation_id(request.headers.get(CORRELATION_ID_HEADER))
         request.state.correlation_id = correlation_id
+        # Onto the span as well, so the join works in both directions: from a log
+        # line to the trace that shows what it was doing, and from a slow span
+        # back to the request's log lines. Does nothing when tracing is off.
+        annotate_current_span({CORRELATION_ID_ATTRIBUTE: correlation_id})
         try:
             response = await call_next(request)
         finally:

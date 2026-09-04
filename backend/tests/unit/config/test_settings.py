@@ -186,6 +186,21 @@ class TestDeployedEnvironmentGuards:
                 PAIMON_AUTH__AUDIENCE="a",
             )
 
+    def test_capturing_prompt_content_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Prompts and completions are an organization's documentation and
+        # whatever its people typed. Turning that export on where real tenants'
+        # material flows should cost a code change and a review, and this guard
+        # is what makes it cost one.
+        with pytest.raises(ValidationError, match="capture_content"):
+            build(
+                monkeypatch,
+                PAIMON_ENVIRONMENT="production",
+                PAIMON_OBSERVABILITY__TRACING__CAPTURE_CONTENT="true",
+                PAIMON_AUTH__PROVIDER="entra",
+                PAIMON_AUTH__TENANT_ID="t",
+                PAIMON_AUTH__AUDIENCE="a",
+            )
+
     def test_loopback_source_endpoints_are_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # It switches off the guard that stops a client inside a server from
         # being pointed at private addresses — the metadata endpoint included.
@@ -330,3 +345,22 @@ class TestSourceRegistry:
         assert source.name == "handbook"
         assert source.paths == ("docs",)
         assert source.pinned_tools["get_file_contents"] == "abc"
+
+
+class TestTracingSettings:
+    def test_tracing_is_off_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = build(monkeypatch)
+        assert settings.observability.tracing.enabled is False
+        assert settings.observability.tracing.capture_content is False
+
+    def test_a_nested_tracing_variable_reaches_the_right_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = build(
+            monkeypatch,
+            PAIMON_OBSERVABILITY__TRACING__ENABLED="true",
+            PAIMON_OBSERVABILITY__TRACING__ENDPOINT="https://collector.test/v1/traces",
+            PAIMON_OBSERVABILITY__TRACING__SAMPLE_RATIO="0.25",
+        )
+        assert settings.observability.tracing.endpoint == "https://collector.test/v1/traces"
+        assert settings.observability.tracing.sample_ratio == 0.25
