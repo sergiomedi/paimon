@@ -19,6 +19,8 @@ from paimon.evaluation.answering import (
     AnswerCaseReport,
     AnsweringMetrics,
     AnsweringReport,
+    JudgedMetrics,
+    Judging,
     run_answering_benchmark,
 )
 from paimon.evaluation.attribution import (
@@ -28,7 +30,14 @@ from paimon.evaluation.attribution import (
     check_answer,
 )
 from paimon.evaluation.dataset import EvaluationCase, EvaluationDataset, SupportingPassage
+from paimon.evaluation.judging import (
+    AnswerJudge,
+    JudgedAnswer,
+    Judgement,
+    Verdict,
+)
 from paimon.evaluation.metrics import CaseOutcome, RetrievalMetrics, score_case, summarize
+from paimon.evaluation.model_judge import ModelAnswerJudge
 from paimon.evaluation.runner import BenchmarkReport, run_benchmark
 from paimon.evaluation.statistics import (
     Estimate,
@@ -40,6 +49,7 @@ from paimon.evaluation.statistics import (
 
 __all__ = [
     "AnswerCaseReport",
+    "AnswerJudge",
     "AnsweringMetrics",
     "AnsweringReport",
     "Attribution",
@@ -50,9 +60,15 @@ __all__ = [
     "Estimate",
     "EvaluationCase",
     "EvaluationDataset",
+    "JudgedAnswer",
+    "JudgedMetrics",
+    "Judgement",
+    "Judging",
+    "ModelAnswerJudge",
     "PairedDifference",
     "RetrievalMetrics",
     "SupportingPassage",
+    "Verdict",
     "check_answer",
     "clustered_estimate",
     "estimate",

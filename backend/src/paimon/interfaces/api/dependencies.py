@@ -47,6 +47,7 @@ from paimon.domain.ports import (
     TokenCounter,
     VectorStore,
 )
+from paimon.evaluation import AnswerJudge, ModelAnswerJudge
 from paimon.infrastructure.azure import build_credential
 from paimon.infrastructure.azure.openai import (
     COGNITIVE_SERVICES_SCOPE,
@@ -406,6 +407,38 @@ def build_ingest_document(resources: Resources) -> IngestDocument:
         store=resources.vector_store,
         embedding_model=resources.embedding_model,
         chunker=resources.chunker,
+    )
+
+
+def build_answer_judge(resources: Resources) -> AnswerJudge | None:
+    """Assemble the evaluation judge, or None when this run has none.
+
+    None rather than a no-op judge: a benchmark with no judge should report no
+    judged metrics at all, and a stub that returned "undecided" for everything
+    would produce a section of empty columns that reads like a measurement.
+
+    Built with its own chat adapter rather than reusing ``resources.chat_model``,
+    because the point is that it is a **different** model — the startup guard
+    refuses the same one unless somebody says they accept the bias.
+    """
+    judge = resources.settings.evaluation.judge
+    if not judge.enabled:
+        return None
+    return ModelAnswerJudge(
+        trace_chat_model(
+            OpenAICompatibleChatModel(
+                OpenAICompatibleChatConfig(
+                    base_url=judge.base_url,
+                    model=judge.model,
+                    api_key=judge.api_key.get_secret_value() if judge.api_key else None,
+                    temperature=0.0,
+                    max_output_tokens=512,
+                    timeout_seconds=judge.timeout_seconds,
+                )
+            ),
+            Provider.OPENAI,
+        ),
+        samples=judge.samples,
     )
 
 

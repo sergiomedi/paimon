@@ -12,9 +12,12 @@ from paimon.domain.value_objects import Citation
 from paimon.evaluation import (
     EvaluationCase,
     EvaluationDataset,
+    Judging,
     SupportingPassage,
+    Verdict,
     run_answering_benchmark,
 )
+from tests.fakes import ScriptedJudge
 
 TENANT = "benchmark"
 RUNBOOK = "Cordon the node first so the scheduler stops placing new pods on it."
@@ -186,3 +189,80 @@ class TestUncertaintyAndPairing:
         report = await run_answering_benchmark(dataset(), answerer(), CORPUS, tenant_id=TENANT)
         with pytest.raises(ValueError, match="citation_accuracy"):
             report.compare(report, "made_up")
+
+
+class TestJudgedMetrics:
+    """A model's opinion, kept visibly apart from what was verified."""
+
+    async def test_a_run_without_a_judge_reports_no_judged_section(self) -> None:
+        # Rather than a section of empty columns that reads like a measurement.
+        report = await run_answering_benchmark(dataset(), answerer(), CORPUS, tenant_id=TENANT)
+        assert report.judged is None
+
+    async def test_verdicts_are_aggregated_and_attributed(self) -> None:
+        scripted = ScriptedJudge(model_id="qwen-judge")
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert report.judged is not None
+        assert report.judged.judge_model == "qwen-judge"
+        assert report.judged.faithfulness.mean == 1.0
+        assert report.judged.relevance.mean == 1.0
+
+    async def test_the_judge_grades_against_the_passages_the_golden_set_names(self) -> None:
+        # Reference-guided, which is consistently more reliable than asking a
+        # judge for its own idea of a good answer.
+        scripted = ScriptedJudge()
+        await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert scripted.references_seen[0] == ["Cordon the node"]
+
+    async def test_an_undecided_verdict_is_excluded_not_counted_as_failure(self) -> None:
+        # "The judge broke" and "the answer was bad" are different facts.
+        scripted = ScriptedJudge(
+            faithfulness={"how do I drain a node?": Verdict.UNDECIDED},
+            default=Verdict.YES,
+        )
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert report.judged is not None
+        assert report.judged.undecided == 1
+        assert report.judged.judged == 1
+        # The remaining answer scored 1.0, and the abstention did not drag it to 0.5.
+        assert report.judged.faithfulness.mean == 1.0
+
+    async def test_a_partial_verdict_lands_between(self) -> None:
+        scripted = ScriptedJudge(
+            faithfulness={"how do I drain a node?": Verdict.PARTIAL}, default=Verdict.YES
+        )
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert report.judged is not None
+        assert report.judged.faithfulness.mean == pytest.approx(0.75)
+
+    async def test_self_judging_is_recorded_on_the_report(self) -> None:
+        # So a flattering number cannot be quoted without it.
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=ScriptedJudge(), self_judged=True),
+        )
+        assert report.judged is not None
+        assert report.judged.self_judged
+
+    async def test_judged_numbers_do_not_touch_the_verified_ones(self) -> None:
+        # The separation is the design: a harsh judge must not move a number that
+        # was checked by opening a file.
+        harsh = ScriptedJudge(default=Verdict.NO)
+        verified = await run_answering_benchmark(dataset(), answerer(), CORPUS, tenant_id=TENANT)
+        judged = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=harsh)
+        )
+        assert judged.metrics == verified.metrics
+        assert judged.judged is not None
+        assert judged.judged.faithfulness.mean == 0.0

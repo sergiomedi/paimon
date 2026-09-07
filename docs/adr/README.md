@@ -41,6 +41,7 @@ reasoning trail, and rewriting history destroys it.
 | [0028](0028-metrics-and-an-estimated-cost.md) | Tokens are measured, cost is estimated, and the two are labelled differently | Accepted |
 | [0029](0029-benchmark-numbers-carry-their-uncertainty.md) | Benchmark numbers carry their uncertainty, and two runs are compared in pairs | Accepted |
 | [0030](0030-verify-attribution-before-judging-anything.md) | Verify what can be verified; judge only what cannot | Accepted |
+| [0031](0031-a-judge-on-terms-that-account-for-what-it-is-worth.md) | A judge, on terms that account for what a judge is worth | Accepted |
 
 ## Writing a new ADR
 

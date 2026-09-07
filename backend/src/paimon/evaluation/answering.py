@@ -12,19 +12,43 @@ same fifteen questions about the same five documents.
 
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Protocol
 
 from paimon.application.use_cases import Answer
 from paimon.evaluation.attribution import AttributionReport, check_answer
 from paimon.evaluation.dataset import EvaluationDataset
+from paimon.evaluation.judging import AnswerJudge, JudgedAnswer, Verdict
 from paimon.evaluation.statistics import (
     Estimate,
     PairedDifference,
     clustered_estimate,
     compare_metric,
+    estimate,
     group_by_document,
 )
+
+
+@dataclass(frozen=True, slots=True)
+class Judging:
+    """A judge and what is known about it.
+
+    One value rather than two arguments, because the two travel together and
+    separating them invites a run that used a self-judging model and forgot to
+    say so — which is the one fact that changes how its numbers should be read.
+
+    Attributes:
+        judge: The model to ask, when this run asks one.
+        self_judged: Whether it is the model that produced the answers.
+    """
+
+    judge: AnswerJudge | None = None
+    self_judged: bool = False
+
+
+#: A run with no judge. A module-level value rather than a default constructed
+#: per call: it is immutable, so one is enough.
+UNJUDGED = Judging()
 
 
 class Answerer(Protocol):
@@ -46,6 +70,7 @@ class AnswerCaseReport:
     attribution: AttributionReport
     latency_ms: float
     total_tokens: int
+    judged: JudgedAnswer | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +99,43 @@ class AnsweringMetrics:
 
 
 @dataclass(frozen=True, slots=True)
+class JudgedMetrics:
+    """What a model thought, kept apart from what was verified.
+
+    A separate type rather than more fields on :class:`AnsweringMetrics`, and the
+    separation is the design: these numbers come from a model's opinion of
+    another model's output, and on the closest measured comparison such a judge
+    agreed with human assessors 56% of the time while erring towards generosity
+    (ADR-0030). They are worth having and they are not the same kind of number.
+
+    Attributes:
+        judge_model: Which model produced them. Two runs judged by different
+            models are not comparable.
+        samples: How many times each question was put to the judge.
+        judged: Questions where the judge reached a verdict.
+        undecided: Questions where it did not, or its reply could not be read.
+            Excluded from the means rather than counted as failures — "the judge
+            broke" and "the answer was bad" are different facts — and reported,
+            because a judge abstaining on half a dataset invalidates the rest.
+        disagreements: Questions where repeated samples did not agree. Zero when
+            only one sample was taken, which measures nothing.
+        faithfulness: Whether answers stayed within what their sources support.
+        relevance: Whether they addressed the question asked.
+        self_judged: Whether the judge is the model that produced the answers.
+            Recorded so a flattering number cannot be quoted without it.
+    """
+
+    judge_model: str
+    samples: int
+    judged: int
+    undecided: int
+    disagreements: int
+    faithfulness: Estimate
+    relevance: Estimate
+    self_judged: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class AnsweringReport:
     """Everything one answering run produced."""
 
@@ -83,6 +145,10 @@ class AnsweringReport:
     cases: tuple[AnswerCaseReport, ...]
     scores: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     clusters: tuple[str, ...] = ()
+    judged: JudgedMetrics | None = None
+    """None when no judge was configured. A run with no judge reports no judged
+    section at all, rather than a section of empty columns that reads like a
+    measurement."""
 
     @property
     def unverifiable(self) -> tuple[AnswerCaseReport, ...]:
@@ -110,13 +176,14 @@ class AnsweringReport:
         return compare_metric(self.scores, other.scores, metric, self.clusters or None)
 
 
-async def run_answering_benchmark(
+async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
     dataset: EvaluationDataset,
     answerer: Answerer,
     documents: Mapping[str, str],
     *,
     tenant_id: str,
     configuration: str = "unnamed",
+    judging: Judging = UNJUDGED,
 ) -> AnsweringReport:
     """Answer every question in a dataset and verify what came back.
 
@@ -129,6 +196,9 @@ async def run_answering_benchmark(
             the raw file would fail for every document the parser touched.
         tenant_id: Tenant the corpus was ingested under.
         configuration: A label for what was measured.
+        judging: The judge to ask about faithfulness and relevance, if any, and
+            whether it is the model that produced the answers. Its verdicts are
+            reported in their own section, never mixed with the verified numbers.
 
     Returns:
         The report, including the answers whose citations did not survive.
@@ -152,6 +222,9 @@ async def run_answering_benchmark(
             )
         )
 
+    if judging.judge is not None:
+        cases = await _judge_all(cases, dataset, judging.judge)
+
     clusters = group_by_document(
         [[passage.document_id for passage in case.supporting] for case in dataset]
     )
@@ -163,6 +236,79 @@ async def run_answering_benchmark(
         cases=tuple(cases),
         scores={name: tuple(values) for name, values in scores.items()},
         clusters=tuple(clusters),
+        judged=(
+            _summarize_judged(cases, judging.judge, self_judged=judging.self_judged)
+            if judging.judge is not None
+            else None
+        ),
+    )
+
+
+async def _judge_all(
+    cases: Sequence[AnswerCaseReport], dataset: EvaluationDataset, judge: AnswerJudge
+) -> list[AnswerCaseReport]:
+    """Put every answer to the judge, against the passages the golden set names."""
+    by_id = {case.case_id: case for case in dataset}
+    judged: list[AnswerCaseReport] = []
+    for case in cases:
+        expected = by_id[case.case_id]
+        references = [passage.quote for passage in expected.supporting]
+        judged.append(
+            replace(
+                case,
+                judged=JudgedAnswer(
+                    case_id=case.case_id,
+                    faithfulness=await judge.judge_faithfulness(
+                        case.question, case.text, references
+                    ),
+                    relevance=await judge.judge_relevance(case.question, case.text),
+                ),
+            )
+        )
+    return judged
+
+
+def _summarize_judged(
+    cases: Sequence[AnswerCaseReport], judge: AnswerJudge, *, self_judged: bool
+) -> JudgedMetrics:
+    """Aggregate the verdicts, excluding the ones the judge could not reach.
+
+    Unclustered, and deliberately: the clustering in ADR-0029 models questions
+    about one document sharing a difficulty. A judge's errors cluster by *rubric
+    and phrasing*, which is a structure this dataset cannot estimate, and
+    borrowing the document clustering would put a confident-looking interval on
+    the wrong correlation. The interval here is the plain one, and the sample
+    counts are reported beside it.
+    """
+    verdicts = [case.judged for case in cases if case.judged is not None]
+    faithful = [
+        judgement.faithfulness.verdict.score
+        for judgement in verdicts
+        if judgement.faithfulness.verdict is not Verdict.UNDECIDED
+    ]
+    relevant = [
+        judgement.relevance.verdict.score
+        for judgement in verdicts
+        if judgement.relevance.verdict is not Verdict.UNDECIDED
+    ]
+    undecided = sum(
+        1
+        for judgement in verdicts
+        if Verdict.UNDECIDED in (judgement.faithfulness.verdict, judgement.relevance.verdict)
+    )
+    return JudgedMetrics(
+        judge_model=judge.model_id,
+        samples=max((judgement.faithfulness.samples for judgement in verdicts), default=1),
+        judged=len(verdicts) - undecided,
+        undecided=undecided,
+        disagreements=sum(
+            1
+            for judgement in verdicts
+            if not (judgement.faithfulness.unanimous and judgement.relevance.unanimous)
+        ),
+        faithfulness=estimate(faithful),
+        relevance=estimate(relevant),
+        self_judged=self_judged,
     )
 
 
@@ -203,9 +349,12 @@ def _summarize(
 
 
 __all__ = [
+    "UNJUDGED",
     "AnswerCaseReport",
     "Answerer",
     "AnsweringMetrics",
     "AnsweringReport",
+    "JudgedMetrics",
+    "Judging",
     "run_answering_benchmark",
 ]

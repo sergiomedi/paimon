@@ -364,3 +364,58 @@ class TestTracingSettings:
         )
         assert settings.observability.tracing.endpoint == "https://collector.test/v1/traces"
         assert settings.observability.tracing.sample_ratio == 0.25
+
+
+class TestTheJudge:
+    """A model grading its own homework is the failure this guard exists for."""
+
+    def test_a_judge_that_is_the_generator_is_refused(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Models score their own family more generously, by an unknown amount.
+        # Unknown is the problem: a known bias could be subtracted.
+        with pytest.raises(ValidationError, match="same endpoint"):
+            build(
+                monkeypatch,
+                PAIMON_EVALUATION__JUDGE__ENABLED="true",
+                PAIMON_EVALUATION__JUDGE__MODEL="qwen2.5:7b-instruct",
+            )
+
+    def test_a_different_model_is_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        settings = build(
+            monkeypatch,
+            PAIMON_EVALUATION__JUDGE__ENABLED="true",
+            PAIMON_EVALUATION__JUDGE__MODEL="llama3.1:8b-instruct",
+        )
+        assert settings.evaluation.judge.model == "llama3.1:8b-instruct"
+
+    def test_self_judging_can_be_accepted_knowingly(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A deployment with one model available is a real situation. Saying so is
+        # the price, and the report then says so too.
+        settings = build(
+            monkeypatch,
+            PAIMON_EVALUATION__JUDGE__ENABLED="true",
+            PAIMON_EVALUATION__JUDGE__MODEL="qwen2.5:7b-instruct",
+            PAIMON_EVALUATION__JUDGE__ACKNOWLEDGE_SELF_JUDGING="true",
+        )
+        assert settings.evaluation.judge.acknowledge_self_judging
+
+    def test_a_judge_without_a_model_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        with pytest.raises(ValidationError, match="nobody to ask"):
+            build(monkeypatch, PAIMON_EVALUATION__JUDGE__ENABLED="true")
+
+    def test_an_even_number_of_samples_is_refused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Ties are recorded as undecided rather than broken towards the generous
+        # label, so an even number of samples just wastes calls producing them.
+        with pytest.raises(ValidationError, match="even number of samples"):
+            build(
+                monkeypatch,
+                PAIMON_EVALUATION__JUDGE__ENABLED="true",
+                PAIMON_EVALUATION__JUDGE__MODEL="llama3.1:8b-instruct",
+                PAIMON_EVALUATION__JUDGE__SAMPLES="2",
+            )
+
+    def test_judging_is_off_by_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # The verified metrics need no model, and a benchmark that silently costs
+        # money per run is a benchmark people stop running.
+        assert build(monkeypatch).evaluation.judge.enabled is False

@@ -234,6 +234,63 @@ class ChatSettings(BaseModel):
     timeout_seconds: float = Field(default=120.0, gt=0)
 
 
+class JudgeSettings(BaseModel):
+    """The model that grades answers in an evaluation run, and nothing else.
+
+    Never used by the platform at runtime. A model's opinion of another model's
+    output belongs in a benchmark, where the result is a number somebody reads,
+    and not in an answer path where a citation would do.
+
+    Attributes:
+        enabled: Whether to ask a judge at all. Off by default: the verified
+            metrics need no model, and a benchmark that silently costs money per
+            run is a benchmark people stop running.
+        base_url: Endpoint for the judge. Separate from the generator's on
+            purpose — see the guard below.
+        model: Which model judges.
+        api_key: Credential for that endpoint.
+        samples: How many times to ask each question. Above one, the majority
+            verdict is taken and disagreement is reported.
+        acknowledge_self_judging: Permit a judge that is the same model as the
+            generator. Refused by default, because models score their own family
+            more generously and a system grading its own homework produces a
+            number that flatters it by an unknown amount.
+        timeout_seconds: How long one judgement may take.
+    """
+
+    enabled: bool = False
+    base_url: str = "http://localhost:11434/v1"
+    model: str = ""
+    api_key: SecretStr | None = None
+    samples: int = Field(default=1, ge=1, le=9)
+    acknowledge_self_judging: bool = False
+    timeout_seconds: float = Field(default=120.0, gt=0)
+
+    @model_validator(mode="after")
+    def _enabled_needs_a_model(self) -> Self:
+        if self.enabled and not self.model:
+            msg = "judge.enabled is true but judge.model is unset: there is nobody to ask"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _an_even_number_of_samples_invites_ties(self) -> Self:
+        if self.samples % 2 == 0:
+            msg = (
+                f"judge.samples is {self.samples}: an even number of samples makes ties "
+                "possible, and a tie is recorded as undecided rather than broken towards "
+                "the generous label. Use an odd number."
+            )
+            raise ValueError(msg)
+        return self
+
+
+class EvaluationSettings(BaseModel):
+    """How the benchmark is run. Read by the command line, never by the API."""
+
+    judge: JudgeSettings = JudgeSettings()
+
+
 class IngestionSettings(BaseModel):
     """How documents are cut up before indexing."""
 
@@ -582,6 +639,7 @@ class Settings(BaseSettings):
     chat: ChatSettings = ChatSettings()
     ingestion: IngestionSettings = IngestionSettings()
     retrieval: RetrievalSettings = RetrievalSettings()
+    evaluation: EvaluationSettings = EvaluationSettings()
     observability: ObservabilitySettings = ObservabilitySettings()
 
     @model_validator(mode="after")
@@ -604,6 +662,30 @@ class Settings(BaseSettings):
             raise ValueError(msg)
         if self.retrieval.store == "azure_search" and not self.azure_search.endpoint:
             msg = "retrieval.store is 'azure_search' but azure_search.endpoint is unset"
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def _a_judge_should_not_grade_its_own_family(self) -> Self:
+        """Refuse a judge that is the model being judged.
+
+        Models score their own outputs and their own family more generously, so a
+        system grading its own homework produces a number that flatters it by an
+        unknown amount. Unknown is the problem: a known bias could be subtracted.
+
+        Overridable, because a deployment with one model available is a real
+        situation — but only by saying so, and the report then says so too.
+        """
+        judge = self.evaluation.judge
+        if not judge.enabled or judge.acknowledge_self_judging:
+            return self
+        if judge.model == self.chat.model and judge.base_url == self.chat.base_url:
+            msg = (
+                f"the judge and the generator are both '{judge.model}' at the same endpoint. "
+                "A model grades its own family more generously, by an unknown amount. Point "
+                "the judge at a different model, or set "
+                "evaluation.judge.acknowledge_self_judging to accept the bias knowingly."
+            )
             raise ValueError(msg)
         return self
 

@@ -81,6 +81,29 @@ marker refers to a source that does not exist. What is **not**: whether the sent
 resolving citation is a fair reading of it. That needs a judge, it arrives next, and it will be
 labelled as judged wherever it appears.
 
+## And a judge, for the two questions arithmetic cannot answer
+
+Whether the sentence around a resolving citation is a *fair reading* of it, and whether the
+answer *addresses the question*, need a judgement. So there is one, off by default, and on terms
+chosen against what such judgements are measurably worth
+([ADR-0031](../docs/adr/0031-a-judge-on-terms-that-account-for-what-it-is-worth.md)):
+
+```bash
+PAIMON_EVALUATION__JUDGE__ENABLED=true
+# A DIFFERENT model from PAIMON_CHAT__MODEL. Startup refuses the same one.
+PAIMON_EVALUATION__JUDGE__MODEL=llama3.1:8b-instruct
+```
+
+Three labels rather than a score out of ten; reasoning written before the verdict; graded against
+the passage the golden set names; an unreadable reply becomes **undecided** rather than a default
+label, and undecided cases are counted, not averaged away. Ties across repeated samples are
+undecided too — breaking them towards "yes" would bias the aggregate in the direction judges
+already err.
+
+The judged numbers appear in their own section, with the judge's name and the 56% caveat printed
+beside them. They are never mixed with the verified ones, and a run with no judge prints no
+judged section at all.
+
 ## Ground truth is anchored to quotations, not chunks
 
 Each case names a document and quotes the passage that answers the question. A

@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+from tests.fakes import ScriptedJudge
 from tests.unit.evaluation.test_answering import CORPUS, answerer
 from tests.unit.evaluation.test_answering import dataset as answers_dataset
 from tests.unit.evaluation.test_runner import ScriptedRetriever, chunk
@@ -19,7 +20,9 @@ from paimon.evaluation import (
     AnsweringReport,
     EvaluationCase,
     EvaluationDataset,
+    Judging,
     SupportingPassage,
+    Verdict,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -175,3 +178,57 @@ class TestRenderingAnAnsweringRun:
 
     async def test_a_clean_run_lists_nothing(self) -> None:
         assert "did not survive" not in render_answers(await self._run(faithful=True))
+
+
+class TestRenderingTheJudgedSection:
+    """A model's opinion has to look different from a verified number."""
+
+    @staticmethod
+    async def _judged(*, self_judged: bool = False, harsh: bool = False) -> AnsweringReport:
+        return await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=True),
+            CORPUS,
+            tenant_id=TENANT,
+            configuration="local",
+            judging=Judging(
+                judge=ScriptedJudge(
+                    model_id="llama-judge",
+                    default=Verdict.NO if harsh else Verdict.YES,
+                ),
+                self_judged=self_judged,
+            ),
+        )
+
+    async def test_it_names_the_judge(self) -> None:
+        # Two runs judged by different models are not comparable.
+        assert "judged by llama-judge" in render_answers(await self._judged())
+
+    async def test_it_carries_the_caveat_that_makes_the_number_readable(self) -> None:
+        rendered = render_answers(await self._judged())
+        assert "56%" in rendered
+        assert "erred towards saying the answer was supported" in rendered
+
+    async def test_self_judging_is_shouted_not_footnoted(self) -> None:
+        rendered = render_answers(await self._judged(self_judged=True))
+        assert "IT JUDGED ITSELF" in rendered
+
+    async def test_a_run_without_a_judge_prints_no_judged_lines(self) -> None:
+        unjudged = await run_answering_benchmark(
+            answers_dataset(), answerer(faithful=True), CORPUS, tenant_id=TENANT
+        )
+        rendered = render_answers(unjudged)
+        assert "judged by" not in rendered
+        assert "faithfulness" not in rendered
+
+    async def test_the_verified_section_still_says_it_was_verified(self) -> None:
+        # Both sections appear, and the reader can tell them apart.
+        rendered = render_answers(await self._judged())
+        assert "Verified, not judged" in rendered
+        assert "faithfulness" in rendered
+
+    async def test_it_stops_claiming_nothing_was_graded_once_something_was(self) -> None:
+        # The verified section says "no model graded this run" only when that is
+        # true. With a judge present it would be a small lie, and a report that
+        # tells small lies is not worth reading carefully.
+        assert "No model graded this run" not in render_answers(await self._judged())

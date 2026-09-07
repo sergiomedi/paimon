@@ -30,6 +30,8 @@ from paimon.evaluation import (
     AnsweringReport,
     BenchmarkReport,
     EvaluationDataset,
+    JudgedMetrics,
+    Judging,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -37,6 +39,7 @@ from paimon.evaluation.metrics import RetrievalMetrics
 from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
     Resources,
+    build_answer_judge,
     build_answer_question,
     build_ingest_document,
     build_resources,
@@ -218,10 +221,18 @@ def render_answers(report: AnsweringReport) -> str:
         f"  fully attributed    {metrics.fully_attributed_rate.format(percent=True):>18}   "
         "every citation resolved, every sentence cited",
         "",
-        "  Verified, not judged: each citation was opened at its offsets and",
-        "  checked against the text it names. No model graded this run.",
+        "  Verified, not judged: each citation above was opened at its offsets",
+        "  and checked against the text it names.",
         "",
     ]
+    # Said only when it is true. The four numbers above are always verified; a
+    # run with a judge has a second section that is not, and claiming no model
+    # graded anything would be the exact kind of small lie this report exists to
+    # avoid.
+    if report.judged is None:
+        lines[-2:] = [lines[-2], "  No model graded this run.", ""]
+    if report.judged is not None:
+        lines.extend(_judged_lines(report.judged))
     if report.unverifiable:
         lines.append("  citations that did not survive being followed:")
         for case in report.unverifiable:
@@ -233,6 +244,37 @@ def render_answers(report: AnsweringReport) -> str:
                     )
         lines.append("")
     return "\n".join(lines)
+
+
+def _judged_lines(judged: JudgedMetrics) -> list[str]:
+    """Render the judged section, kept visibly apart from the verified one.
+
+    Its own heading, its own caveat, and the judge's name on it. These numbers
+    are a model's opinion of another model's output; on the closest measured
+    comparison such a judge agreed with human assessors 56% of the time and erred
+    towards generosity. Printing them beside the verified numbers without saying
+    so would be the mistake this whole design avoids.
+    """
+    lines = [
+        f"  judged by {judged.judge_model}"
+        + (f", {judged.samples} samples each" if judged.samples > 1 else ""),
+        "",
+        f"  faithfulness        {judged.faithfulness.format():>18}   "
+        "stayed within what the sources support",
+        f"  relevance           {judged.relevance.format():>18}   addressed the question asked",
+        "",
+        f"  {judged.judged} judged, {judged.undecided} undecided"
+        + (f", {judged.disagreements} with samples that disagreed" if judged.samples > 1 else ""),
+        "",
+        "  A model's opinion of a model's output. On the closest measured",
+        "  comparison a judge of this kind agreed with human assessors 56% of",
+        "  the time, and erred towards saying the answer was supported.",
+    ]
+    if judged.self_judged:
+        lines.append("  AND IT JUDGED ITSELF: the judge is the model that wrote these")
+        lines.append("  answers, so these two numbers flatter it by an unknown amount.")
+    lines.append("")
+    return lines
 
 
 def render_comparison(report: BenchmarkReport, baseline: BenchmarkReport) -> str:
@@ -360,12 +402,17 @@ async def main(argv: list[str] | None = None) -> int:
             logger.info("corpus_ingested", documents=len(ingested))
 
         if args.answers:
+            judge = build_answer_judge(resources)
             answering = await run_answering_benchmark(
                 dataset,
                 UseCaseAnswerer(build_answer_question(resources)),
                 await load_documents(resources, ingested, args.tenant),
                 tenant_id=args.tenant,
                 configuration=args.label,
+                judging=Judging(
+                    judge=judge,
+                    self_judged=settings.evaluation.judge.acknowledge_self_judging,
+                ),
             )
             _emit(render_answers(answering), args.report, answering)
             return 0 if answering.metrics.cases else 1
