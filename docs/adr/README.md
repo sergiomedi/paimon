@@ -39,6 +39,7 @@ reasoning trail, and rewriting history destroys it.
 | [0026](0026-tracing-by-decoration.md) | Model calls are traced by wrapping the port, not by editing the adapters | Accepted |
 | [0027](0027-tracing-retrieval-agents-and-tool-calls.md) | What a request looks like once retrieval, agents and tool calls are traced | Accepted |
 | [0028](0028-metrics-and-an-estimated-cost.md) | Tokens are measured, cost is estimated, and the two are labelled differently | Accepted |
+| [0029](0029-benchmark-numbers-carry-their-uncertainty.md) | Benchmark numbers carry their uncertainty, and two runs are compared in pairs | Accepted |
 
 ## Writing a new ADR
 

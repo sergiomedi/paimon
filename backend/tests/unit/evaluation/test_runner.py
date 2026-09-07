@@ -77,7 +77,7 @@ class TestRunning:
         report = await run_benchmark(dataset(), retriever, tenant_id="benchmark")
 
         assert report.metrics.cases == 2
-        assert report.metrics.answerable_rate == pytest.approx(0.5)
+        assert report.metrics.answerable_rate.mean == pytest.approx(0.5)
 
     async def test_the_cases_that_found_nothing_are_listed(self) -> None:
         """An aggregate that moved says something changed; this says what."""
@@ -117,3 +117,86 @@ class TestEndToEndWithTheRealDataset:
 
         assert len(loaded) >= 10
         assert all(case.supporting for case in loaded)
+
+
+class TestComparingTwoRuns:
+    """A benchmark exists to compare configurations, and that is a paired test."""
+
+    @staticmethod
+    def _retriever(*, hit: bool) -> ScriptedRetriever:
+        found = [chunk("runbook", "cordon the node")]
+        return ScriptedRetriever(
+            {
+                "how do I drain a node?": found if hit else [chunk("noise", "unrelated")],
+                "what caused INC-2451?": [chunk("noise", "unrelated")],
+            }
+        )
+
+    @staticmethod
+    def _one_document() -> EvaluationDataset:
+        """Two questions, both about the runbook: one cluster, not two."""
+        return EvaluationDataset(
+            name="one-document",
+            cases=(
+                EvaluationCase(
+                    case_id="q1",
+                    question="how do I drain a node?",
+                    supporting=(SupportingPassage(document_id="runbook", quote="cordon the node"),),
+                ),
+                EvaluationCase(
+                    case_id="q2",
+                    question="what caused INC-2451?",
+                    supporting=(SupportingPassage(document_id="runbook", quote="pool exhaustion"),),
+                ),
+            ),
+        )
+
+    async def test_two_runs_of_the_same_dataset_can_be_compared(self) -> None:
+        better = await run_benchmark(
+            dataset(), self._retriever(hit=True), tenant_id="benchmark", configuration="better"
+        )
+        worse = await run_benchmark(
+            dataset(), self._retriever(hit=False), tenant_id="benchmark", configuration="worse"
+        )
+        difference = better.compare(worse, "answerable_rate")
+        assert difference.mean > 0
+        assert difference.n == 2
+
+    async def test_comparing_different_datasets_is_refused(self) -> None:
+        # Pairing scores from different questions is a wrong number with a
+        # confident interval around it.
+        first = await run_benchmark(
+            dataset(), self._retriever(hit=True), tenant_id="benchmark", configuration="x"
+        )
+        second = await run_benchmark(
+            self._one_document(),
+            self._retriever(hit=True),
+            tenant_id="benchmark",
+            configuration="y",
+        )
+        with pytest.raises(ValueError, match="different datasets"):
+            first.compare(second)
+
+    async def test_an_unknown_metric_names_the_ones_that_exist(self) -> None:
+        report = await run_benchmark(
+            dataset(), self._retriever(hit=True), tenant_id="benchmark", configuration="x"
+        )
+        with pytest.raises(ValueError, match="ndcg_at_k"):
+            report.compare(report, "made_up")
+
+    async def test_questions_about_one_document_form_one_cluster(self) -> None:
+        # So the intervals do not claim an independence the dataset does not have.
+        report = await run_benchmark(
+            self._one_document(),
+            self._retriever(hit=True),
+            tenant_id="benchmark",
+            configuration="x",
+        )
+        assert set(report.clusters) == {"runbook"}
+        assert report.metrics.recall_at_k.clusters == 1
+
+    async def test_two_documents_are_two_clusters(self) -> None:
+        report = await run_benchmark(
+            dataset(), self._retriever(hit=True), tenant_id="benchmark", configuration="x"
+        )
+        assert report.metrics.recall_at_k.clusters == 2

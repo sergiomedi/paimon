@@ -26,6 +26,36 @@ records under licences that permit it. Those are what the reported benchmark use
 They are fetched rather than vendored: redistributing them would mean taking on
 their licence terms, and a corpus in git is a corpus that goes stale.
 
+## Every number carries its interval
+
+Fifteen questions produce averages that move by several points on nothing at all. So the
+benchmark reports `73.3% ± 21.4%`, not `73.3%`, and the standard errors are **clustered by
+source document**: questions about one runbook share its wording and whatever the chunker made
+of it, so counting them as independent observations overstates confidence.
+
+Two configurations are compared **question by question**, not aggregate against aggregate. Both
+answered the same questions, and that fact is most of the information available at this size:
+
+```bash
+cd backend
+uv run python -m paimon.interfaces.cli.evaluate \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "chunk=512" --report ../evaluation/reports/512.json
+
+uv run python -m paimon.interfaces.cli.evaluate \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "chunk=256" --against ../evaluation/reports/512.json
+```
+
+The second run prints the difference for every metric with its confidence interval and a
+verdict: *distinguishable from zero*, or *not distinguishable from noise*. That is what
+accepting or rejecting a retrieval change means here. See
+[ADR-0029](../docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md).
+
+**The intervals are wide, and that is the finding.** This dataset cannot settle small
+differences. It needs to grow before it can, and a wide interval printed honestly is the thing
+that says so.
+
 ## Ground truth is anchored to quotations, not chunks
 
 Each case names a document and quotes the passage that answers the question. A

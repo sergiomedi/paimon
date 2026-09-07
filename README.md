@@ -457,17 +457,47 @@ uv run python -m paimon.interfaces.cli.evaluate \
 ```
 
 ```text
-dataset       retrieval-v1  (15 cases)
+dataset       retrieval-v1  (15 cases, 5 independent groups)
 configuration chunk=512 overlap=64 rrf=60
 cutoff        k=3
 
-  answerable@k   100.0%   at least one supporting passage retrieved
-  recall@k       100.0%   of expected passages retrieved
-  precision@k     35.6%   of the k slots that were useful
-  MRR             0.900   how high the first useful hit lands
-  nDCG@k          0.900   rank-weighted quality
-  median latency    7.9 ms
+  metric            mean +/- 95% CI      what it says
+  answerable@k       100.0% ± 0.0%   at least one supporting passage retrieved
+  recall@k           100.0% ± 0.0%   of expected passages retrieved
+  precision@k        35.6% ± 11.2%   of the k slots that were useful
+  MRR                0.900 ± 0.142   how high the first useful hit lands
+  nDCG@k             0.900 ± 0.142   rank-weighted quality
+  median latency            7.9 ms
+
+  Intervals are clustered by source document: questions about one
+  document are not independent observations of retrieval quality.
 ```
+
+**Every number carries its interval, and that is the point.** Fifteen questions produce
+averages that move by several points on nothing at all, so a bare mean invites a comparison it
+cannot support. The standard errors are clustered by source document — questions about one
+runbook share its wording and whatever the chunker made of it, so counting them as independent
+observations overstates confidence.
+
+Two configurations are compared **question by question**, because both answered the same
+questions and that fact is most of the information available at this size:
+
+```bash
+uv run python -m paimon.interfaces.cli.evaluate \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "chunk=256" --against ../evaluation/reports/512.json
+```
+
+```text
+  metric                difference  95% CI                      p   verdict
+  recall_at_k               +26.7%  [-27.9%, +81.2%]        0.246   not distinguishable from noise
+  ndcg_at_k                 +0.267  [-0.279, +0.812]        0.246   not distinguishable from noise
+```
+
+A twenty-six point difference that is **not** a result. That is what "accepted or rejected on
+numbers" has to mean to be worth saying, and the intervals being this wide is itself the
+finding: this dataset needs to grow before it can settle small arguments
+([ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md)).
 
 **Read those numbers with the caveat they deserve.** They come from the five-document
 sample corpus committed here so the benchmark runs immediately after a clone. On a

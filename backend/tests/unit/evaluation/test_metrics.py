@@ -115,20 +115,21 @@ class TestAggregation:
         outcomes = [self._outcome(1, 1, 1), self._outcome(0, 8, None)]
         metrics = summarize(outcomes, [[1], []], cutoff=8)
 
-        assert metrics.recall_at_k == pytest.approx(0.5)
-        assert metrics.answerable_rate == pytest.approx(0.5)
+        assert metrics.recall_at_k.mean == pytest.approx(0.5)
+        assert metrics.answerable_rate.mean == pytest.approx(0.5)
 
     def test_an_empty_run_reports_zeros_rather_than_dividing_by_zero(self) -> None:
         metrics = summarize([], [], cutoff=8)
         assert metrics.cases == 0
-        assert metrics.recall_at_k == 0.0
+        assert metrics.recall_at_k.mean == 0.0
+        assert metrics.recall_at_k.n == 0
 
     def test_ndcg_rewards_a_higher_rank(self) -> None:
         high = summarize([self._outcome(1, 1, 1)], [[1]], cutoff=8)
         low = summarize([self._outcome(1, 1, 5)], [[5]], cutoff=8)
 
-        assert high.ndcg_at_k > low.ndcg_at_k
-        assert high.ndcg_at_k == pytest.approx(1.0)
+        assert high.ndcg_at_k.mean > low.ndcg_at_k.mean
+        assert high.ndcg_at_k.mean == pytest.approx(1.0)
 
 
 class TestRankExtraction:

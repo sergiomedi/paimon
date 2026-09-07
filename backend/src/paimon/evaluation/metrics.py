@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from paimon.domain.entities import Chunk
 from paimon.evaluation.dataset import EvaluationCase, SupportingPassage
+from paimon.evaluation.statistics import Estimate, clustered_estimate, estimate
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,15 +62,27 @@ class CaseOutcome:
 
 @dataclass(frozen=True, slots=True)
 class RetrievalMetrics:
-    """Aggregate scores over a dataset."""
+    """Aggregate scores over a dataset, each with its uncertainty.
+
+    Every number is an :class:`~paimon.evaluation.statistics.Estimate` rather
+    than a float, and that is the point of the type. Fifteen questions produce
+    averages that move by several points on nothing at all; a bare mean invites a
+    reader to compare two of them and conclude something, which is the mistake
+    this dataset is small enough to make constantly.
+
+    The standard errors are **clustered by document**. Questions about one runbook
+    share its wording and whatever the chunker did to it, so counting them as
+    independent observations overstates confidence — by a factor of three or more
+    in the literature.
+    """
 
     cases: int
     cutoff: int
-    recall_at_k: float
-    precision_at_k: float
-    mean_reciprocal_rank: float
-    ndcg_at_k: float
-    answerable_rate: float
+    recall_at_k: Estimate
+    precision_at_k: Estimate
+    mean_reciprocal_rank: Estimate
+    ndcg_at_k: Estimate
+    answerable_rate: Estimate
 
 
 def score_case(case: EvaluationCase, retrieved: Sequence[Chunk], cutoff: int) -> CaseOutcome:
@@ -126,8 +139,31 @@ def _ndcg(outcome: CaseOutcome, relevant_ranks: Sequence[int]) -> float:
     return gain / ideal if ideal else 0.0
 
 
+def per_case_scores(
+    outcomes: Sequence[CaseOutcome], ranks_per_case: Sequence[Sequence[int]]
+) -> dict[str, list[float]]:
+    """One score per case per metric, which is what a paired comparison needs.
+
+    Aggregates cannot be compared question by question, and question by question
+    is where the variance goes (ADR-0029). So the per-case vectors are produced
+    once, used for the aggregates, and kept.
+    """
+    return {
+        "recall_at_k": [outcome.recall for outcome in outcomes],
+        "precision_at_k": [outcome.precision for outcome in outcomes],
+        "mean_reciprocal_rank": [outcome.reciprocal_rank for outcome in outcomes],
+        "ndcg_at_k": [
+            _ndcg(outcome, ranks) for outcome, ranks in zip(outcomes, ranks_per_case, strict=True)
+        ],
+        "answerable_rate": [1.0 if outcome.is_answerable else 0.0 for outcome in outcomes],
+    }
+
+
 def summarize(
-    outcomes: Sequence[CaseOutcome], ranks_per_case: Sequence[Sequence[int]], cutoff: int
+    outcomes: Sequence[CaseOutcome],
+    ranks_per_case: Sequence[Sequence[int]],
+    cutoff: int,
+    clusters: Sequence[str] | None = None,
 ) -> RetrievalMetrics:
     """Aggregate case outcomes into dataset-level numbers.
 
@@ -140,31 +176,37 @@ def summarize(
         outcomes: One per case.
         ranks_per_case: The ranks at which relevant chunks appeared, per case.
         cutoff: The k the numbers are measured at.
+        clusters: Which group each case belongs to, when the cases are
+            correlated. None treats every case as independent, which is only
+            true of a dataset whose questions come from different documents.
 
     Returns:
         The aggregate metrics.
     """
+    empty = Estimate(mean=0.0, standard_error=0.0, n=0)
     if not outcomes:
         return RetrievalMetrics(
             cases=0,
             cutoff=cutoff,
-            recall_at_k=0.0,
-            precision_at_k=0.0,
-            mean_reciprocal_rank=0.0,
-            ndcg_at_k=0.0,
-            answerable_rate=0.0,
+            recall_at_k=empty,
+            precision_at_k=empty,
+            mean_reciprocal_rank=empty,
+            ndcg_at_k=empty,
+            answerable_rate=empty,
         )
 
-    count = len(outcomes)
+    scores = per_case_scores(outcomes, ranks_per_case)
+
+    def measured(name: str) -> Estimate:
+        values = scores[name]
+        return clustered_estimate(values, clusters) if clusters is not None else estimate(values)
+
     return RetrievalMetrics(
-        cases=count,
+        cases=len(outcomes),
         cutoff=cutoff,
-        recall_at_k=sum(outcome.recall for outcome in outcomes) / count,
-        precision_at_k=sum(outcome.precision for outcome in outcomes) / count,
-        mean_reciprocal_rank=sum(outcome.reciprocal_rank for outcome in outcomes) / count,
-        ndcg_at_k=sum(
-            _ndcg(outcome, ranks) for outcome, ranks in zip(outcomes, ranks_per_case, strict=True)
-        )
-        / count,
-        answerable_rate=sum(1 for outcome in outcomes if outcome.is_answerable) / count,
+        recall_at_k=measured("recall_at_k"),
+        precision_at_k=measured("precision_at_k"),
+        mean_reciprocal_rank=measured("mean_reciprocal_rank"),
+        ndcg_at_k=measured("ndcg_at_k"),
+        answerable_rate=measured("answerable_rate"),
     )

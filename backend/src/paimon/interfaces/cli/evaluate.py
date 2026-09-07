@@ -20,6 +20,8 @@ from paimon.config import get_settings
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import BenchmarkReport, EvaluationDataset, run_benchmark
+from paimon.evaluation.metrics import RetrievalMetrics
+from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
     Resources,
     build_ingest_document,
@@ -29,6 +31,20 @@ from paimon.interfaces.api.dependencies import (
 from paimon.observability import configure_logging, get_logger
 
 logger = get_logger(__name__)
+
+#: A comparison uses only the per-question scores, so a report read back from
+#: disk carries no aggregates. Stated as a constant rather than rebuilt, so
+#: nothing mistakes an unread field for a measured zero.
+_NOTHING = Estimate(mean=0.0, standard_error=0.0, n=0)
+EMPTY_METRICS = RetrievalMetrics(
+    cases=0,
+    cutoff=0,
+    recall_at_k=_NOTHING,
+    precision_at_k=_NOTHING,
+    mean_reciprocal_rank=_NOTHING,
+    ndcg_at_k=_NOTHING,
+    answerable_rate=_NOTHING,
+)
 MEDIA_TYPES = {".md": "text/markdown", ".markdown": "text/markdown", ".txt": "text/plain"}
 
 
@@ -90,22 +106,34 @@ async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> i
 
 
 def render(report: BenchmarkReport) -> str:
-    """Render a report for a terminal."""
+    """Render a report for a terminal.
+
+    Every number carries its interval, and the header says how wide the dataset
+    lets them be. A reader who sees ``73.3% +/- 21.4%`` will not conclude
+    anything from a four-point move; a reader who sees ``73.3%`` very well might.
+    """
     metrics = report.metrics
     lines = [
         "",
-        f"dataset       {report.dataset}  ({metrics.cases} cases)",
+        f"dataset       {report.dataset}  ({metrics.cases} cases, "
+        f"{metrics.recall_at_k.clusters or metrics.cases} independent groups)",
         f"configuration {report.configuration}",
         f"cutoff        k={metrics.cutoff}",
         "",
-        f"  answerable@k   {metrics.answerable_rate:6.1%}   "
+        "  metric            mean +/- 95% CI      what it says",
+        f"  answerable@k   {metrics.answerable_rate.format(percent=True):>18}   "
         "at least one supporting passage retrieved",
-        f"  recall@k       {metrics.recall_at_k:6.1%}   of expected passages retrieved",
-        f"  precision@k    {metrics.precision_at_k:6.1%}   of the k slots that were useful",
-        f"  MRR            {metrics.mean_reciprocal_rank:6.3f}   "
+        f"  recall@k       {metrics.recall_at_k.format(percent=True):>18}   "
+        "of expected passages retrieved",
+        f"  precision@k    {metrics.precision_at_k.format(percent=True):>18}   "
+        "of the k slots that were useful",
+        f"  MRR            {metrics.mean_reciprocal_rank.format():>18}   "
         "how high the first useful hit lands",
-        f"  nDCG@k         {metrics.ndcg_at_k:6.3f}   rank-weighted quality",
-        f"  median latency {report.median_latency_ms:6.1f} ms",
+        f"  nDCG@k         {metrics.ndcg_at_k.format():>18}   rank-weighted quality",
+        f"  median latency {report.median_latency_ms:14.1f} ms",
+        "",
+        "  Intervals are clustered by source document: questions about one",
+        "  document are not independent observations of retrieval quality.",
         "",
     ]
     if report.failures:
@@ -113,6 +141,83 @@ def render(report: BenchmarkReport) -> str:
         lines.extend(f"    {case.outcome.case_id}  {case.question}" for case in report.failures)
         lines.append("")
     return "\n".join(lines)
+
+
+def render_comparison(report: BenchmarkReport, baseline: BenchmarkReport) -> str:
+    """Render a paired comparison against an earlier run.
+
+    Paired, so the comparison uses the fact that both configurations answered the
+    same questions. On fifteen questions that is most of the available
+    information: the unpaired difference of two aggregates has a confidence
+    interval wide enough to swallow any change worth making.
+    """
+    lines = [
+        f"compared with  {baseline.configuration}  ({baseline.dataset})",
+        "",
+        f"  {'metric':<22}{'difference':>10}  {'95% CI':<22}{'p':>7}   verdict",
+    ]
+    for metric, percent in (
+        ("answerable_rate", True),
+        ("recall_at_k", True),
+        ("precision_at_k", True),
+        ("mean_reciprocal_rank", False),
+        ("ndcg_at_k", False),
+    ):
+        difference = report.compare(baseline, metric)
+        verdict = (
+            "distinguishable from zero"
+            if difference.is_significant()
+            else "not distinguishable from noise"
+        )
+        low, high = difference.interval()
+        if percent:
+            mean, span = f"{difference.mean:+.1%}", f"[{low:+.1%}, {high:+.1%}]"
+        else:
+            mean, span = f"{difference.mean:+.3f}", f"[{low:+.3f}, {high:+.3f}]"
+        lines.append(f"  {metric:<22}{mean:>10}  {span:<22}{difference.p_value:>7.3f}   {verdict}")
+
+    correlation = report.compare(baseline).correlation
+    lines.extend(
+        [
+            "",
+            f"  The two configurations agreed about which questions were hard "
+            f"(r={correlation:.2f}),",
+            "  which is what pairing exploits. Comparing the aggregates instead would",
+            "  widen every interval above.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def load_report(path: Path) -> BenchmarkReport:
+    """Read a report written by an earlier run.
+
+    Only the parts a comparison needs are rebuilt — the per-question scores and
+    the clusters. Reconstructing the whole object would mean a second parser to
+    keep in step with the dataclasses, for information a comparison does not use.
+
+    Raises:
+        ValueError: If the file predates per-question scores. An older report can
+            still be read for its aggregates, and cannot be paired against —
+            which has to be said rather than approximated.
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    scores = raw.get("scores")
+    if not scores:
+        msg = (
+            f"'{path}' carries no per-question scores, so it cannot be compared "
+            "question by question. Re-run the baseline to produce one."
+        )
+        raise ValueError(msg)
+    return BenchmarkReport(
+        dataset=raw["dataset"],
+        configuration=raw["configuration"],
+        metrics=EMPTY_METRICS,
+        cases=(),
+        scores={name: tuple(values) for name, values in scores.items()},
+        clusters=tuple(raw.get("clusters", ())),
+    )
 
 
 async def main(argv: list[str] | None = None) -> int:
@@ -133,6 +238,14 @@ async def main(argv: list[str] | None = None) -> int:
         help="What is being measured. A metric without its configuration is unattributable.",
     )
     parser.add_argument("--report", type=Path, help="Write the full report here as JSON.")
+    parser.add_argument(
+        "--against",
+        type=Path,
+        help=(
+            "An earlier report to compare against, question by question. "
+            "This is how a retrieval change is accepted or rejected."
+        ),
+    )
     args = parser.parse_args(argv)
 
     settings = get_settings()
@@ -154,6 +267,10 @@ async def main(argv: list[str] | None = None) -> int:
         )
 
     sys.stdout.write(render(report))
+
+    if args.against:
+        baseline = load_report(args.against)
+        sys.stdout.write(render_comparison(report, baseline))
 
     if args.report:
         args.report.parent.mkdir(parents=True, exist_ok=True)
