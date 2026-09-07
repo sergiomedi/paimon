@@ -265,6 +265,30 @@ def paired_difference(
     )
 
 
+def compare_metric(
+    mine: Mapping[str, Sequence[float]],
+    theirs: Mapping[str, Sequence[float]],
+    metric: str,
+    clusters: Sequence[str] | None = None,
+) -> PairedDifference:
+    """Pair two runs' per-question scores for one metric.
+
+    Shared by the retrieval and answering benchmarks, because the mistake it
+    guards against is the same in both: comparing a metric one of the runs never
+    recorded, which would otherwise be a KeyError three frames away from the
+    thing that caused it.
+
+    Raises:
+        ValueError: If either run has no scores under that name.
+    """
+    ours, yours = mine.get(metric), theirs.get(metric)
+    if ours is None or yours is None:
+        available = ", ".join(sorted(mine)) or "none"
+        msg = f"no per-question scores for '{metric}'; this run has: {available}"
+        raise ValueError(msg)
+    return paired_difference(ours, yours, clusters)
+
+
 def correlation(a: Sequence[float], b: Sequence[float]) -> float:
     """Pearson correlation between two sets of per-question scores.
 
@@ -417,6 +441,7 @@ __all__ = [
     "Estimate",
     "PairedDifference",
     "clustered_estimate",
+    "compare_metric",
     "correlation",
     "critical_t",
     "estimate",

@@ -12,23 +12,40 @@ import argparse
 import asyncio
 import json
 import sys
+from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from paimon.application.use_cases import RetrieveChunks, SourceDocument
+from paimon.application.use_cases import (
+    Answer,
+    AnswerQuestion,
+    RetrieveChunks,
+    SourceDocument,
+)
 from paimon.config import get_settings
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
-from paimon.evaluation import BenchmarkReport, EvaluationDataset, run_benchmark
+from paimon.evaluation import (
+    AnsweringReport,
+    BenchmarkReport,
+    EvaluationDataset,
+    run_answering_benchmark,
+    run_benchmark,
+)
 from paimon.evaluation.metrics import RetrievalMetrics
 from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
     Resources,
+    build_answer_question,
     build_ingest_document,
     build_resources,
     build_retrieve_chunks,
 )
 from paimon.observability import configure_logging, get_logger
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from _typeshed import DataclassInstance
 
 logger = get_logger(__name__)
 
@@ -65,6 +82,18 @@ class UseCaseRetriever:
         return [hit.chunk for hit in result.hits]
 
 
+class UseCaseAnswerer:
+    """Adapts the answering use case to what the benchmark needs."""
+
+    def __init__(self, answer: AnswerQuestion) -> None:
+        """Wrap an answering use case."""
+        self._answer = answer
+
+    async def answer(self, question: str, *, tenant_id: str) -> Answer:
+        """Answer a question from the indexed corpus."""
+        return await self._answer(question, SearchFilters(tenant_id=tenant_id))
+
+
 def read_corpus(corpus: Path) -> list[tuple[str, str, bytes, str]]:
     """Read a directory of documents. Blocking, so callers run it off the loop."""
     documents: list[tuple[str, str, bytes, str]] = []
@@ -76,15 +105,18 @@ def read_corpus(corpus: Path) -> list[tuple[str, str, bytes, str]]:
     return documents
 
 
-async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> int:
+async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> list[str]:
     """Ingest every supported document in a directory.
 
     Returns:
-        How many documents were indexed or confirmed unchanged.
+        The ids of the documents indexed or confirmed unchanged, in order. The
+        ids rather than a count, because verifying an answer's citations needs
+        the documents back and the repository has no "list everything" — nor
+        should it, since nothing else in the platform ever wants one.
     """
     ingest = build_ingest_document(resources)
     documents = await asyncio.to_thread(read_corpus, corpus)
-    count = 0
+    ingested: list[str] = []
     for document_id, source_uri, raw, media_type in documents:
         result = await ingest(
             SourceDocument(
@@ -101,8 +133,26 @@ async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> i
             chunks=result.chunks_indexed,
             unchanged=result.unchanged,
         )
-        count += 1
-    return count
+        ingested.append(result.document_id)
+    return ingested
+
+
+async def load_documents(
+    resources: Resources, document_ids: Sequence[str], tenant_id: str
+) -> dict[str, str]:
+    """Read back the corpus as it was indexed.
+
+    The **normalized** text, not the file on disk. A citation's offsets are into
+    what the parser produced, so checking them against the raw markdown would
+    fail for every document the parser touched — headings, front matter, line
+    endings — and the failures would look like the model inventing citations.
+    """
+    documents: dict[str, str] = {}
+    for document_id in document_ids:
+        document = await resources.document_repository.get(tenant_id, document_id)
+        if document is not None:
+            documents[document.document_id] = document.text
+    return documents
 
 
 def render(report: BenchmarkReport) -> str:
@@ -139,6 +189,48 @@ def render(report: BenchmarkReport) -> str:
     if report.failures:
         lines.append("  retrieved nothing relevant:")
         lines.extend(f"    {case.outcome.case_id}  {case.question}" for case in report.failures)
+        lines.append("")
+    return "\n".join(lines)
+
+
+def render_answers(report: AnsweringReport) -> str:
+    """Render an answering run.
+
+    Every number here is **verified**, not judged: the citations were followed
+    into the corpus and checked against the text they name. Nothing on this
+    report is a model's opinion of another model, which is stated in the output
+    because the distinction is the whole design (ADR-0030).
+    """
+    metrics = report.metrics
+    lines = [
+        "",
+        f"dataset       {report.dataset}  ({metrics.cases} answers, "
+        f"{metrics.citation_accuracy.clusters or metrics.cases} independent groups)",
+        f"configuration {report.configuration}",
+        "",
+        "  metric                 mean +/- 95% CI      what it says",
+        f"  grounded            {metrics.grounded_rate.format(percent=True):>18}   "
+        "answers that cited anything at all",
+        f"  citation accuracy   {metrics.citation_accuracy.format(percent=True):>18}   "
+        "citations that survived being followed",
+        f"  cited sentences     {metrics.cited_sentence_rate.format(percent=True):>18}   "
+        "sentences carrying a marker",
+        f"  fully attributed    {metrics.fully_attributed_rate.format(percent=True):>18}   "
+        "every citation resolved, every sentence cited",
+        "",
+        "  Verified, not judged: each citation was opened at its offsets and",
+        "  checked against the text it names. No model graded this run.",
+        "",
+    ]
+    if report.unverifiable:
+        lines.append("  citations that did not survive being followed:")
+        for case in report.unverifiable:
+            for check in case.attribution.checks:
+                if not check.ok:
+                    lines.append(
+                        f"    {case.case_id}  [{check.marker}] {check.document_id}  "
+                        f"{check.attribution.value}: {check.quote[:60]!r}"
+                    )
         lines.append("")
     return "\n".join(lines)
 
@@ -239,6 +331,14 @@ async def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--report", type=Path, help="Write the full report here as JSON.")
     parser.add_argument(
+        "--answers",
+        action="store_true",
+        help=(
+            "Benchmark the answers rather than the retrieval: run the answering "
+            "use case and verify every citation against the corpus."
+        ),
+    )
+    parser.add_argument(
         "--against",
         type=Path,
         help=(
@@ -254,9 +354,21 @@ async def main(argv: list[str] | None = None) -> int:
     dataset = EvaluationDataset.from_jsonl(args.dataset)
 
     async with build_resources(settings) as resources:
+        ingested: list[str] = []
         if args.corpus:
             ingested = await ingest_corpus(resources, args.corpus, args.tenant)
-            logger.info("corpus_ingested", documents=ingested)
+            logger.info("corpus_ingested", documents=len(ingested))
+
+        if args.answers:
+            answering = await run_answering_benchmark(
+                dataset,
+                UseCaseAnswerer(build_answer_question(resources)),
+                await load_documents(resources, ingested, args.tenant),
+                tenant_id=args.tenant,
+                configuration=args.label,
+            )
+            _emit(render_answers(answering), args.report, answering)
+            return 0 if answering.metrics.cases else 1
 
         report = await run_benchmark(
             dataset,
@@ -272,11 +384,17 @@ async def main(argv: list[str] | None = None) -> int:
         baseline = load_report(args.against)
         sys.stdout.write(render_comparison(report, baseline))
 
-    if args.report:
-        args.report.parent.mkdir(parents=True, exist_ok=True)
-        args.report.write_text(json.dumps(asdict(report), indent=2), encoding="utf-8")
-
+    _emit("", args.report, report)
     return 0 if report.metrics.cases else 1
+
+
+def _emit(rendered: str, path: Path | None, report: "DataclassInstance") -> None:
+    """Print what was rendered, and write the report if asked."""
+    if rendered:
+        sys.stdout.write(rendered)
+    if path is not None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
 
 
 if __name__ == "__main__":  # pragma: no cover - entry point

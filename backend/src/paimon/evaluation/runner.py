@@ -15,7 +15,11 @@ from paimon.evaluation.metrics import (
     score_case,
     summarize,
 )
-from paimon.evaluation.statistics import PairedDifference, group_by_document, paired_difference
+from paimon.evaluation.statistics import (
+    PairedDifference,
+    compare_metric,
+    group_by_document,
+)
 
 
 class Retriever(Protocol):
@@ -81,12 +85,7 @@ class BenchmarkReport:
         if self.dataset != other.dataset:
             msg = f"different datasets: '{self.dataset}' and '{other.dataset}'"
             raise ValueError(msg)
-        mine, theirs = self.scores.get(metric), other.scores.get(metric)
-        if mine is None or theirs is None:
-            available = ", ".join(sorted(self.scores)) or "none"
-            msg = f"no per-question scores for '{metric}'; this run has: {available}"
-            raise ValueError(msg)
-        return paired_difference(mine, theirs, self.clusters or None)
+        return compare_metric(self.scores, other.scores, metric, self.clusters or None)
 
     @property
     def median_latency_ms(self) -> float:

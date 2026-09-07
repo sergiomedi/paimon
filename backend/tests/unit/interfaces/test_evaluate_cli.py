@@ -10,17 +10,26 @@ from dataclasses import asdict
 from pathlib import Path
 
 import pytest
+from tests.unit.evaluation.test_answering import CORPUS, answerer
+from tests.unit.evaluation.test_answering import dataset as answers_dataset
 from tests.unit.evaluation.test_runner import ScriptedRetriever, chunk
 
 from paimon.domain.entities import Chunk
 from paimon.evaluation import (
+    AnsweringReport,
     EvaluationCase,
     EvaluationDataset,
     SupportingPassage,
+    run_answering_benchmark,
     run_benchmark,
 )
 from paimon.evaluation.runner import BenchmarkReport
-from paimon.interfaces.cli.evaluate import load_report, render, render_comparison
+from paimon.interfaces.cli.evaluate import (
+    load_report,
+    render,
+    render_answers,
+    render_comparison,
+)
 
 TENANT = "benchmark"
 
@@ -130,3 +139,39 @@ class TestReadingABaseline:
         )
         with pytest.raises(ValueError, match="per-question scores"):
             load_report(path)
+
+
+class TestRenderingAnAnsweringRun:
+    """The answering report, which is verified rather than judged."""
+
+    @staticmethod
+    async def _run(*, faithful: bool) -> AnsweringReport:
+        return await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=faithful),
+            CORPUS,
+            tenant_id=TENANT,
+            configuration="local",
+        )
+
+    async def test_no_number_appears_without_its_interval(self) -> None:
+        rendered = render_answers(await self._run(faithful=True))
+        for line in rendered.splitlines():
+            if any(name in line for name in ("grounded", "citation accuracy", "cited sentences")):
+                assert "±" in line
+
+    async def test_it_says_the_numbers_were_verified_not_judged(self) -> None:
+        # The distinction is the whole design of this batch, so it is in the
+        # output rather than only in an ADR nobody opens.
+        rendered = render_answers(await self._run(faithful=True))
+        assert "Verified, not judged" in rendered
+        assert "No model graded this run" in rendered
+
+    async def test_a_citation_that_did_not_survive_is_named(self) -> None:
+        rendered = render_answers(await self._run(faithful=False))
+        assert "citations that did not survive being followed:" in rendered
+        assert "misquoted" in rendered
+        assert "q2" in rendered
+
+    async def test_a_clean_run_lists_nothing(self) -> None:
+        assert "did not survive" not in render_answers(await self._run(faithful=True))

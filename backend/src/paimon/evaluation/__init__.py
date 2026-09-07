@@ -9,8 +9,24 @@ Every aggregate is reported with an interval, and two runs are compared
 question by question rather than aggregate against aggregate (ADR-0029). A
 mean with no interval is not a measurement, and on a dataset this size it is
 an invitation to conclude something from noise.
+
+Answer quality is **verified, not judged**: citations are followed into the
+corpus and checked against the text they name, which this platform can do
+because ADR-0013 made citations carry their offsets (ADR-0030).
 """
 
+from paimon.evaluation.answering import (
+    AnswerCaseReport,
+    AnsweringMetrics,
+    AnsweringReport,
+    run_answering_benchmark,
+)
+from paimon.evaluation.attribution import (
+    Attribution,
+    AttributionReport,
+    CitationCheck,
+    check_answer,
+)
 from paimon.evaluation.dataset import EvaluationCase, EvaluationDataset, SupportingPassage
 from paimon.evaluation.metrics import CaseOutcome, RetrievalMetrics, score_case, summarize
 from paimon.evaluation.runner import BenchmarkReport, run_benchmark
@@ -23,17 +39,25 @@ from paimon.evaluation.statistics import (
 )
 
 __all__ = [
+    "AnswerCaseReport",
+    "AnsweringMetrics",
+    "AnsweringReport",
+    "Attribution",
+    "AttributionReport",
     "BenchmarkReport",
     "CaseOutcome",
+    "CitationCheck",
     "Estimate",
     "EvaluationCase",
     "EvaluationDataset",
     "PairedDifference",
     "RetrievalMetrics",
     "SupportingPassage",
+    "check_answer",
     "clustered_estimate",
     "estimate",
     "paired_difference",
+    "run_answering_benchmark",
     "run_benchmark",
     "score_case",
     "summarize",

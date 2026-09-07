@@ -56,6 +56,31 @@ accepting or rejecting a retrieval change means here. See
 differences. It needs to grow before it can, and a wide interval printed honestly is the thing
 that says so.
 
+## Answers are verified, not judged
+
+`--answers` runs the answering use case over the same golden set and **follows every citation
+into the corpus**: open the document, go to the offsets, check the quoted text is there.
+
+```bash
+cd backend
+uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --corpus ../evaluation/corpus/sample \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "local ollama"
+```
+
+No model grades this. That is not thrift, it is accuracy: the TREC 2024 RAG track measured
+GPT-4o against human assessors on exactly this question — does a passage support a claim — and
+they agreed **56%** of the time, with the model systematically **over-crediting** support. A
+judge that errs towards "yes, that was supported" is the worst instrument for catching an
+invented answer, and this platform does not need one, because ADR-0013 made citations carry
+their offsets. See [ADR-0030](../docs/adr/0030-verify-attribution-before-judging-anything.md).
+
+What is verified: that each citation resolves, that each sentence carries a marker, and that no
+marker refers to a source that does not exist. What is **not**: whether the sentence around a
+resolving citation is a fair reading of it. That needs a judge, it arrives next, and it will be
+labelled as judged wherever it appears.
+
 ## Ground truth is anchored to quotations, not chunks
 
 Each case names a document and quotes the passage that answers the question. A
