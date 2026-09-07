@@ -104,6 +104,44 @@ The judged numbers appear in their own section, with the judge's name and the 56
 beside them. They are never mixed with the verified ones, and a run with no judge prints no
 judged section at all.
 
+## The judge is uncalibrated until you check it
+
+Everything about the judge narrows how it can go wrong. None of it makes it agree with **you**.
+So until somebody labels a sample, the judged section prints `UNCALIBRATED` and says the numbers
+are a figure rather than a measurement ([ADR-0032](../docs/adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)).
+
+Labelling takes one pass over a file:
+
+```bash
+cd backend
+# 1. Run, and write a template of the answers to label.
+uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --corpus ../evaluation/corpus/sample \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --write-labels ../evaluation/labels/answers-v1.jsonl
+
+# 2. Fill in the two blank verdicts on each line: yes / partial / no.
+#    Leave a line blank to skip it — a half-finished file still works.
+
+# 3. Run again with the labels.
+uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --labels ../evaluation/labels/answers-v1.jsonl
+```
+
+The template deliberately **does not show you what the judge decided**. Seeing it would anchor
+you, and an anchored second opinion is an expensive way to confirm the first.
+
+What comes back is **Cohen's kappa**, not raw agreement. Raw agreement flatters any rater on a
+skewed dataset: where nine answers in ten are faithful, a judge that says "yes" to everything
+agrees 90% of the time and has measured nothing. Kappa discounts chance; that judge scores zero.
+Below **0.6** the report says the two of you are not reliably measuring the same thing.
+
+**The honest limit:** fifteen to twenty labels is far below the 200–500 per rubric practitioners
+recommend, so this catches a badly miscalibrated judge and cannot certify a good one. And
+calibration decays — judges drift within 60–90 days as models and prompts change — so a labelled
+set is not something you build once.
+
 ## Ground truth is anchored to quotations, not chunks
 
 Each case names a document and quotes the passage that answers the question. A

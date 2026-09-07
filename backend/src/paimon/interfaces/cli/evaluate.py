@@ -27,11 +27,15 @@ from paimon.config import get_settings
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import (
+    ACCEPTABLE_KAPPA,
     AnsweringReport,
     BenchmarkReport,
+    Calibration,
     EvaluationDataset,
     JudgedMetrics,
     Judging,
+    labelling_template,
+    load_labels,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -246,6 +250,56 @@ def render_answers(report: AnsweringReport) -> str:
     return "\n".join(lines)
 
 
+def write_labelling_template(
+    report: AnsweringReport, path: Path, dataset: EvaluationDataset
+) -> None:
+    """Write the cases out for a person to label.
+
+    Everything the labeller needs is on the line — the question, the answer, and
+    the passages the golden set says answer it — so labelling is reading one line
+    rather than cross-referencing three files.
+
+    The judge's verdict is deliberately absent. Showing it would anchor the
+    labeller to it, and an independent measurement that has been anchored is an
+    expensive way to confirm what the model already said.
+    """
+    expected = {case.case_id: case for case in dataset}
+    rows = [
+        {
+            "case_id": case.case_id,
+            "question": case.question,
+            "answer": case.text,
+            "expected_passages": [passage.quote for passage in expected[case.case_id].supporting],
+            "faithfulness": "",
+            "relevance": "",
+            "note": "",
+        }
+        for case in report.cases
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(labelling_template(rows), encoding="utf-8")
+
+
+def _calibration_lines(calibration: Calibration) -> list[str]:
+    """Render what a person's labels said about the judge."""
+    lines = [
+        f"  calibrated against {calibration.labels} human labels",
+        f"    faithfulness  {calibration.faithfulness.format()}",
+        f"    relevance     {calibration.relevance.format()}",
+        "",
+    ]
+    if not calibration.is_acceptable:
+        lines.extend(
+            [
+                f"  Kappa below {ACCEPTABLE_KAPPA} means this judge and a person are not",
+                "  reliably measuring the same thing here. Read the two numbers above",
+                "  as an indication, not a result, and fix the rubric before quoting them.",
+                "",
+            ]
+        )
+    return lines
+
+
 def _judged_lines(judged: JudgedMetrics) -> list[str]:
     """Render the judged section, kept visibly apart from the verified one.
 
@@ -270,6 +324,11 @@ def _judged_lines(judged: JudgedMetrics) -> list[str]:
         "  comparison a judge of this kind agreed with human assessors 56% of",
         "  the time, and erred towards saying the answer was supported.",
     ]
+    if judged.calibration is not None:
+        lines.extend(_calibration_lines(judged.calibration))
+    else:
+        lines.append("  UNCALIBRATED: nobody has checked these verdicts against a person's,")
+        lines.append("  so they are a figure rather than a measurement. See --write-labels.")
     if judged.self_judged:
         lines.append("  AND IT JUDGED ITSELF: the judge is the model that wrote these")
         lines.append("  answers, so these two numbers flatter it by an unknown amount.")
@@ -381,6 +440,22 @@ async def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--labels",
+        type=Path,
+        help=(
+            "A file of human labels, to measure how far this judge agrees with a "
+            "person. Without it the judged numbers are reported as uncalibrated."
+        ),
+    )
+    parser.add_argument(
+        "--write-labels",
+        type=Path,
+        help=(
+            "Write a labelling template for this run and stop. Fill in the blank "
+            "verdicts, then pass the file back with --labels."
+        ),
+    )
+    parser.add_argument(
         "--against",
         type=Path,
         help=(
@@ -402,7 +477,6 @@ async def main(argv: list[str] | None = None) -> int:
             logger.info("corpus_ingested", documents=len(ingested))
 
         if args.answers:
-            judge = build_answer_judge(resources)
             answering = await run_answering_benchmark(
                 dataset,
                 UseCaseAnswerer(build_answer_question(resources)),
@@ -410,10 +484,19 @@ async def main(argv: list[str] | None = None) -> int:
                 tenant_id=args.tenant,
                 configuration=args.label,
                 judging=Judging(
-                    judge=judge,
+                    judge=build_answer_judge(resources),
                     self_judged=settings.evaluation.judge.acknowledge_self_judging,
+                    labels=load_labels(args.labels) if args.labels else (),
                 ),
             )
+            if args.write_labels:
+                write_labelling_template(answering, args.write_labels, dataset)
+                sys.stdout.write(
+                    f"\nwrote {len(answering.cases)} cases to {args.write_labels}\n"
+                    "Fill in the two blank verdicts on each line (yes / partial / no),\n"
+                    "leave a case blank to skip it, then pass the file back with --labels.\n\n"
+                )
+                return 0
             _emit(render_answers(answering), args.report, answering)
             return 0 if answering.metrics.cases else 1
 

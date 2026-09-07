@@ -29,6 +29,15 @@ from paimon.evaluation.attribution import (
     CitationCheck,
     check_answer,
 )
+from paimon.evaluation.calibration import (
+    ACCEPTABLE_KAPPA,
+    Agreement,
+    Calibration,
+    HumanLabel,
+    cohens_kappa,
+    labelling_template,
+    load_labels,
+)
 from paimon.evaluation.dataset import EvaluationCase, EvaluationDataset, SupportingPassage
 from paimon.evaluation.judging import (
     AnswerJudge,
@@ -48,6 +57,8 @@ from paimon.evaluation.statistics import (
 )
 
 __all__ = [
+    "ACCEPTABLE_KAPPA",
+    "Agreement",
     "AnswerCaseReport",
     "AnswerJudge",
     "AnsweringMetrics",
@@ -55,11 +66,13 @@ __all__ = [
     "Attribution",
     "AttributionReport",
     "BenchmarkReport",
+    "Calibration",
     "CaseOutcome",
     "CitationCheck",
     "Estimate",
     "EvaluationCase",
     "EvaluationDataset",
+    "HumanLabel",
     "JudgedAnswer",
     "JudgedMetrics",
     "Judgement",
@@ -71,7 +84,10 @@ __all__ = [
     "Verdict",
     "check_answer",
     "clustered_estimate",
+    "cohens_kappa",
     "estimate",
+    "labelling_template",
+    "load_labels",
     "paired_difference",
     "run_answering_benchmark",
     "run_benchmark",

@@ -17,6 +17,7 @@ from typing import Protocol
 
 from paimon.application.use_cases import Answer
 from paimon.evaluation.attribution import AttributionReport, check_answer
+from paimon.evaluation.calibration import Calibration, HumanLabel, agreement
 from paimon.evaluation.dataset import EvaluationDataset
 from paimon.evaluation.judging import AnswerJudge, JudgedAnswer, Verdict
 from paimon.evaluation.statistics import (
@@ -44,6 +45,9 @@ class Judging:
 
     judge: AnswerJudge | None = None
     self_judged: bool = False
+    labels: Sequence[HumanLabel] = ()
+    """A person's verdicts on some of the same cases. Without them the judge is
+    reported as uncalibrated."""
 
 
 #: A run with no judge. A module-level value rather than a default constructed
@@ -133,6 +137,10 @@ class JudgedMetrics:
     faithfulness: Estimate
     relevance: Estimate
     self_judged: bool = False
+    calibration: Calibration | None = None
+    """How well this judge agreed with a person, when somebody labelled a sample.
+    None means uncalibrated — the numbers above are a figure rather than a
+    measurement, and the report says so."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,9 +245,7 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
         scores={name: tuple(values) for name, values in scores.items()},
         clusters=tuple(clusters),
         judged=(
-            _summarize_judged(cases, judging.judge, self_judged=judging.self_judged)
-            if judging.judge is not None
-            else None
+            _summarize_judged(cases, judging.judge, judging) if judging.judge is not None else None
         ),
     )
 
@@ -269,7 +275,7 @@ async def _judge_all(
 
 
 def _summarize_judged(
-    cases: Sequence[AnswerCaseReport], judge: AnswerJudge, *, self_judged: bool
+    cases: Sequence[AnswerCaseReport], judge: AnswerJudge, judging: "Judging"
 ) -> JudgedMetrics:
     """Aggregate the verdicts, excluding the ones the judge could not reach.
 
@@ -308,7 +314,30 @@ def _summarize_judged(
         ),
         faithfulness=estimate(faithful),
         relevance=estimate(relevant),
-        self_judged=self_judged,
+        self_judged=judging.self_judged,
+        calibration=_calibrate(cases, judge, judging.labels),
+    )
+
+
+def _calibrate(
+    cases: Sequence[AnswerCaseReport], judge: AnswerJudge, labels: Sequence[HumanLabel]
+) -> Calibration | None:
+    """Compare the judge's verdicts against a person's, where both exist."""
+    if not labels:
+        return None
+    judged = {case.case_id: case.judged for case in cases if case.judged is not None}
+    human = {label.case_id: label for label in labels}
+    return Calibration(
+        judge_model=judge.model_id,
+        labels=len(labels),
+        faithfulness=agreement(
+            {case_id: value.faithfulness.verdict for case_id, value in judged.items()},
+            {case_id: label.faithfulness for case_id, label in human.items()},
+        ),
+        relevance=agreement(
+            {case_id: value.relevance.verdict for case_id, value in judged.items()},
+            {case_id: label.relevance for case_id, label in human.items()},
+        ),
     )
 
 

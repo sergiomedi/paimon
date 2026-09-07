@@ -12,6 +12,7 @@ from paimon.domain.value_objects import Citation
 from paimon.evaluation import (
     EvaluationCase,
     EvaluationDataset,
+    HumanLabel,
     Judging,
     SupportingPassage,
     Verdict,
@@ -266,3 +267,71 @@ class TestJudgedMetrics:
         assert judged.metrics == verified.metrics
         assert judged.judged is not None
         assert judged.judged.faithfulness.mean == 0.0
+
+
+class TestCalibration:
+    """Without a person's labels, a judged number is a figure, not a measurement."""
+
+    async def test_a_judge_without_labels_is_uncalibrated(self) -> None:
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=ScriptedJudge())
+        )
+        assert report.judged is not None
+        assert report.judged.calibration is None
+
+    async def test_labels_produce_an_agreement(self) -> None:
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(
+                judge=ScriptedJudge(model_id="llama-judge"),
+                labels=[
+                    HumanLabel(case_id="q1", faithfulness=Verdict.YES, relevance=Verdict.YES),
+                    HumanLabel(case_id="q2", faithfulness=Verdict.YES, relevance=Verdict.YES),
+                ],
+            ),
+        )
+        assert report.judged is not None
+        assert report.judged.calibration is not None
+        assert report.judged.calibration.labels == 2
+        assert report.judged.calibration.faithfulness.compared == 2
+        assert report.judged.calibration.faithfulness.raw.mean == 1.0
+
+    async def test_a_judge_that_disagrees_with_the_person_is_visible(self) -> None:
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(
+                judge=ScriptedJudge(default=Verdict.YES),
+                labels=[
+                    HumanLabel(case_id="q1", faithfulness=Verdict.NO, relevance=Verdict.NO),
+                    HumanLabel(case_id="q2", faithfulness=Verdict.NO, relevance=Verdict.NO),
+                ],
+            ),
+        )
+        assert report.judged is not None
+        assert report.judged.calibration is not None
+        assert report.judged.calibration.faithfulness.raw.mean == 0.0
+        assert not report.judged.calibration.is_acceptable
+
+    async def test_labels_for_cases_that_were_not_judged_are_ignored(self) -> None:
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(
+                judge=ScriptedJudge(),
+                labels=[
+                    HumanLabel(case_id="q1", faithfulness=Verdict.YES, relevance=Verdict.YES),
+                    HumanLabel(case_id="q99", faithfulness=Verdict.NO, relevance=Verdict.NO),
+                ],
+            ),
+        )
+        assert report.judged is not None
+        assert report.judged.calibration is not None
+        assert report.judged.calibration.faithfulness.compared == 1

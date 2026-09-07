@@ -20,9 +20,11 @@ from paimon.evaluation import (
     AnsweringReport,
     EvaluationCase,
     EvaluationDataset,
+    HumanLabel,
     Judging,
     SupportingPassage,
     Verdict,
+    labelling_template,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -232,3 +234,73 @@ class TestRenderingTheJudgedSection:
         # true. With a judge present it would be a small lie, and a report that
         # tells small lies is not worth reading carefully.
         assert "No model graded this run" not in render_answers(await self._judged())
+
+
+class TestTheCalibrationSection:
+    """A judged number has to say whether anybody checked it."""
+
+    @staticmethod
+    async def _with_labels(labels: list[HumanLabel]) -> AnsweringReport:
+        return await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=True),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=ScriptedJudge(model_id="llama-judge"), labels=labels),
+        )
+
+    async def test_an_uncalibrated_judge_says_so_loudly(self) -> None:
+        report = await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=True),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=ScriptedJudge()),
+        )
+        rendered = render_answers(report)
+        assert "UNCALIBRATED" in rendered
+        assert "a figure rather than a measurement" in rendered
+
+    async def test_agreement_is_reported_when_labels_exist(self) -> None:
+        rendered = render_answers(
+            await self._with_labels(
+                [
+                    HumanLabel(case_id="q1", faithfulness=Verdict.YES, relevance=Verdict.YES),
+                    HumanLabel(case_id="q2", faithfulness=Verdict.YES, relevance=Verdict.YES),
+                ]
+            )
+        )
+        assert "calibrated against 2 human labels" in rendered
+        assert "UNCALIBRATED" not in rendered
+        assert "kappa" in rendered
+
+    async def test_a_disagreeing_judge_is_told_not_to_be_quoted(self) -> None:
+        rendered = render_answers(
+            await self._with_labels(
+                [
+                    HumanLabel(case_id="q1", faithfulness=Verdict.NO, relevance=Verdict.NO),
+                    HumanLabel(case_id="q2", faithfulness=Verdict.NO, relevance=Verdict.NO),
+                ]
+            )
+        )
+        assert "TOO LOW" in rendered
+        assert "an indication, not a result" in rendered
+
+    def test_the_labelling_template_carries_what_a_labeller_needs(self, tmp_path: Path) -> None:
+        # Question, answer and expected passages on one line, so labelling is
+        # reading a line rather than cross-referencing three files.
+        rendered = labelling_template(
+            [
+                {
+                    "case_id": "q1",
+                    "question": "how do I drain a node?",
+                    "answer": "Cordon it [1].",
+                    "expected_passages": ["Cordon the node"],
+                    "faithfulness": "",
+                    "relevance": "",
+                }
+            ]
+        )
+        row = json.loads(rendered.strip())
+        assert row["expected_passages"] == ["Cordon the node"]
+        assert row["faithfulness"] == ""
