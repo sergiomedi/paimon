@@ -13,6 +13,7 @@ from paimon.evaluation import (
     EvaluationCase,
     EvaluationDataset,
     HumanLabel,
+    Judgement,
     Judging,
     SupportingPassage,
     Verdict,
@@ -442,3 +443,46 @@ class TestCalibration:
         assert calibration.faithfulness.compared == 1
         assert calibration.completeness.compared == 0
         assert calibration.is_acceptable
+
+
+class TestProgress:
+    """Fifteen minutes of silence is indistinguishable from a hung process."""
+
+    async def test_every_case_is_reported_as_it_finishes(self) -> None:
+        seen: list[tuple[int, int, str]] = []
+
+        def watch(*, done: int, total: int, case_id: str) -> None:
+            seen.append((done, total, case_id))
+
+        await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, progress=watch
+        )
+        assert seen == [(1, 2, "q1"), (2, 2, "q2")]
+
+    async def test_a_case_is_reported_only_once_its_judging_is_done(self) -> None:
+        # The judge is most of the wall clock — three calls per case against one
+        # generation — so a counter that advanced before it would run ahead of
+        # the work and sit at 15/15 while the process kept going.
+        order: list[str] = []
+
+        class Narrating(ScriptedJudge):
+            async def judge_relevance(self, question: str, answer: str) -> Judgement:
+                order.append("judged")
+                return await super().judge_relevance(question, answer)
+
+        def watch(*, done: int, total: int, case_id: str) -> None:
+            order.append("reported")
+
+        await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=Narrating()),
+            progress=watch,
+        )
+        assert order == ["judged", "reported", "judged", "reported"]
+
+    async def test_nothing_is_reported_when_nobody_is_watching(self) -> None:
+        report = await run_answering_benchmark(dataset(), answerer(), CORPUS, tenant_id=TENANT)
+        assert report.metrics.cases == 2

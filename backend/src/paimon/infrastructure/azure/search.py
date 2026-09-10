@@ -19,6 +19,7 @@ from paimon.domain.errors import IndexMismatchError, RetrievalError
 from paimon.domain.ports import ChunkRecord, IndexDescriptor, SearchFilters, SearchHit
 from paimon.domain.value_objects import Embedding
 from paimon.infrastructure.azure.credentials import AzureCredential
+from paimon.infrastructure.http import error_detail
 
 SEARCH_SCOPE = "https://search.azure.com/.default"
 DEFAULT_API_VERSION = "2024-07-01"
@@ -123,7 +124,7 @@ class AzureSearchStore:
             response.raise_for_status()
             return response.json() if response.content else {}
         except httpx.HTTPStatusError as error:
-            detail = _error_detail(error.response)
+            detail = error_detail(error.response)
             msg = f"azure ai search returned {error.response.status_code}{detail}"
             raise RetrievalError(msg) from error
         except httpx.HTTPError as error:
@@ -384,12 +385,3 @@ def _raise_for_document_errors(body: Any) -> None:
             f"first: {first.get('key')}: {first.get('errorMessage')}"
         )
         raise RetrievalError(msg)
-
-
-def _error_detail(response: httpx.Response) -> str:
-    """Extract Azure's own error code."""
-    try:
-        code = response.json()["error"]["code"]
-    except (ValueError, KeyError, TypeError):
-        return ""
-    return f" ({code})"

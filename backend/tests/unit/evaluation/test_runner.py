@@ -60,6 +60,18 @@ def dataset() -> EvaluationDataset:
 
 
 class TestRunning:
+    async def test_it_reports_progress_when_somebody_is_watching(self) -> None:
+        # A retrieval run is fast against a fake and slow against a real index
+        # over a real corpus; the counter is the difference between waiting and
+        # wondering.
+        seen: list[tuple[int, int, str]] = []
+
+        def watch(*, done: int, total: int, case_id: str) -> None:
+            seen.append((done, total, case_id))
+
+        await run_benchmark(dataset(), ScriptedRetriever({}), tenant_id="benchmark", progress=watch)
+        assert seen == [(1, 2, "q1"), (2, 2, "q2")]
+
     async def test_it_asks_every_question_as_the_given_tenant(self) -> None:
         retriever = ScriptedRetriever({})
         await run_benchmark(dataset(), retriever, tenant_id="benchmark")

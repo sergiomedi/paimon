@@ -1,9 +1,11 @@
-# Evaluation
+# Evaluation data
 
-Retrieval is the part of this platform that is easiest to change and hardest to
-judge by eye. A chunk size, an overlap, a fusion weight, a dimensionality — each
-of them can be argued about indefinitely and settled in an afternoon with a
-dataset. This directory is that dataset.
+Retrieval is the part of this platform that is easiest to change and hardest to judge by eye. A
+chunk size, an overlap, a fusion weight, a dimensionality — each of them can be argued about
+indefinitely and settled in an afternoon with a dataset. This directory is that dataset.
+
+**How to run the benchmark and read what comes back is in
+[`docs/evaluation.md`](../docs/evaluation.md).** This file is about the material it runs against.
 
 ## What is here
 
@@ -12,194 +14,58 @@ dataset. This directory is that dataset.
 | `corpus/sample/` | A small operational corpus, written for this repository, so the benchmark runs immediately after a clone. |
 | `corpus/manifest.json` | Public corpora to evaluate against properly, with their licences. |
 | `datasets/*.jsonl` | Golden sets: questions and the passages that answer them. |
+| `labels/` | A person's verdicts on a sample of answers, used to calibrate the judge. See [`labels/README.md`](labels/README.md). |
 | `reports/` | Benchmark output. Git-ignored; runs are cheap and results are not a source of truth. |
 
 ## Why two corpora
 
-The sample corpus is written material and therefore cleaner and more uniform than
-real documentation. Numbers from it say the pipeline works; they do not predict
-how it will behave on a real corpus, and this file exists partly so nobody quotes
-them as if they did.
+The sample corpus is written material and therefore cleaner and more uniform than real
+documentation. Numbers from it say the pipeline works; they do not predict how it will behave on
+a real corpus, and this file exists partly so nobody quotes them as if they did.
 
-The manifest points at public runbooks, postmortems and architecture decision
-records under licences that permit it. Those are what the reported benchmark uses.
-They are fetched rather than vendored: redistributing them would mean taking on
-their licence terms, and a corpus in git is a corpus that goes stale.
+The manifest points at public runbooks, postmortems and architecture decision records under
+licences that permit it. Those are what the reported benchmark uses. They are fetched rather than
+vendored: redistributing them would mean taking on their licence terms, and a corpus in git is a
+corpus that goes stale.
 
-## Every number carries its interval
+## Ground truth is anchored to quotations, not chunks
 
-Fifteen questions produce averages that move by several points on nothing at all. So the
-benchmark reports `73.3% ± 21.4%`, not `73.3%`, and the standard errors are **clustered by
-source document**: questions about one runbook share its wording and whatever the chunker made
-of it, so counting them as independent observations overstates confidence.
+Each case names a document and quotes the passage that answers the question. A retrieval counts
+as successful when a returned chunk comes from that document and contains the quotation.
 
-Two configurations are compared **question by question**, not aggregate against aggregate. Both
-answered the same questions, and that fact is most of the information available at this size:
+It would be simpler to record chunk ids. It would also make the ground truth a function of the
+chunking policy — so the moment anyone changed the chunk size, every case would have to be
+rewritten, and the one experiment the benchmark exists to run would be the one thing it could not
+measure. See [ADR-0013](../docs/adr/0013-anchor-ground-truth-to-quotations.md).
 
-```bash
-cd backend
-uv run python -m paimon.interfaces.cli.evaluate \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --label "chunk=512" --report ../evaluation/reports/512.json
+**A quoted passage is a minimal anchor, not a description of what the corpus supports.** It names
+the sentence that answers the question, chosen so ground truth survives a change of chunk size.
+That makes it the right reference for `recall@k` and for judging whether an answer *carries* what
+it says, and the wrong one for judging whether an answer stayed inside its evidence — a mistake
+this project made and documented in
+[ADR-0033](../docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md).
 
-uv run python -m paimon.interfaces.cli.evaluate \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --label "chunk=256" --against ../evaluation/reports/512.json
-```
+## Fifteen questions is a small dataset, and the numbers say so
 
-The second run prints the difference for every metric with its confidence interval and a
-verdict: *distinguishable from zero*, or *not distinguishable from noise*. That is what
-accepting or rejecting a retrieval change means here. See
-[ADR-0029](../docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md).
+Averages over fifteen cases move by several points on nothing at all, so every number is reported
+as `73.3% ± 21.4%` rather than `73.3%`, with standard errors **clustered by source document**:
+questions about one runbook share its wording and whatever the chunker made of it, so counting
+them as independent observations overstates confidence
+([ADR-0029](../docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md)).
 
 **The intervals are wide, and that is the finding.** This dataset cannot settle small
 differences. It needs to grow before it can, and a wide interval printed honestly is the thing
 that says so.
 
-## Answers are verified, not judged
+## Adding a case
 
-`--answers` runs the answering use case over the same golden set and **follows every citation
-into the corpus**: open the document, go to the offsets, check the quoted text is there.
+One JSON object per line, so a diff shows exactly which questions changed — which matters when
+the dataset is the thing every measurement is relative to:
 
-```bash
-cd backend
-uv run python -m paimon.interfaces.cli.evaluate --answers \
-    --corpus ../evaluation/corpus/sample \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --label "local ollama"
+```json
+{"id": "q016", "question": "...", "supporting": [{"document_id": "oncall-handbook", "quote": "Acknowledge within five minutes."}], "tags": ["procedure"]}
 ```
 
-No model grades this. That is not thrift, it is accuracy: the TREC 2024 RAG track measured
-GPT-4o against human assessors on exactly this question — does a passage support a claim — and
-they agreed **56%** of the time, with the model systematically **over-crediting** support. A
-judge that errs towards "yes, that was supported" is the worst instrument for catching an
-invented answer, and this platform does not need one, because ADR-0013 made citations carry
-their offsets. See [ADR-0030](../docs/adr/0030-verify-attribution-before-judging-anything.md).
-
-What is verified: that each citation resolves, that each sentence carries a marker, and that no
-marker refers to a source that does not exist. What is **not**: whether the sentence around a
-resolving citation is a fair reading of it. That needs a judgement, there is one below, and it is
-labelled as judged wherever it appears.
-
-## And a judge, for the three questions arithmetic cannot answer
-
-Three things a lookup cannot settle: whether the answer **stays inside the sources it was
-shown**, whether it **carries what the golden passages say**, and whether it **addresses the
-question**. So there is a judge, off by default, on terms chosen against what such judgements
-are measurably worth ([ADR-0031](../docs/adr/0031-a-judge-on-terms-that-account-for-what-it-is-worth.md)):
-
-```bash
-PAIMON_EVALUATION__JUDGE__ENABLED=true
-# A DIFFERENT model from PAIMON_CHAT__MODEL. Startup refuses the same one.
-PAIMON_EVALUATION__JUDGE__MODEL=llama3.1:8b
-```
-
-Three labels rather than a score out of ten; reasoning written before the verdict; an
-unreadable reply becomes **undecided** rather than a default label, and undecided cases are
-counted, not averaged away. Ties across repeated samples are undecided too — breaking them
-towards "yes" would bias the aggregate in the direction judges already err.
-
-### Each rubric grades against its own evidence
-
-This is the part that took a wrong turn and had to be fixed, and it is worth stating plainly
-because the words are used loosely everywhere else
-([ADR-0033](../docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md)):
-
-| Rubric | Graded against | What a bad score means |
-|---|---|---|
-| `faithfulness` | the numbered sources the model was shown | it said something its sources do not carry |
-| `completeness` | the passages the golden set names | it left out what those passages answer |
-| `relevance` | nothing but the question | it answered something else |
-
-Faithfulness is **precision** and completeness is **recall**, and they are reported side by
-side because neither is readable alone: an answer that invents nothing by saying nothing
-scores 1.0 on the first.
-
-The original design graded faithfulness against the golden passages too — and the golden
-passages are one quoted sentence per question, written to score *retrieval*. The first
-calibrated run scored a system with **zero fabrications in fifteen answers** at 0.667, because
-answering "what has to happen before a kernel upgrade" with the drain procedure *and the reboot
-step from the same document* counted as going beyond the evidence. It was measuring the brevity
-of the golden set. Elsewhere the distinction is standard: Ragas defines faithfulness against
-the retrieved context, and Azure AI Foundry separates groundedness (precision, against context)
-from response completeness (recall, against ground truth).
-
-The judged numbers appear in their own section, with the judge's name and the 56% caveat printed
-beside them. They are never mixed with the verified ones, and a run with no judge prints no
-judged section at all.
-
-## The judge is uncalibrated until you check it
-
-Everything about the judge narrows how it can go wrong. None of it makes it agree with **you**.
-So until somebody labels a sample, the judged section prints `UNCALIBRATED` and says the numbers
-are a figure rather than a measurement ([ADR-0032](../docs/adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)).
-
-Labelling takes one pass over a file:
-
-```bash
-cd backend
-# 1. Run, and write a template of the answers to label.
-uv run python -m paimon.interfaces.cli.evaluate --answers \
-    --corpus ../evaluation/corpus/sample \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --write-labels ../evaluation/labels/answers-v1.jsonl
-
-# 2. Fill in the three blank verdicts on each line: yes / partial / no.
-#    Each one is graded against a different field of the same line —
-#    faithfulness against "sources", completeness against "expected_passages",
-#    relevance against neither. Leave any verdict blank to skip it.
-
-# 3. Run again with the labels.
-uv run python -m paimon.interfaces.cli.evaluate --answers \
-    --corpus ../evaluation/corpus/sample \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --labels ../evaluation/labels/answers-v1.jsonl
-```
-
-`--corpus` is required on every `--answers` run, including step 3: citations are verified by
-opening the documents, and a run without it reports every citation as pointing at an unknown
-document.
-
-**Label one rubric at a time.** Holding three rubrics in mind at once is how a labeller drifts,
-and a blank verdict is skipped for its own metric — so faithfulness across all fifteen cases,
-then completeness across all fifteen, is a supported way to work and a more consistent one.
-
-The template deliberately **does not show you what the judge decided**. Seeing it would anchor
-you, and an anchored second opinion is an expensive way to confirm the first.
-
-What comes back is **Cohen's kappa**, not raw agreement, **per rubric**. Raw agreement flatters
-any rater on a skewed dataset: where nine answers in ten are faithful, a judge that says "yes"
-to everything agrees 90% of the time and has measured nothing. Kappa discounts chance; that
-judge scores zero. Below **0.6** the report names the rubrics that failed — and only those,
-because a judge is routinely trustworthy at one of these and not another. The run that produced
-ADR-0033 scored +1.00 on relevance and +0.45 on faithfulness.
-
-**The honest limit:** fifteen to twenty labels is far below the 200–500 per rubric practitioners
-recommend, so this catches a badly miscalibrated judge and cannot certify a good one. And
-calibration decays — judges drift within 60–90 days as models and prompts change — so a labelled
-set is not something you build once.
-
-## Ground truth is anchored to quotations, not chunks
-
-Each case names a document and quotes the passage that answers the question. A
-retrieval counts as successful when a returned chunk comes from that document and
-contains the quotation.
-
-It would be simpler to record chunk ids. It would also make the ground truth a
-function of the chunking policy — so the moment anyone changed the chunk size,
-every case would have to be rewritten, and the one experiment the benchmark exists
-to run would be the one thing it could not measure. See
-[ADR-0013](../docs/adr/0013-anchor-ground-truth-to-quotations.md).
-
-## Running it
-
-```bash
-cd backend
-uv run python -m paimon.interfaces.cli.evaluate \
-    --corpus ../evaluation/corpus/sample \
-    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
-    --label "chunk=512 overlap=64 rrf=60"
-```
-
-The label is not decoration. A metric without the configuration that produced it
-cannot be compared with anything, which is the only thing a benchmark is for.
+The quote must appear **verbatim** in the parsed text of that document, and loading fails loudly
+if it does not: a benchmark that silently skips an unscoreable case reports a better number for
+having fewer hard questions in it.

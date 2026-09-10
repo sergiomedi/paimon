@@ -15,7 +15,7 @@ import sys
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TextIO
 
 from paimon.application.use_cases import (
     Answer,
@@ -28,12 +28,15 @@ from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import (
     ACCEPTABLE_KAPPA,
+    UNJUDGED,
     AnsweringReport,
+    AnswerJudge,
     BenchmarkReport,
     Calibration,
     EvaluationDataset,
     JudgedMetrics,
     Judging,
+    Progress,
     labelling_template,
     load_labels,
     run_answering_benchmark,
@@ -441,6 +444,127 @@ def load_report(path: Path) -> BenchmarkReport:
     )
 
 
+USAGE_ERROR = 2
+"""Exit code for a command line that cannot mean anything.
+
+Separate from 1, which this tool already uses for "the benchmark ran and scored
+nothing" — a real result, and a different thing from never having started.
+"""
+
+
+def progress_reporter(label: str, stream: "TextIO | None" = None) -> Progress:
+    """Report finished cases while the run is still going.
+
+    To **stderr**, never stdout. The report goes to stdout and people redirect
+    it into a file or pipe it into ``jq``; a progress counter mixed into that is
+    a corrupted report.
+
+    In place when stderr is a terminal, one line per case when it is not. The
+    carriage return is an animation for somebody watching — in a CI log it
+    produces a single unreadable line with the entire run crushed into it.
+    """
+    out = stream if stream is not None else sys.stderr
+    overwrite = out.isatty()
+
+    def report(*, done: int, total: int, case_id: str) -> None:
+        line = f"{label} {done}/{total}  {case_id}"
+        if overwrite:
+            # Erase to end of line: case ids differ in length, and a short one
+            # printed over a long one leaves the tail of the long one behind.
+            out.write(f"\r\x1b[K{line}" + ("\n" if done >= total else ""))
+        else:
+            out.write(f"{line}\n")
+        out.flush()
+
+    return report
+
+
+def unusable(args: argparse.Namespace, *, judge_enabled: bool) -> str | None:
+    """Explain why this command line cannot do what it appears to ask for.
+
+    Every combination refused here used to be **silently ignored**, and that is
+    the reason this function exists rather than a stricter argument parser. A
+    flag that is read on one path and dropped on another does not fail: it
+    produces a complete, plausible, confidently formatted report of something
+    nobody asked for. ``--answers`` without ``--corpus`` printed *0.0% citation
+    accuracy* for a system whose citations were all correct, because there was
+    no corpus to open them against.
+
+    Args:
+        args: The parsed command line.
+        judge_enabled: Whether configuration turned the judge on.
+
+    Returns:
+        What is wrong and what to do about it, or None when the run makes sense.
+    """
+    if args.write_labels and args.labels:
+        return (
+            "--write-labels and --labels ask for opposite things: one writes a blank\n"
+            "template, the other reads a filled-in one. Run the benchmark twice — once\n"
+            "to write the template, once to hand it back."
+        )
+    if not args.answers:
+        for flag, value in (("--labels", args.labels), ("--write-labels", args.write_labels)):
+            if value:
+                return (
+                    f"{flag} needs --answers. Labelling is about answers, and a retrieval\n"
+                    "run has none to label."
+                )
+    if args.answers and args.against:
+        return (
+            "--against compares retrieval runs, and this is an answering run. Comparing\n"
+            "two answering runs question by question is not wired to this command yet;\n"
+            "the reports are written by --report and hold the per-question scores."
+        )
+    if args.answers and not args.corpus:
+        return (
+            "--answers needs --corpus. Every citation is verified by opening the document\n"
+            "it names at the offsets it claims, and --corpus is how this run learns which\n"
+            "documents those are: the repository has no 'list everything', deliberately.\n"
+            "Without it every citation is reported as pointing at an unknown document and\n"
+            "the run prints 0.0% citation accuracy for a system that may be perfect.\n"
+            "Re-ingesting an unchanged corpus costs nothing — the content hash sees to it."
+        )
+    if args.labels and not judge_enabled:
+        return (
+            "--labels needs the judge. Calibration compares a person's verdicts with the\n"
+            "judge's, and with the judge off there are none to compare against.\n"
+            "Set PAIMON_EVALUATION__JUDGE__ENABLED=true and a model that is not the one\n"
+            "generating the answers."
+        )
+    return None
+
+
+def judging_for(
+    args: argparse.Namespace, judge: "AnswerJudge | None", *, self_judged: bool
+) -> Judging:
+    """Decide what to ask the judge for this run, if anything.
+
+    A ``--write-labels`` run gets no judge, and that is the whole point of this
+    function existing rather than the call being inlined. The template is blank
+    **on purpose** — showing a labeller the judge's verdict anchors them to it,
+    which is the documented way to turn an independent measurement into an
+    expensive confirmation — so judging every case there costs three model calls
+    each and discards all of them. On fifteen questions against a local model
+    that is the difference between four minutes and thirteen.
+
+    Args:
+        args: The parsed command line.
+        judge: The judge configuration built, when one is enabled.
+        self_judged: Whether that judge is the model writing the answers.
+
+    Returns:
+        What the benchmark should do about judging.
+    """
+    if args.write_labels:
+        return UNJUDGED
+    return Judging(
+        judge=judge,
+        self_judged=self_judged,
+        labels=load_labels(args.labels) if args.labels else (),
+    )
+
+
 async def main(argv: list[str] | None = None) -> int:
     """Ingest the corpus if asked, run the benchmark, report.
 
@@ -496,6 +620,11 @@ async def main(argv: list[str] | None = None) -> int:
     settings = get_settings()
     configure_logging(settings.observability)
 
+    refusal = unusable(args, judge_enabled=settings.evaluation.judge.enabled)
+    if refusal is not None:
+        sys.stderr.write(f"\n{refusal}\n\n")
+        return USAGE_ERROR
+
     dataset = EvaluationDataset.from_jsonl(args.dataset)
 
     async with build_resources(settings) as resources:
@@ -505,17 +634,23 @@ async def main(argv: list[str] | None = None) -> int:
             logger.info("corpus_ingested", documents=len(ingested))
 
         if args.answers:
+            # The template is blank on purpose — showing the judge's verdict
+            # would anchor the labeller — so asking the judge here buys three
+            # calls per case and throws every one of them away.
+            if args.write_labels and settings.evaluation.judge.enabled:
+                sys.stderr.write("not asking the judge: --write-labels wants a blank template.\n")
             answering = await run_answering_benchmark(
                 dataset,
                 UseCaseAnswerer(build_answer_question(resources)),
                 await load_documents(resources, ingested, args.tenant),
                 tenant_id=args.tenant,
                 configuration=args.label,
-                judging=Judging(
-                    judge=build_answer_judge(resources),
+                judging=judging_for(
+                    args,
+                    build_answer_judge(resources),
                     self_judged=settings.evaluation.judge.acknowledge_self_judging,
-                    labels=load_labels(args.labels) if args.labels else (),
                 ),
+                progress=progress_reporter("answering"),
             )
             if args.write_labels:
                 write_labelling_template(answering, args.write_labels, dataset)
@@ -538,6 +673,7 @@ async def main(argv: list[str] | None = None) -> int:
             tenant_id=args.tenant,
             cutoff=args.cutoff,
             configuration=args.label,
+            progress=progress_reporter("retrieving"),
         )
 
     sys.stdout.write(render(report))

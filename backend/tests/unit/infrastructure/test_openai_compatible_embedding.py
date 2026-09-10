@@ -120,6 +120,18 @@ class TestFailures:
         with pytest.raises(EmbeddingError, match="returned 500"):
             await model.embed_documents(["text"])
 
+    async def test_the_provider_s_own_words_survive_into_the_error(self) -> None:
+        # The failure that started this: a bare "returned 404" sends somebody to
+        # check a URL, and the provider had already said what was actually wrong.
+        model, _ = build(
+            lambda _request: httpx.Response(
+                404,
+                json={"error": {"message": 'model "bge-m3" not found, try pulling it first'}},
+            )
+        )
+        with pytest.raises(EmbeddingError, match="try pulling it first"):
+            await model.embed_documents(["text"])
+
     async def test_an_unreachable_provider_becomes_an_embedding_error(self) -> None:
         def refuse(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("refused", request=request)

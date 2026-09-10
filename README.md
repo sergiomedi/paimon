@@ -17,14 +17,16 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 5 complete. Phase 6 — evaluation — next.**
-> Ingestion, hybrid retrieval and grounded answering with citations work end to end; the
-> retrieval benchmark runs; three agents run as LangGraph workflows over the same use
-> cases, streaming their steps and pausing for a person when asked to; the platform speaks
+> **Project status: Phases 1 to 6 complete. Phase 7 — cloud deployment — next.**
+> Ingestion, hybrid retrieval and grounded answering with citations work end to end; three
+> agents run as LangGraph workflows over the same use cases, streaming their steps and pausing
+> for a person when asked to; the platform speaks
 > the Model Context Protocol in **both directions** — an authenticated, discoverable server
 > exposing search and the agents, and a client that indexes documentation out of GitHub; every
 > request, model call, retrieval and agent run is traced with OpenTelemetry, with tokens and an
-> honestly-labelled cost estimate as metrics;
+> honestly-labelled cost estimate as metrics; retrieval and answer quality are measured against
+> a versioned golden set, with every citation verified by opening it and every judged number
+> carrying its interval and its calibration;
 > and every port is
 > implemented twice — locally (pgvector, any OpenAI-compatible endpoint) and on Azure
 > (Azure OpenAI, Azure AI Search). This README is updated as each phase lands, and nothing
@@ -250,15 +252,41 @@ environments. Tool arguments and embedded text are never recorded at all.
 📈 **[Observing Paimon](docs/observability.md)** — every span and metric, connecting Langfuse or
 a collector, sampling, the content switch, and the known gaps.
 
+### Knowing whether it works
+
+Two benchmarks over a versioned golden set: one for retrieval, one for the answers the whole
+pipeline produces. The organising rule is **verify everything a lookup can settle, and judge only
+what is left.** Citations carry their offsets, so *"did this citation point at the text it
+claims"* is a file read: the benchmark opens every document at the offsets the answer named and
+compares the text. No model is asked for an opinion about anything that can be checked
+([ADR-0030](docs/adr/0030-verify-attribution-before-judging-anything.md)).
+
+Three questions survive that, and they get a judge — reported in its own section, with the
+judging model named, and never mixed with the verified numbers. Each is graded against **its own
+evidence**: faithfulness against the sources the model was shown, completeness against the
+passages the golden set names, relevance against neither. That distinction is the phase's most
+expensive lesson. Grading faithfulness against the golden passages — one quoted sentence per
+question, written to score retrieval — scored a system with **zero fabrications in fifteen
+answers** at 0.667, because elaborating correctly from the same document was indistinguishable
+from making something up ([ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md)).
+
+The judge is **uncalibrated until a person checks it**, and the report says so in those words
+until somebody has. Calibration is Cohen's kappa per rubric, not raw agreement: where nine
+answers in ten are faithful, a judge that says "yes" to everything agrees 90% of the time and has
+measured nothing ([ADR-0032](docs/adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)).
+
+Every number carries a 95% interval, with standard errors clustered by source document, and two
+configurations are compared **question by question** rather than aggregate against aggregate. The
+intervals on fifteen questions are wide, and printing them honestly is what stops anybody
+concluding something from noise ([ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md)).
+
+🎯 **[Evaluating Paimon](docs/evaluation.md)** — running both benchmarks, reading the report,
+calibrating the judge, and what the numbers cannot tell you.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
-
-Phase 6 is nearly complete: the retrieval benchmark, the answer benchmark that verifies
-every citation by opening it, and a judge for the three questions a lookup cannot settle —
-each graded against its own evidence, and uncalibrated until a person has checked it. What
-remains is the written guide to running it, which closes the phase.
 
 ## Architecture
 
@@ -332,6 +360,7 @@ including the negative ones.
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
 | Observability | OpenTelemetry · any OTLP backend | Plain OTel in the code; Langfuse, Azure Monitor or a collector by configuration — [ADR-0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md), [guide](docs/observability.md) |
+| Evaluation | Golden sets · verified citations · LLM judge | Intervals, paired comparison and Cohen's kappa — [ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md) to [ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md), [guide](docs/evaluation.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
 | Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |
 
@@ -345,7 +374,7 @@ previous one is complete.
 - [x] **Phase 3 — Agents** · LangGraph workflows, agent memory, tool integration
 - [x] **Phase 4 — MCP** · MCP server and tools, client integration
 - [x] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
-- [ ] **Phase 6 — Evaluation** · benchmark set, faithfulness and groundedness metrics
+- [x] **Phase 6 — Evaluation** · golden sets, verified attribution, a calibrated judge
 - [ ] **Phase 7 — Cloud** · Azure deployment architecture
 - [ ] **Phase 8 — Delivery** · automated build, deploy and release gating
 
@@ -513,6 +542,45 @@ Ground truth is anchored to quotations rather than chunk ids, so chunk size, ove
 embedding model and fusion weights can all be varied without rewriting the dataset —
 which is the one experiment the benchmark exists to run
 ([ADR-0013](docs/adr/0013-anchor-ground-truth-to-quotations.md)).
+
+### And the answers, not only the retrieval
+
+`--answers` runs the whole pipeline over the same golden set and **follows every citation into
+the corpus**: open the document, go to the offsets, compare the text.
+
+```bash
+uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --corpus ../evaluation/corpus/sample \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "local ollama"
+```
+
+```text
+  metric                 mean +/- 95% CI      what it says
+  grounded                 100.0% ± 0.0%   answers that cited anything at all
+  citation accuracy        100.0% ± 0.0%   citations that survived being followed
+  cited sentences           78.3% ± 31.9%  sentences carrying a marker
+  fully attributed          60.0% ± 58.2%  every citation resolved, every sentence cited
+
+  Verified, not judged: each citation above was opened at its offsets
+  and checked against the text it names.
+
+  judged by llama3.1:8b
+
+  faithfulness              0.94 ± 0.08    stayed inside the sources it was shown
+  completeness              0.87 ± 0.14    carried what the golden passages say
+  relevance                 1.00 ± 0.00    addressed the question asked
+
+  UNCALIBRATED: nobody has checked these verdicts against a person's,
+  so they are a figure rather than a measurement. See --write-labels.
+```
+
+Two blocks, never mixed. The first was computed by reading files. The second is a model's
+opinion of a model's output, and prints the judging model, the published 56% agreement figure
+for judges of this kind, and — until somebody labels a sample — the word `UNCALIBRATED`.
+
+🎯 **[Evaluating Paimon](docs/evaluation.md)** — the flags, the rubrics and what each is graded
+against, the labelling workflow, and what these numbers cannot tell you.
 
 ## Quality gates
 

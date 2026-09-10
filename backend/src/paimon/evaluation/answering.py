@@ -20,6 +20,7 @@ from paimon.evaluation.attribution import AttributionReport, check_answer
 from paimon.evaluation.calibration import Agreement, Calibration, HumanLabel, agreement
 from paimon.evaluation.dataset import EvaluationCase, EvaluationDataset
 from paimon.evaluation.judging import AnswerJudge, JudgedAnswer, Verdict
+from paimon.evaluation.progress import Progress
 from paimon.evaluation.statistics import (
     Estimate,
     PairedDifference,
@@ -207,6 +208,7 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
     tenant_id: str,
     configuration: str = "unnamed",
     judging: Judging = UNJUDGED,
+    progress: Progress | None = None,
 ) -> AnsweringReport:
     """Answer every question in a dataset and verify what came back.
 
@@ -222,6 +224,9 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
         judging: The judge to ask, if any, and whether it is the model that
             produced the answers. Its verdicts are reported in their own
             section, never mixed with the verified numbers.
+        progress: Notified after each case, when the caller wants to watch. A
+            case here is a generation and up to three judgements, so this is the
+            slowest loop in the project.
 
     Returns:
         The report, including the answers whose citations did not survive.
@@ -250,6 +255,8 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
         if judging.judge is not None:
             report = replace(report, judged=await _judge(judging.judge, case, answer))
         cases.append(report)
+        if progress is not None:
+            progress(done=len(cases), total=len(dataset), case_id=case.case_id)
 
     clusters = group_by_document(
         [[passage.document_id for passage in case.supporting] for case in dataset]

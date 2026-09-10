@@ -9,6 +9,7 @@ import httpx
 from paimon.domain.errors import EmbeddingError
 from paimon.domain.value_objects import Embedding
 from paimon.infrastructure.embedding._responses import parse_embeddings
+from paimon.infrastructure.http import error_detail
 
 DEFAULT_BATCH_SIZE = 96
 DEFAULT_TIMEOUT_SECONDS = 30.0
@@ -120,7 +121,8 @@ class OpenAICompatibleEmbeddingModel:
             response.raise_for_status()
             body = response.json()
         except httpx.HTTPStatusError as error:
-            msg = f"embedding provider returned {error.response.status_code}"
+            detail = error_detail(error.response)
+            msg = f"embedding provider returned {error.response.status_code}{detail}"
             raise EmbeddingError(msg) from error
         except httpx.HTTPError as error:
             msg = f"embedding provider unreachable: {error}"

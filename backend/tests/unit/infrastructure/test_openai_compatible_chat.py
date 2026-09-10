@@ -94,6 +94,15 @@ class TestFailures:
         with pytest.raises(GenerationError, match="returned 500"):
             await model.complete(CONVERSATION)
 
+    async def test_the_provider_s_own_words_survive_into_the_error(self) -> None:
+        model, _ = build(
+            lambda _r: httpx.Response(
+                404, json={"error": {"message": 'model "llama3.1:8b" not found'}}
+            )
+        )
+        with pytest.raises(GenerationError, match="not found"):
+            await model.complete(CONVERSATION)
+
     async def test_an_unreachable_provider_becomes_a_generation_error(self) -> None:
         def refuse(request: httpx.Request) -> httpx.Response:
             raise httpx.ConnectError("refused", request=request)

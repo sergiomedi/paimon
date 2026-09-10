@@ -14,6 +14,7 @@ from paimon.domain.ports import (
     ToolDefinition,
 )
 from paimon.infrastructure.chat._tools import encode_message, encode_tools, parse_tool_completion
+from paimon.infrastructure.http import error_detail
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
 
@@ -145,7 +146,8 @@ class OpenAICompatibleChatModel:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as error:
-            msg = f"chat provider returned {error.response.status_code}"
+            detail = error_detail(error.response)
+            msg = f"chat provider returned {error.response.status_code}{detail}"
             raise GenerationError(msg) from error
         except httpx.HTTPError as error:
             msg = f"chat provider unreachable: {error}"

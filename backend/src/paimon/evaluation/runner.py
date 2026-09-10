@@ -15,6 +15,7 @@ from paimon.evaluation.metrics import (
     score_case,
     summarize,
 )
+from paimon.evaluation.progress import Progress
 from paimon.evaluation.statistics import (
     PairedDifference,
     compare_metric,
@@ -108,13 +109,14 @@ class BenchmarkReport:
         return tuple(case for case in self.cases if not case.outcome.is_answerable)
 
 
-async def run_benchmark(
+async def run_benchmark(  # noqa: PLR0913  collaborators and a label, not flags
     dataset: EvaluationDataset,
     retriever: Retriever,
     *,
     tenant_id: str,
     cutoff: int = 8,
     configuration: str = "unnamed",
+    progress: Progress | None = None,
 ) -> BenchmarkReport:
     """Run every case in a dataset and score the results.
 
@@ -126,6 +128,7 @@ async def run_benchmark(
         configuration: A label for what was measured — the chunk size, the
             embedding model, the fusion weights. Without it the numbers are
             unattributable.
+        progress: Notified after each case, when the caller wants to watch.
 
     Returns:
         The report, including the cases that found nothing.
@@ -143,6 +146,8 @@ async def run_benchmark(
         outcomes.append(outcome)
         ranks_per_case.append(_relevant_ranks(case, chunks, cutoff))
         reports.append(CaseReport(outcome=outcome, latency_ms=latency_ms, question=case.question))
+        if progress is not None:
+            progress(done=len(reports), total=len(dataset), case_id=case.case_id)
 
     # Questions about one document are not independent observations: they share
     # its wording and whatever the chunker made of it. Clustering by the

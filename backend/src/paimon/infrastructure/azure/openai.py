@@ -23,6 +23,7 @@ from paimon.domain.value_objects import Embedding
 from paimon.infrastructure.azure.credentials import AzureCredential
 from paimon.infrastructure.chat._tools import encode_message, encode_tools, parse_tool_completion
 from paimon.infrastructure.embedding._responses import parse_embeddings
+from paimon.infrastructure.http import error_detail
 
 COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
 DEFAULT_API_VERSION = "2024-10-21"
@@ -94,7 +95,7 @@ class _Transport:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as error:
-            detail = _azure_error_detail(error.response)
+            detail = error_detail(error.response)
             msg = f"azure openai {label} returned {error.response.status_code}{detail}"
             raise error_type(msg) from error
         except httpx.HTTPError as error:
@@ -295,16 +296,3 @@ def _filter_reason(body: Any) -> str:
     except (KeyError, IndexError, TypeError):
         return ""
     return f" (finish_reason={finish})" if finish else ""
-
-
-def _azure_error_detail(response: httpx.Response) -> str:
-    """Extract Azure's own error code, which says far more than the status does.
-
-    A 429 from a quota exhaustion and a 429 from a rate limit want different
-    responses from an operator, and only the body distinguishes them.
-    """
-    try:
-        code = response.json()["error"]["code"]
-    except (ValueError, KeyError, TypeError):
-        return ""
-    return f" ({code})"
