@@ -43,6 +43,7 @@ reasoning trail, and rewriting history destroys it.
 | [0030](0030-verify-attribution-before-judging-anything.md) | Verify what can be verified; judge only what cannot | Accepted |
 | [0031](0031-a-judge-on-terms-that-account-for-what-it-is-worth.md) | A judge, on terms that account for what a judge is worth | Accepted |
 | [0032](0032-a-judge-is-uncalibrated-until-a-person-checks-it.md) | A judge is uncalibrated until a person has checked it | Accepted |
+| [0033](0033-faithfulness-is-graded-against-the-sources-shown.md) | Faithfulness is graded against the sources shown, completeness against the golden set | Accepted |
 
 ## Writing a new ADR
 

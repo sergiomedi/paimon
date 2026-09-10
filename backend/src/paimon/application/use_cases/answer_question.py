@@ -37,7 +37,14 @@ class Answer:
         grounded: Whether the answer cites anything at all.
         strategy: How retrieval reached its candidates.
         retrieved: How many chunks retrieval returned.
-        used_sources: How many of them fitted in the prompt.
+        sources: The text of the numbered sources that fitted in the prompt, in
+            marker order — ``sources[0]`` is what the model saw as ``[1]``.
+            Carried on the answer because it is the only record of what the
+            model was actually shown: the retrieved set is larger, and the
+            difference is whatever the context budget cut. Anything asking
+            whether an answer stayed inside its evidence has to grade against
+            this, and grading it against a golden passage instead measures
+            something else (ADR-0033).
         dropped_markers: Markers the model used that referred to no source.
         usage: What the generation cost, when a model was called.
     """
@@ -47,9 +54,18 @@ class Answer:
     grounded: bool
     strategy: Strategy
     retrieved: int
-    used_sources: int
+    sources: tuple[str, ...] = ()
     dropped_markers: tuple[int, ...] = ()
     usage: Usage | None = None
+
+    @property
+    def used_sources(self) -> int:
+        """How many sources fitted in the prompt.
+
+        Derived rather than stored: a count beside the thing counted is a second
+        source of truth, and the two drift.
+        """
+        return len(self.sources)
 
 
 class AnswerQuestion:
@@ -102,7 +118,6 @@ class AnswerQuestion:
                 grounded=False,
                 strategy=retrieval.strategy,
                 retrieved=0,
-                used_sources=0,
             )
 
         chunks = [hit.chunk for hit in retrieval.hits]
@@ -118,7 +133,7 @@ class AnswerQuestion:
             grounded=cited.is_grounded,
             strategy=retrieval.strategy,
             retrieved=len(retrieval.hits),
-            used_sources=len(prompt.sources),
+            sources=tuple(chunk.text for chunk in prompt.sources),
             dropped_markers=cited.dropped_markers,
             usage=Usage(
                 model_id=completion.model_id,

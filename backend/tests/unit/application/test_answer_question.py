@@ -80,6 +80,38 @@ class TestGroundedAnswer:
         (conversation,) = harness.chat_model.calls
         assert "Cordon the node" in conversation[1].content
 
+    async def test_the_answer_carries_the_sources_the_model_was_shown(
+        self, harness: Harness
+    ) -> None:
+        # In marker order, and it is the only record of what the model actually
+        # saw: the retrieved set is larger and the difference is whatever the
+        # context budget cut. Everything that asks whether an answer stayed
+        # inside its evidence has to grade against this (ADR-0033).
+        await harness.index(
+            chunk("c1", "Cordon the node before rebooting it."),
+            chunk("c2", "Eviction respects disruption budgets.", ordinal=1),
+        )
+        answer = await harness.answer("how do I drain a node", SearchFilters(tenant_id=TENANT))
+
+        assert answer.sources
+        assert answer.used_sources == len(answer.sources)
+        # Marker [n] is sources[n - 1]: the numbering is positional and shared
+        # with the prompt, which is what lets a judge follow one to the other.
+        (conversation,) = harness.chat_model.calls
+        for index, text in enumerate(answer.sources, start=1):
+            assert text in conversation[1].content
+            assert f"[{index}]" in conversation[1].content
+
+    async def test_a_refusal_carries_no_sources(self, harness: Harness) -> None:
+        # Nothing was retrieved, so nothing was shown. An empty tuple rather
+        # than an absent field: a judge asked to grade against it should see
+        # that the evidence was empty, not that it was unavailable.
+        answer = await harness.answer("anything at all", SearchFilters(tenant_id=TENANT))
+
+        assert not answer.grounded
+        assert answer.sources == ()
+        assert answer.used_sources == 0
+
     async def test_usage_is_reported(self, harness: Harness) -> None:
         """Per-request cost attribution is a Phase 5 deliverable and cannot be
         added after the fact."""

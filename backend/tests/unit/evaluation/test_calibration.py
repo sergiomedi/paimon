@@ -13,12 +13,15 @@ import pytest
 
 from paimon.evaluation.calibration import (
     ACCEPTABLE_KAPPA,
+    Agreement,
+    Calibration,
     agreement,
     cohens_kappa,
     labelling_template,
     load_labels,
 )
 from paimon.evaluation.judging import Verdict
+from paimon.evaluation.statistics import estimate
 
 YES, PARTIAL, NO = Verdict.YES, Verdict.PARTIAL, Verdict.NO
 
@@ -162,3 +165,83 @@ class TestTheLabellingFile:
         path.write_text("{not json\n", encoding="utf-8")
         with pytest.raises(ValueError, match=":1"):
             load_labels(path)
+
+
+class TestPartialLabelling:
+    """One rubric at a time is how people actually label, and it has to work.
+
+    Holding three rubrics in mind at once is how a labeller drifts — which is
+    visible in this project's own first labelled run, where the careful verdicts
+    and the tired ones disagreed about the same rule. A schema that demanded all
+    three verdicts on every line would forbid the alternative.
+    """
+
+    def test_a_blank_verdict_is_skipped_and_the_others_are_kept(self, tmp_path: Path) -> None:
+        path = tmp_path / "labels.jsonl"
+        path.write_text(
+            json.dumps({"case_id": "q1", "faithfulness": "yes", "completeness": ""}) + "\n",
+            encoding="utf-8",
+        )
+        label = load_labels(path)[0]
+        assert label.faithfulness is YES
+        assert label.completeness is None
+        assert label.relevance is None
+
+    def test_a_row_with_only_completeness_is_still_a_labelled_row(self, tmp_path: Path) -> None:
+        path = tmp_path / "labels.jsonl"
+        path.write_text(
+            json.dumps({"case_id": "q1", "completeness": "partial"}) + "\n",
+            encoding="utf-8",
+        )
+        assert load_labels(path)[0].completeness is PARTIAL
+
+    def test_a_typo_is_still_refused_rather_than_read_as_blank(self, tmp_path: Path) -> None:
+        # The one thing optionality must not buy: a misspelt verdict quietly
+        # becoming "not labelled" is how a person's work disappears.
+        path = tmp_path / "labels.jsonl"
+        path.write_text(
+            json.dumps({"case_id": "q1", "completeness": "yess"}) + "\n", encoding="utf-8"
+        )
+        with pytest.raises(ValueError, match="use one of"):
+            load_labels(path)
+
+
+class TestWhetherACalibrationIsAcceptable:
+    """Per rubric, never for the judge as a whole."""
+
+    @staticmethod
+    def _agreement(kappa: float, *, compared: int = 10) -> Agreement:
+        return Agreement(compared=compared, raw=estimate([1.0]), kappa=kappa, skipped=0)
+
+    def test_one_failing_rubric_fails_the_calibration(self) -> None:
+        calibration = Calibration(
+            judge_model="judge-v1",
+            labels=10,
+            faithfulness=self._agreement(0.45),
+            completeness=self._agreement(0.9),
+            relevance=self._agreement(1.0),
+        )
+        assert not calibration.is_acceptable
+
+    def test_a_rubric_nobody_labelled_cannot_fail(self) -> None:
+        # Unmeasured is not unacceptable. Telling a labeller who did two rubrics
+        # carefully that their judge is bad at the third they skipped would
+        # teach them to distrust the number.
+        calibration = Calibration(
+            judge_model="judge-v1",
+            labels=10,
+            faithfulness=self._agreement(0.8),
+            completeness=self._agreement(0.0, compared=0),
+            relevance=self._agreement(0.9),
+        )
+        assert calibration.is_acceptable
+
+    def test_a_calibration_nobody_labelled_at_all_is_not_acceptable(self) -> None:
+        calibration = Calibration(
+            judge_model="judge-v1",
+            labels=0,
+            faithfulness=self._agreement(0.0, compared=0),
+            completeness=self._agreement(0.0, compared=0),
+            relevance=self._agreement(0.0, compared=0),
+        )
+        assert not calibration.is_acceptable

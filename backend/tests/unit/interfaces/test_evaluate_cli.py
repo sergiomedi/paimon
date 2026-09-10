@@ -25,6 +25,7 @@ from paimon.evaluation import (
     SupportingPassage,
     Verdict,
     labelling_template,
+    load_labels,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -34,6 +35,7 @@ from paimon.interfaces.cli.evaluate import (
     render,
     render_answers,
     render_comparison,
+    write_labelling_template,
 )
 
 TENANT = "benchmark"
@@ -304,3 +306,47 @@ class TestTheCalibrationSection:
         row = json.loads(rendered.strip())
         assert row["expected_passages"] == ["Cordon the node"]
         assert row["faithfulness"] == ""
+
+    async def test_the_template_carries_both_sets_of_evidence(self, tmp_path: Path) -> None:
+        # The three rubrics are graded against different material, so a labeller
+        # needs both: the sources the model saw, for faithfulness, and the golden
+        # passages, for completeness. One set and three questions is what made
+        # the old faithfulness figure impossible to reproduce by hand.
+        report = await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=True),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=ScriptedJudge()),
+        )
+        path = tmp_path / "labels.jsonl"
+        write_labelling_template(report, path, answers_dataset())
+
+        row = json.loads(path.read_text(encoding="utf-8").splitlines()[0])
+        assert row["sources"], "faithfulness has nothing to be graded against"
+        assert row["expected_passages"] == ["Cordon the node"]
+        assert row["sources"] != row["expected_passages"]
+        assert row["faithfulness"] == row["completeness"] == row["relevance"] == ""
+
+    async def test_a_template_written_this_way_loads_back(self, tmp_path: Path) -> None:
+        # The round trip, because a template the loader refuses is a template
+        # that wastes somebody's afternoon.
+        report = await run_answering_benchmark(
+            answers_dataset(),
+            answerer(faithful=True),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(judge=ScriptedJudge()),
+        )
+        path = tmp_path / "labels.jsonl"
+        write_labelling_template(report, path, answers_dataset())
+        assert load_labels(path) == []
+
+        filled = [
+            {**json.loads(line), "faithfulness": "yes"}
+            for line in path.read_text(encoding="utf-8").splitlines()
+        ]
+        path.write_text("\n".join(json.dumps(row) for row in filled) + "\n", encoding="utf-8")
+        labels = load_labels(path)
+        assert [label.faithfulness for label in labels] == [Verdict.YES, Verdict.YES]
+        assert [label.completeness for label in labels] == [None, None]

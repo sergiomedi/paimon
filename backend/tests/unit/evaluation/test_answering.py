@@ -81,19 +81,24 @@ class ScriptedAnswerer:
                 grounded=False,
                 strategy="fused",
                 retrieved=0,
-                used_sources=0,
             ),
         )
 
 
 def grounded(text: str, citations: tuple[Citation, ...]) -> Answer:
+    """An answer whose sources are the whole documents it cited.
+
+    Wider than the golden set's one-sentence quote, on purpose: that gap is
+    where a correct elaboration lives, and a fixture that made the two identical
+    could not tell the two rubrics apart.
+    """
     return Answer(
         text=text,
         citations=citations,
         grounded=True,
         strategy="fused",
         retrieved=3,
-        used_sources=len(citations),
+        sources=tuple(CORPUS[citation.document_id] for citation in citations),
         usage=Usage(input_tokens=50, output_tokens=10, model_id="fake-chat-v1"),
     )
 
@@ -210,14 +215,60 @@ class TestJudgedMetrics:
         assert report.judged.faithfulness.mean == 1.0
         assert report.judged.relevance.mean == 1.0
 
-    async def test_the_judge_grades_against_the_passages_the_golden_set_names(self) -> None:
-        # Reference-guided, which is consistently more reliable than asking a
-        # judge for its own idea of a good answer.
+    async def test_faithfulness_is_graded_against_the_sources_the_model_saw(self) -> None:
+        # The regression this whole change exists for. Grading faithfulness
+        # against the golden set's one-sentence quote scores a correct
+        # elaboration from the rest of the corpus as unfaithful, which is a
+        # measurement of the golden set's brevity and not of the answer
+        # (ADR-0033). If this ever reads ["Cordon the node"] again, the metric
+        # has silently gone back to measuring the wrong thing.
+        scripted = ScriptedJudge()
+        await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert scripted.sources_seen[0] == [RUNBOOK]
+        assert "Cordon the node" not in scripted.sources_seen[0]
+
+    async def test_completeness_is_graded_against_the_passages_the_golden_set_names(self) -> None:
+        # The one question the golden set is the right anchor for: it was written
+        # to name what answers each question.
         scripted = ScriptedJudge()
         await run_answering_benchmark(
             dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
         )
         assert scripted.references_seen[0] == ["Cordon the node"]
+
+    async def test_relevance_is_shown_no_passages_at_all(self) -> None:
+        # Handing it the expected passages would let it reward an answer for
+        # matching them rather than for answering the question.
+        scripted = ScriptedJudge()
+        await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert scripted.relevance_questions == ["how do I drain a node?", "what caused INC-2451?"]
+
+    async def test_precision_and_recall_are_reported_separately(self) -> None:
+        # An answer can invent nothing by saying nothing. One number cannot tell
+        # that apart from a good answer, so there are two.
+        scripted = ScriptedJudge(
+            faithfulness={"how do I drain a node?": Verdict.YES},
+            completeness={"how do I drain a node?": Verdict.NO},
+            default=Verdict.YES,
+        )
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=scripted)
+        )
+        assert report.judged is not None
+        assert report.judged.faithfulness.mean == 1.0
+        assert report.judged.completeness.mean == 0.5
+
+    async def test_the_report_keeps_the_sources_a_verdict_rested_on(self) -> None:
+        # A judged number whose evidence was thrown away cannot be checked by a
+        # person afterwards, and checking it is the whole of calibration.
+        report = await run_answering_benchmark(
+            dataset(), answerer(), CORPUS, tenant_id=TENANT, judging=Judging(judge=ScriptedJudge())
+        )
+        assert report.cases[0].sources == (RUNBOOK,)
 
     async def test_an_undecided_verdict_is_excluded_not_counted_as_failure(self) -> None:
         # "The judge broke" and "the answer was bad" are different facts.
@@ -335,3 +386,59 @@ class TestCalibration:
         assert report.judged is not None
         assert report.judged.calibration is not None
         assert report.judged.calibration.faithfulness.compared == 1
+
+    async def test_each_rubric_is_calibrated_separately(self) -> None:
+        # A judge is routinely trustworthy at one rubric and not another — this
+        # project's first calibrated run came back +1.00 on relevance and +0.45
+        # on faithfulness — and one averaged figure would hide the half that
+        # needs the work.
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(
+                judge=ScriptedJudge(default=Verdict.YES),
+                labels=[
+                    HumanLabel(
+                        case_id="q1",
+                        faithfulness=Verdict.NO,
+                        completeness=Verdict.YES,
+                        relevance=Verdict.YES,
+                    ),
+                    HumanLabel(
+                        case_id="q2",
+                        faithfulness=Verdict.NO,
+                        completeness=Verdict.YES,
+                        relevance=Verdict.YES,
+                    ),
+                ],
+            ),
+        )
+        assert report.judged is not None
+        calibration = report.judged.calibration
+        assert calibration is not None
+        assert calibration.faithfulness.raw.mean == 0.0
+        assert calibration.completeness.raw.mean == 1.0
+        assert calibration.relevance.raw.mean == 1.0
+
+    async def test_a_rubric_nobody_labelled_is_left_unmeasured(self) -> None:
+        # Rather than counted as a disagreement. Somebody labelling one rubric
+        # across every case is doing the thing the guidance recommends, and the
+        # report should say what they measured and nothing more.
+        report = await run_answering_benchmark(
+            dataset(),
+            answerer(),
+            CORPUS,
+            tenant_id=TENANT,
+            judging=Judging(
+                judge=ScriptedJudge(),
+                labels=[HumanLabel(case_id="q1", faithfulness=Verdict.YES)],
+            ),
+        )
+        assert report.judged is not None
+        calibration = report.judged.calibration
+        assert calibration is not None
+        assert calibration.faithfulness.compared == 1
+        assert calibration.completeness.compared == 0
+        assert calibration.is_acceptable

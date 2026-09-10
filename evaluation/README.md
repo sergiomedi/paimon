@@ -78,27 +78,51 @@ their offsets. See [ADR-0030](../docs/adr/0030-verify-attribution-before-judging
 
 What is verified: that each citation resolves, that each sentence carries a marker, and that no
 marker refers to a source that does not exist. What is **not**: whether the sentence around a
-resolving citation is a fair reading of it. That needs a judge, it arrives next, and it will be
+resolving citation is a fair reading of it. That needs a judgement, there is one below, and it is
 labelled as judged wherever it appears.
 
-## And a judge, for the two questions arithmetic cannot answer
+## And a judge, for the three questions arithmetic cannot answer
 
-Whether the sentence around a resolving citation is a *fair reading* of it, and whether the
-answer *addresses the question*, need a judgement. So there is one, off by default, and on terms
-chosen against what such judgements are measurably worth
-([ADR-0031](../docs/adr/0031-a-judge-on-terms-that-account-for-what-it-is-worth.md)):
+Three things a lookup cannot settle: whether the answer **stays inside the sources it was
+shown**, whether it **carries what the golden passages say**, and whether it **addresses the
+question**. So there is a judge, off by default, on terms chosen against what such judgements
+are measurably worth ([ADR-0031](../docs/adr/0031-a-judge-on-terms-that-account-for-what-it-is-worth.md)):
 
 ```bash
 PAIMON_EVALUATION__JUDGE__ENABLED=true
 # A DIFFERENT model from PAIMON_CHAT__MODEL. Startup refuses the same one.
-PAIMON_EVALUATION__JUDGE__MODEL=llama3.1:8b-instruct
+PAIMON_EVALUATION__JUDGE__MODEL=llama3.1:8b
 ```
 
-Three labels rather than a score out of ten; reasoning written before the verdict; graded against
-the passage the golden set names; an unreadable reply becomes **undecided** rather than a default
-label, and undecided cases are counted, not averaged away. Ties across repeated samples are
-undecided too — breaking them towards "yes" would bias the aggregate in the direction judges
-already err.
+Three labels rather than a score out of ten; reasoning written before the verdict; an
+unreadable reply becomes **undecided** rather than a default label, and undecided cases are
+counted, not averaged away. Ties across repeated samples are undecided too — breaking them
+towards "yes" would bias the aggregate in the direction judges already err.
+
+### Each rubric grades against its own evidence
+
+This is the part that took a wrong turn and had to be fixed, and it is worth stating plainly
+because the words are used loosely everywhere else
+([ADR-0033](../docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md)):
+
+| Rubric | Graded against | What a bad score means |
+|---|---|---|
+| `faithfulness` | the numbered sources the model was shown | it said something its sources do not carry |
+| `completeness` | the passages the golden set names | it left out what those passages answer |
+| `relevance` | nothing but the question | it answered something else |
+
+Faithfulness is **precision** and completeness is **recall**, and they are reported side by
+side because neither is readable alone: an answer that invents nothing by saying nothing
+scores 1.0 on the first.
+
+The original design graded faithfulness against the golden passages too — and the golden
+passages are one quoted sentence per question, written to score *retrieval*. The first
+calibrated run scored a system with **zero fabrications in fifteen answers** at 0.667, because
+answering "what has to happen before a kernel upgrade" with the drain procedure *and the reboot
+step from the same document* counted as going beyond the evidence. It was measuring the brevity
+of the golden set. Elsewhere the distinction is standard: Ragas defines faithfulness against
+the retrieved context, and Azure AI Foundry separates groundedness (precision, against context)
+from response completeness (recall, against ground truth).
 
 The judged numbers appear in their own section, with the judge's name and the 56% caveat printed
 beside them. They are never mixed with the verified ones, and a run with no judge prints no
@@ -120,22 +144,35 @@ uv run python -m paimon.interfaces.cli.evaluate --answers \
     --dataset ../evaluation/datasets/retrieval-v1.jsonl \
     --write-labels ../evaluation/labels/answers-v1.jsonl
 
-# 2. Fill in the two blank verdicts on each line: yes / partial / no.
-#    Leave a line blank to skip it — a half-finished file still works.
+# 2. Fill in the three blank verdicts on each line: yes / partial / no.
+#    Each one is graded against a different field of the same line —
+#    faithfulness against "sources", completeness against "expected_passages",
+#    relevance against neither. Leave any verdict blank to skip it.
 
 # 3. Run again with the labels.
 uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --corpus ../evaluation/corpus/sample \
     --dataset ../evaluation/datasets/retrieval-v1.jsonl \
     --labels ../evaluation/labels/answers-v1.jsonl
 ```
 
+`--corpus` is required on every `--answers` run, including step 3: citations are verified by
+opening the documents, and a run without it reports every citation as pointing at an unknown
+document.
+
+**Label one rubric at a time.** Holding three rubrics in mind at once is how a labeller drifts,
+and a blank verdict is skipped for its own metric — so faithfulness across all fifteen cases,
+then completeness across all fifteen, is a supported way to work and a more consistent one.
+
 The template deliberately **does not show you what the judge decided**. Seeing it would anchor
 you, and an anchored second opinion is an expensive way to confirm the first.
 
-What comes back is **Cohen's kappa**, not raw agreement. Raw agreement flatters any rater on a
-skewed dataset: where nine answers in ten are faithful, a judge that says "yes" to everything
-agrees 90% of the time and has measured nothing. Kappa discounts chance; that judge scores zero.
-Below **0.6** the report says the two of you are not reliably measuring the same thing.
+What comes back is **Cohen's kappa**, not raw agreement, **per rubric**. Raw agreement flatters
+any rater on a skewed dataset: where nine answers in ten are faithful, a judge that says "yes"
+to everything agrees 90% of the time and has measured nothing. Kappa discounts chance; that
+judge scores zero. Below **0.6** the report names the rubrics that failed — and only those,
+because a judge is routinely trustworthy at one of these and not another. The run that produced
+ADR-0033 scored +1.00 on relevance and +0.45 on faithfulness.
 
 **The honest limit:** fifteen to twenty labels is far below the 200–500 per rubric practitioners
 recommend, so this catches a badly miscalibrated judge and cannot certify a good one. And

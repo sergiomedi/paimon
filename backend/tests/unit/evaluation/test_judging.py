@@ -10,6 +10,7 @@ import pytest
 
 from paimon.domain.errors import GenerationError
 from paimon.evaluation.judging import (
+    COMPLETENESS_RUBRIC,
     FAITHFULNESS_RUBRIC,
     RELEVANCE_RUBRIC,
     Verdict,
@@ -22,6 +23,12 @@ from tests.fakes import FakeChatModel
 QUESTION = "how do I drain a node?"
 ANSWER = "Cordon the node first [1]."
 REFERENCES = ["Cordon the node first so the scheduler stops placing new pods on it."]
+#: Wider than the golden quote, which is the point: a source list is what the
+#: model was shown, and it carries material the golden set never names.
+SOURCES = [
+    "Cordon the node first so the scheduler stops placing new pods on it. "
+    "Once the node is cordoned, evict the running pods."
+]
 
 
 def judge(reply: str, *, samples: int = 1, model_id: str = "judge-v1") -> ModelAnswerJudge:
@@ -44,7 +51,7 @@ class TestTheRubric:
     def test_it_asks_for_reasoning_before_the_verdict(self) -> None:
         # So the label is written after the argument rather than justified
         # afterwards. The order in the JSON is the mechanism.
-        for rubric in (FAITHFULNESS_RUBRIC, RELEVANCE_RUBRIC):
+        for rubric in (FAITHFULNESS_RUBRIC, COMPLETENESS_RUBRIC, RELEVANCE_RUBRIC):
             assert rubric.index('"reasoning"') < rubric.index('"verdict"')
             assert "Write the reasoning first" in rubric
 
@@ -96,6 +103,35 @@ class TestReadingAReply:
         assert parse_verdict('{"verdict": yes')[0] is Verdict.UNDECIDED
 
 
+class TestTheTwoHalves:
+    """Faithfulness and completeness are precision and recall, and they differ.
+
+    Not two spellings of one question: they are graded against different
+    evidence and they disagree about the same answer on purpose. The clearest
+    case is a refusal, which invents nothing and conveys nothing.
+    """
+
+    def test_a_refusal_is_faithful_and_incomplete(self) -> None:
+        assert 'is "yes" — refusing is not an unsupported claim' in FAITHFULNESS_RUBRIC
+        assert 'declines to answer is "no"' in COMPLETENESS_RUBRIC
+
+    def test_faithfulness_asks_about_the_sources_and_completeness_about_the_passages(
+        self,
+    ) -> None:
+        # The wording a judge is given decides what it grades. These two are the
+        # sentences that keep the rubrics pointed at different evidence.
+        assert "numbered sources" in FAITHFULNESS_RUBRIC
+        assert "reference passages" in COMPLETENESS_RUBRIC
+        assert "numbered sources" not in COMPLETENESS_RUBRIC
+
+    def test_extra_material_is_a_question_only_for_faithfulness(self) -> None:
+        # An elaboration beyond the golden passage is not an omission, and a
+        # completeness rubric that penalised it would rebuild the defect
+        # ADR-0033 removed.
+        assert "Extra material is not your concern here" in COMPLETENESS_RUBRIC
+        assert "detail is not invention" in FAITHFULNESS_RUBRIC
+
+
 class TestAsking:
     async def test_a_verdict_carries_the_model_that_produced_it(self) -> None:
         # On every judgement, not only in the header: a header is the first thing
@@ -118,6 +154,31 @@ class TestAsking:
         )
         assert judged.verdict is Verdict.UNDECIDED
         assert "could not be reached" in judged.reasoning
+
+    async def test_faithfulness_is_shown_the_sources_it_grades_against(self) -> None:
+        model = FakeChatModel(answer='{"reasoning": "ok", "verdict": "yes"}')
+        await ModelAnswerJudge(model).judge_faithfulness(QUESTION, ANSWER, SOURCES)
+        sent = "\n".join(message.content for message in model.calls[0])
+        assert SOURCES[0] in sent
+        assert FAITHFULNESS_RUBRIC in sent
+
+    async def test_completeness_is_shown_the_golden_passages(self) -> None:
+        model = FakeChatModel(answer='{"reasoning": "ok", "verdict": "yes"}')
+        await ModelAnswerJudge(model).judge_completeness(QUESTION, ANSWER, REFERENCES)
+        sent = "\n".join(message.content for message in model.calls[0])
+        assert REFERENCES[0] in sent
+        assert COMPLETENESS_RUBRIC in sent
+
+    async def test_the_sources_keep_the_numbering_the_answer_s_markers_use(self) -> None:
+        # So [2] in the answer names [2] in the prompt and the judge can follow
+        # one to the other instead of guessing.
+        model = FakeChatModel(answer='{"reasoning": "ok", "verdict": "yes"}')
+        await ModelAnswerJudge(model).judge_faithfulness(
+            QUESTION, "Evict them [2].", ["first source", "second source"]
+        )
+        sent = "\n".join(message.content for message in model.calls[0])
+        assert "[1] first source" in sent
+        assert "[2] second source" in sent
 
     async def test_relevance_is_judged_without_the_expected_passages(self) -> None:
         # Handing them over would let the judge reward an answer for matching

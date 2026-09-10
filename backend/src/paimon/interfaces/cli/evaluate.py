@@ -255,9 +255,13 @@ def write_labelling_template(
 ) -> None:
     """Write the cases out for a person to label.
 
-    Everything the labeller needs is on the line — the question, the answer, and
-    the passages the golden set says answer it — so labelling is reading one line
-    rather than cross-referencing three files.
+    Everything the labeller needs is on the line, and that means **both** sets of
+    evidence, because the three rubrics are graded against different things:
+    ``sources`` is what the model was shown and is what faithfulness is judged
+    against; ``expected_passages`` is what the golden set names and is what
+    completeness is judged against; relevance needs neither. Giving a person one
+    set of passages and three questions is asking them to grade two of the three
+    off the wrong material (ADR-0033).
 
     The judge's verdict is deliberately absent. Showing it would anchor the
     labeller to it, and an independent measurement that has been anchored is an
@@ -269,8 +273,10 @@ def write_labelling_template(
             "case_id": case.case_id,
             "question": case.question,
             "answer": case.text,
+            "sources": list(case.sources),
             "expected_passages": [passage.quote for passage in expected[case.case_id].supporting],
             "faithfulness": "",
+            "completeness": "",
             "relevance": "",
             "note": "",
         }
@@ -285,15 +291,31 @@ def _calibration_lines(calibration: Calibration) -> list[str]:
     lines = [
         f"  calibrated against {calibration.labels} human labels",
         f"    faithfulness  {calibration.faithfulness.format()}",
+        f"    completeness  {calibration.completeness.format()}",
         f"    relevance     {calibration.relevance.format()}",
         "",
     ]
-    if not calibration.is_acceptable:
+    # Named, not aggregated. A judge is routinely trustworthy at one of these
+    # rubrics and not at another — the first calibrated run of this platform came
+    # back +1.00 on relevance and +0.45 on faithfulness — and a warning that said
+    # only "calibration failed" would have sent somebody to fix the wrong rubric.
+    failing = [
+        name
+        for name, agreement in (
+            ("faithfulness", calibration.faithfulness),
+            ("completeness", calibration.completeness),
+            ("relevance", calibration.relevance),
+        )
+        if agreement.compared and not agreement.is_acceptable
+    ]
+    if failing:
         lines.extend(
             [
-                f"  Kappa below {ACCEPTABLE_KAPPA} means this judge and a person are not",
-                "  reliably measuring the same thing here. Read the two numbers above",
-                "  as an indication, not a result, and fix the rubric before quoting them.",
+                f"  Kappa below {ACCEPTABLE_KAPPA} on: {', '.join(failing)}.",
+                "  This judge and a person are not reliably measuring the same thing",
+                "  there. Read those numbers as an indication, not a result, and fix",
+                "  the rubric before quoting them. The rubrics that cleared the",
+                "  threshold are unaffected.",
                 "",
             ]
         )
@@ -314,7 +336,9 @@ def _judged_lines(judged: JudgedMetrics) -> list[str]:
         + (f", {judged.samples} samples each" if judged.samples > 1 else ""),
         "",
         f"  faithfulness        {judged.faithfulness.format():>18}   "
-        "stayed within what the sources support",
+        "stayed inside the sources it was shown",
+        f"  completeness        {judged.completeness.format():>18}   "
+        "carried what the golden passages say",
         f"  relevance           {judged.relevance.format():>18}   addressed the question asked",
         "",
         f"  {judged.judged} judged, {judged.undecided} undecided"
@@ -323,6 +347,10 @@ def _judged_lines(judged: JudgedMetrics) -> list[str]:
         "  A model's opinion of a model's output. On the closest measured",
         "  comparison a judge of this kind agreed with human assessors 56% of",
         "  the time, and erred towards saying the answer was supported.",
+        "",
+        "  Faithfulness is precision and completeness is recall, against",
+        "  different evidence. Read them together: an answer that invents",
+        "  nothing by saying nothing scores 1.0 on the first alone.",
     ]
     if judged.calibration is not None:
         lines.extend(_calibration_lines(judged.calibration))
@@ -493,8 +521,12 @@ async def main(argv: list[str] | None = None) -> int:
                 write_labelling_template(answering, args.write_labels, dataset)
                 sys.stdout.write(
                     f"\nwrote {len(answering.cases)} cases to {args.write_labels}\n"
-                    "Fill in the two blank verdicts on each line (yes / partial / no),\n"
-                    "leave a case blank to skip it, then pass the file back with --labels.\n\n"
+                    "Fill in the three blank verdicts on each line (yes / partial / no):\n"
+                    "  faithfulness  does the answer stay inside 'sources'?\n"
+                    "  completeness  does it carry what 'expected_passages' say?\n"
+                    "  relevance     does it answer the question at all?\n"
+                    "Leave any verdict blank to skip it, then pass the file back "
+                    "with --labels.\n\n"
                 )
                 return 0
             _emit(render_answers(answering), args.report, answering)

@@ -17,8 +17,8 @@ from typing import Protocol
 
 from paimon.application.use_cases import Answer
 from paimon.evaluation.attribution import AttributionReport, check_answer
-from paimon.evaluation.calibration import Calibration, HumanLabel, agreement
-from paimon.evaluation.dataset import EvaluationDataset
+from paimon.evaluation.calibration import Agreement, Calibration, HumanLabel, agreement
+from paimon.evaluation.dataset import EvaluationCase, EvaluationDataset
 from paimon.evaluation.judging import AnswerJudge, JudgedAnswer, Verdict
 from paimon.evaluation.statistics import (
     Estimate,
@@ -74,6 +74,14 @@ class AnswerCaseReport:
     attribution: AttributionReport
     latency_ms: float
     total_tokens: int
+    sources: tuple[str, ...] = ()
+    """The numbered passages this answer was generated from, in marker order.
+
+    Recorded on the report, not only used and dropped: they are the evidence the
+    faithfulness verdict rests on, and a judged number whose evidence was thrown
+    away cannot be checked by a person afterwards — which is the whole of
+    calibration."""
+
     judged: JudgedAnswer | None = None
 
 
@@ -123,7 +131,13 @@ class JudgedMetrics:
             because a judge abstaining on half a dataset invalidates the rest.
         disagreements: Questions where repeated samples did not agree. Zero when
             only one sample was taken, which measures nothing.
-        faithfulness: Whether answers stayed within what their sources support.
+        faithfulness: Whether answers stayed inside the sources they were shown.
+            The precision half — did it invent anything.
+        completeness: Whether they carried what the golden passages say. The
+            recall half — did it leave anything out. Reported beside
+            faithfulness and never averaged with it: an answer can invent
+            nothing and say nothing, and one number cannot tell that apart from
+            a good one.
         relevance: Whether they addressed the question asked.
         self_judged: Whether the judge is the model that produced the answers.
             Recorded so a flattering number cannot be quoted without it.
@@ -135,6 +149,7 @@ class JudgedMetrics:
     undecided: int
     disagreements: int
     faithfulness: Estimate
+    completeness: Estimate
     relevance: Estimate
     self_judged: bool = False
     calibration: Calibration | None = None
@@ -204,9 +219,9 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
             the raw file would fail for every document the parser touched.
         tenant_id: Tenant the corpus was ingested under.
         configuration: A label for what was measured.
-        judging: The judge to ask about faithfulness and relevance, if any, and
-            whether it is the model that produced the answers. Its verdicts are
-            reported in their own section, never mixed with the verified numbers.
+        judging: The judge to ask, if any, and whether it is the model that
+            produced the answers. Its verdicts are reported in their own
+            section, never mixed with the verified numbers.
 
     Returns:
         The report, including the answers whose citations did not survive.
@@ -218,20 +233,23 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
         answer = await answerer.answer(case.question, tenant_id=tenant_id)
         latency_ms = round((time.perf_counter() - started) * 1000, 3)
 
-        cases.append(
-            AnswerCaseReport(
-                case_id=case.case_id,
-                question=case.question,
-                text=answer.text,
-                grounded=answer.grounded,
-                attribution=check_answer(answer.text, answer.citations, documents),
-                latency_ms=latency_ms,
-                total_tokens=answer.usage.total_tokens if answer.usage else 0,
-            )
+        report = AnswerCaseReport(
+            case_id=case.case_id,
+            question=case.question,
+            text=answer.text,
+            grounded=answer.grounded,
+            attribution=check_answer(answer.text, answer.citations, documents),
+            latency_ms=latency_ms,
+            total_tokens=answer.usage.total_tokens if answer.usage else 0,
+            sources=answer.sources,
         )
-
-    if judging.judge is not None:
-        cases = await _judge_all(cases, dataset, judging.judge)
+        # Judged here rather than in a second pass over the reports, because
+        # faithfulness is graded against the sources this answer was generated
+        # from and a report does not carry them. The second pass is what made it
+        # convenient to reach for the golden passages instead (ADR-0033).
+        if judging.judge is not None:
+            report = replace(report, judged=await _judge(judging.judge, case, answer))
+        cases.append(report)
 
     clusters = group_by_document(
         [[passage.document_id for passage in case.supporting] for case in dataset]
@@ -250,28 +268,27 @@ async def run_answering_benchmark(  # noqa: PLR0913  collaborators, not flags
     )
 
 
-async def _judge_all(
-    cases: Sequence[AnswerCaseReport], dataset: EvaluationDataset, judge: AnswerJudge
-) -> list[AnswerCaseReport]:
-    """Put every answer to the judge, against the passages the golden set names."""
-    by_id = {case.case_id: case for case in dataset}
-    judged: list[AnswerCaseReport] = []
-    for case in cases:
-        expected = by_id[case.case_id]
-        references = [passage.quote for passage in expected.supporting]
-        judged.append(
-            replace(
-                case,
-                judged=JudgedAnswer(
-                    case_id=case.case_id,
-                    faithfulness=await judge.judge_faithfulness(
-                        case.question, case.text, references
-                    ),
-                    relevance=await judge.judge_relevance(case.question, case.text),
-                ),
-            )
-        )
-    return judged
+async def _judge(judge: AnswerJudge, case: EvaluationCase, answer: Answer) -> JudgedAnswer:
+    """Put one answer to the judge, each rubric against its own evidence.
+
+    The three anchors are deliberately different, and this function is where the
+    difference is enforced:
+
+    * **Faithfulness** against ``answer.sources`` — the numbered passages the
+      model was shown, in the order its markers refer to.
+    * **Completeness** against the golden passages, which is the one question
+      they were written to answer.
+    * **Relevance** against neither. Handing the judge the expected passages
+      here would let it reward an answer for matching them rather than for
+      answering the question.
+    """
+    references = [passage.quote for passage in case.supporting]
+    return JudgedAnswer(
+        case_id=case.case_id,
+        faithfulness=await judge.judge_faithfulness(case.question, answer.text, answer.sources),
+        completeness=await judge.judge_completeness(case.question, answer.text, references),
+        relevance=await judge.judge_relevance(case.question, answer.text),
+    )
 
 
 def _summarize_judged(
@@ -287,20 +304,20 @@ def _summarize_judged(
     counts are reported beside it.
     """
     verdicts = [case.judged for case in cases if case.judged is not None]
-    faithful = [
-        judgement.faithfulness.verdict.score
-        for judgement in verdicts
-        if judgement.faithfulness.verdict is not Verdict.UNDECIDED
-    ]
-    relevant = [
-        judgement.relevance.verdict.score
-        for judgement in verdicts
-        if judgement.relevance.verdict is not Verdict.UNDECIDED
-    ]
+
+    def scored(rubric: str) -> list[float]:
+        """Every verdict for one rubric, abstentions left out."""
+        return [
+            getattr(judgement, rubric).verdict.score
+            for judgement in verdicts
+            if getattr(judgement, rubric).verdict is not Verdict.UNDECIDED
+        ]
+
+    rubrics = ("faithfulness", "completeness", "relevance")
     undecided = sum(
         1
         for judgement in verdicts
-        if Verdict.UNDECIDED in (judgement.faithfulness.verdict, judgement.relevance.verdict)
+        if any(getattr(judgement, rubric).verdict is Verdict.UNDECIDED for rubric in rubrics)
     )
     return JudgedMetrics(
         judge_model=judge.model_id,
@@ -310,10 +327,11 @@ def _summarize_judged(
         disagreements=sum(
             1
             for judgement in verdicts
-            if not (judgement.faithfulness.unanimous and judgement.relevance.unanimous)
+            if not all(getattr(judgement, rubric).unanimous for rubric in rubrics)
         ),
-        faithfulness=estimate(faithful),
-        relevance=estimate(relevant),
+        faithfulness=estimate(scored("faithfulness")),
+        completeness=estimate(scored("completeness")),
+        relevance=estimate(scored("relevance")),
         self_judged=judging.self_judged,
         calibration=_calibrate(cases, judge, judging.labels),
     )
@@ -327,17 +345,23 @@ def _calibrate(
         return None
     judged = {case.case_id: case.judged for case in cases if case.judged is not None}
     human = {label.case_id: label for label in labels}
+
+    def compare(rubric: str) -> Agreement:
+        """One rubric's agreement, over the cases a person actually labelled."""
+        theirs = {case_id: getattr(value, rubric).verdict for case_id, value in judged.items()}
+        ours = {
+            case_id: verdict
+            for case_id, label in human.items()
+            if (verdict := getattr(label, rubric)) is not None
+        }
+        return agreement(theirs, ours)
+
     return Calibration(
         judge_model=judge.model_id,
         labels=len(labels),
-        faithfulness=agreement(
-            {case_id: value.faithfulness.verdict for case_id, value in judged.items()},
-            {case_id: label.faithfulness for case_id, label in human.items()},
-        ),
-        relevance=agreement(
-            {case_id: value.relevance.verdict for case_id, value in judged.items()},
-            {case_id: label.relevance for case_id, label in human.items()},
-        ),
+        faithfulness=compare("faithfulness"),
+        completeness=compare("completeness"),
+        relevance=compare("relevance"),
     )
 
 

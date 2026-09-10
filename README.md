@@ -60,9 +60,10 @@ Paimon is an operational layer over organizational knowledge. It is not a chatbo
 - **MCP in both directions.** Search, whole documents and the agents themselves are
   exposed to any MCP client behind OAuth 2.1; and documentation is read *in* from external
   MCP servers and indexed like anything else.
-- **Measured, not asserted.** An evaluation pipeline scores faithfulness, groundedness,
-  relevance and latency against a versioned benchmark set. Retrieval changes are accepted or
-  rejected on numbers.
+- **Measured, not asserted.** An evaluation pipeline follows every citation into the corpus,
+  and puts what a lookup cannot settle to a judge whose agreement with a person is measured
+  rather than assumed. Retrieval changes are accepted or rejected on a paired comparison, and
+  every number carries its interval.
 - **Observable.** Every request, model call, retrieval and agent run traced with plain
   OpenTelemetry — no vendor SDK, so the backend is an endpoint rather than a dependency.
 
@@ -254,8 +255,10 @@ that covers library output too, six machine-enforced architecture contracts, and
 pipeline running lint, types, contracts, tests, a frontend build and a container image
 build with a smoke test.
 
-Not yet built: the evaluation pipeline of Phase 6 — the retrieval benchmark runs, but
-faithfulness and groundedness are not yet scored automatically.
+Phase 6 is nearly complete: the retrieval benchmark, the answer benchmark that verifies
+every citation by opening it, and a judge for the three questions a lookup cannot settle —
+each graded against its own evidence, and uncalibrated until a person has checked it. What
+remains is the written guide to running it, which closes the phase.
 
 ## Architecture
 

@@ -32,6 +32,7 @@ from collections.abc import Sequence
 from paimon.domain.errors import GenerationError
 from paimon.domain.ports import ChatModel, Message
 from paimon.evaluation.judging import (
+    COMPLETENESS_RUBRIC,
     FAITHFULNESS_RUBRIC,
     RELEVANCE_RUBRIC,
     Judgement,
@@ -79,15 +80,32 @@ class ModelAnswerJudge:
         return self._model.model_id
 
     async def judge_faithfulness(
-        self, question: str, answer: str, references: Sequence[str]
+        self, question: str, answer: str, sources: Sequence[str]
     ) -> Judgement:
-        """Decide whether the answer stays within what the references support."""
+        """Decide whether the answer stays inside the sources it was given.
+
+        The sources are rendered with the same numbering the answer's markers
+        use, because they are the same list in the same order — so ``[2]`` in
+        the answer names ``[2]`` in the prompt, and the judge can follow one to
+        the other instead of guessing.
+        """
         prompt = (
             f"Question:\n{question}\n\n"
-            f"Source passages:\n{render_references(references)}\n\n"
+            f"Numbered sources:\n{render_references(sources)}\n\n"
             f"Answer to grade:\n{answer}"
         )
         return await self._ask(FAITHFULNESS_RUBRIC, prompt)
+
+    async def judge_completeness(
+        self, question: str, answer: str, references: Sequence[str]
+    ) -> Judgement:
+        """Decide whether the answer carries what the golden passages say."""
+        prompt = (
+            f"Question:\n{question}\n\n"
+            f"Reference passages:\n{render_references(references)}\n\n"
+            f"Answer to grade:\n{answer}"
+        )
+        return await self._ask(COMPLETENESS_RUBRIC, prompt)
 
     async def judge_relevance(self, question: str, answer: str) -> Judgement:
         """Decide whether the answer addresses the question."""

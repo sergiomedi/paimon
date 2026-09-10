@@ -38,11 +38,19 @@ LABELS = (Verdict.YES, Verdict.PARTIAL, Verdict.NO)
 
 @dataclass(frozen=True, slots=True)
 class HumanLabel:
-    """One case as a person judged it."""
+    """One case as a person judged it.
+
+    Every verdict is optional and missing ones are skipped for that metric
+    alone. Labelling one rubric across every case, then the next, is both how
+    people actually do this and what the guidance on rater agreement
+    recommends — holding three rubrics in mind at once is how a labeller drifts
+    — and a schema that demanded all three per line would forbid it.
+    """
 
     case_id: str
-    faithfulness: Verdict
-    relevance: Verdict
+    faithfulness: Verdict | None = None
+    completeness: Verdict | None = None
+    relevance: Verdict | None = None
     note: str = ""
 
 
@@ -83,17 +91,35 @@ class Agreement:
 
 @dataclass(frozen=True, slots=True)
 class Calibration:
-    """What a person's labels said about this judge."""
+    """What a person's labels said about this judge.
+
+    One agreement per rubric, never one for the judge as a whole. They are
+    different tasks and a judge is routinely trustworthy at one and not at
+    another: the first calibrated run of this platform scored kappa +1.00 on
+    relevance and +0.45 on faithfulness, and a single averaged figure would have
+    hidden exactly the half that needed the work.
+    """
 
     judge_model: str
     labels: int
     faithfulness: Agreement
+    completeness: Agreement
     relevance: Agreement
 
     @property
     def is_acceptable(self) -> bool:
-        """Whether both questions cleared the threshold."""
-        return self.faithfulness.is_acceptable and self.relevance.is_acceptable
+        """Whether every rubric somebody labelled cleared the threshold.
+
+        A rubric nobody labelled cannot fail: ``compared == 0`` means unmeasured,
+        and treating unmeasured as unacceptable would tell a labeller who did
+        two rubrics carefully that their judge is bad at the third.
+        """
+        measured = [
+            agreement
+            for agreement in (self.faithfulness, self.completeness, self.relevance)
+            if agreement.compared
+        ]
+        return bool(measured) and all(agreement.is_acceptable for agreement in measured)
 
 
 def cohens_kappa(first: Sequence[Verdict], second: Sequence[Verdict]) -> float:
@@ -152,7 +178,14 @@ def labelling_template(rows: Sequence[Mapping[str, object]]) -> str:
     """Render a file for a person to fill in, one case per line.
 
     JSON Lines rather than a spreadsheet, because it diffs, and one case per line
-    so a half-finished file is still usable — the loader skips blank rows.
+    so a half-finished file is still usable — the loader skips blank verdicts.
+
+    Each row carries the evidence each rubric is graded against, and they are
+    not the same evidence: the numbered sources for faithfulness, the golden
+    passages for completeness, neither for relevance. A template that showed one
+    set of passages for every rubric would be asking a person to grade three
+    different questions off the wrong material, which is how this platform came
+    to report a faithfulness figure that nobody could reproduce by hand.
 
     The judge's own verdict is **not** included. Showing it would anchor the
     labeller to it, which is the well-documented way to turn an independent
@@ -164,11 +197,16 @@ def labelling_template(rows: Sequence[Mapping[str, object]]) -> str:
 def load_labels(path: Path) -> list[HumanLabel]:
     """Read a labelled file, refusing anything that is not a decision.
 
+    A row is kept when at least one verdict is filled in, and each blank verdict
+    is skipped for its own metric. Somebody may label faithfulness across every
+    case and stop; that is a calibrated faithfulness figure and an uncalibrated
+    everything else, which is the truth and is what gets reported.
+
     Raises:
         ValueError: If a line is malformed, or carries a verdict that is not one
-            of the three offered. A blank or unrecognised label is a case that
-            was not judged, and silently treating it as "no" would put a person's
-            unfinished work into a published number.
+            of the three offered. An unrecognised label is refused rather than
+            treated as blank: a typo silently becoming "not labelled" is how a
+            person's work disappears from a published number.
     """
     labels: list[HumanLabel] = []
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
@@ -182,7 +220,7 @@ def load_labels(path: Path) -> list[HumanLabel]:
         if not isinstance(raw, dict):
             msg = f"{path}:{number} is not an object"
             raise ValueError(msg)
-        if not raw.get("faithfulness") and not raw.get("relevance"):
+        if not any(raw.get(field) for field in ("faithfulness", "completeness", "relevance")):
             # An unlabelled row, left in the template. Skipped rather than
             # refused, so a partly finished file still measures what it covers.
             continue
@@ -190,6 +228,7 @@ def load_labels(path: Path) -> list[HumanLabel]:
             HumanLabel(
                 case_id=str(raw["case_id"]),
                 faithfulness=_verdict(raw, "faithfulness", f"{path}:{number}"),
+                completeness=_verdict(raw, "completeness", f"{path}:{number}"),
                 relevance=_verdict(raw, "relevance", f"{path}:{number}"),
                 note=str(raw.get("note", "")),
             )
@@ -197,9 +236,16 @@ def load_labels(path: Path) -> list[HumanLabel]:
     return labels
 
 
-def _verdict(raw: Mapping[str, object], field: str, where: str) -> Verdict:
-    """Read one label, or say which line is wrong."""
+def _verdict(raw: Mapping[str, object], field: str, where: str) -> Verdict | None:
+    """Read one label, or say which line is wrong.
+
+    Returns:
+        The verdict, or None when the field is blank — that metric was not
+        labelled for this case and is left out of its agreement.
+    """
     value = str(raw.get(field, "")).strip().lower()
+    if not value:
+        return None
     try:
         verdict = Verdict(value)
     except ValueError:

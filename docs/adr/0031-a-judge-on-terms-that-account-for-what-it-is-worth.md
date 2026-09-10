@@ -1,8 +1,15 @@
 # ADR-0031: A judge, on terms that account for what a judge is worth
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by [ADR-0033](0033-faithfulness-is-graded-against-the-sources-shown.md)
 - **Date:** 2026-09-05
 - **Phase:** 6 — Evaluation
+
+> **Amended.** Everything below about *what terms make a judge's output worth reporting* still
+> holds. What it got wrong is which reference the faithfulness rubric grades against: this ADR
+> anchored it to the passage the golden set names, which is a one-sentence retrieval anchor, and
+> the first calibrated run showed that scoring a correct elaboration against it is
+> indistinguishable from scoring an invention. ADR-0033 moves faithfulness onto the sources the
+> model was actually shown and adds completeness for the question the golden set does answer.
 
 ## Context and problem statement
 

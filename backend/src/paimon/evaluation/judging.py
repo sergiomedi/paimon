@@ -20,9 +20,13 @@ Everything about the shape below is a mitigation for something measured:
   between three defined labels is answering a question.
 * **Reasoning before the verdict**, and in that order in the JSON, so the label
   is written after the argument rather than justified afterwards.
-* **Reference-guided.** The golden set already names the passage that answers each
-  question, so the judge grades against a fixed anchor rather than its own idea
-  of a good answer — consistently more reliable than prompt-only scoring.
+* **Reference-guided, and each question against its own reference.** A judge
+  grading against a fixed anchor is consistently more reliable than one asked for
+  its own idea of a good answer. What differs is *which* anchor, and getting that
+  wrong is how this platform spent a phase reporting a number that measured
+  nothing anybody wanted (ADR-0033): faithfulness is graded against **the sources
+  the model was shown**, completeness against **the passage the golden set
+  names**, and relevance against neither.
 * **Abstention is a valid outcome.** A judge that cannot decide says so and the
   case is excluded, rather than contributing a coin flip to an average.
 """
@@ -93,10 +97,18 @@ class Judgement:
 
 @dataclass(frozen=True, slots=True)
 class JudgedAnswer:
-    """Both judgements for one answer."""
+    """Every judgement for one answer.
+
+    Faithfulness and completeness are the precision and recall of the same
+    answer and they are not redundant: an answer can invent nothing and omit
+    everything, or repeat the golden passage and bury it in fabrication. One
+    number cannot say which happened, and the version of this platform that
+    tried scored a well-behaved system at 0.667 for elaborating correctly.
+    """
 
     case_id: str
     faithfulness: Judgement
+    completeness: Judgement
     relevance: Judgement
 
 
@@ -109,9 +121,33 @@ class AnswerJudge(Protocol):
         ...
 
     async def judge_faithfulness(
+        self, question: str, answer: str, sources: Sequence[str]
+    ) -> Judgement:
+        """Decide whether the answer only says what its sources support.
+
+        Args:
+            question: The question, as asked.
+            answer: The answer to judge.
+            sources: The numbered sources the answer was generated from, in
+                marker order. **Not** the golden passage: the golden set names
+                one sentence, chosen to score retrieval, and an answer that
+                correctly elaborates from the rest of the corpus is a good
+                answer that grading against that sentence calls unfaithful.
+
+        Returns:
+            The verdict and the reasoning behind it. Never raises for a bad
+            answer: an answer the judge dislikes is a verdict, and an answer the
+            judge cannot process is ``UNDECIDED``.
+        """
+        ...
+
+    async def judge_completeness(
         self, question: str, answer: str, references: Sequence[str]
     ) -> Judgement:
-        """Decide whether the answer only says what the references support.
+        """Decide whether the answer carries what the golden passages say.
+
+        The recall half, and the one question the golden set is the right anchor
+        for: it was written to name what answers each question.
 
         Args:
             question: The question, as asked.
@@ -119,9 +155,7 @@ class AnswerJudge(Protocol):
             references: The passages the golden set names for this question.
 
         Returns:
-            The verdict and the reasoning behind it. Never raises for a bad
-            answer: an answer the judge dislikes is a verdict, and an answer the
-            judge cannot process is ``UNDECIDED``.
+            The verdict and the reasoning behind it.
         """
         ...
 
@@ -135,26 +169,61 @@ class AnswerJudge(Protocol):
         ...
 
 
-FAITHFULNESS_RUBRIC = """You are grading whether an answer stays within what its sources say.
+FAITHFULNESS_RUBRIC = """You are grading whether an answer stays inside the sources it was given.
 
-You will be given a question, an answer, and the source passages the answer was \
-supposed to rest on.
+You will be given a question, the numbered sources whoever wrote the answer was \
+shown, and the answer.
 
 Decide, for the answer as a whole:
 
-- "yes"     — every claim it makes is supported by the passages.
+- "yes"     — every claim it makes is supported by the numbered sources.
 - "partial" — some claims are supported and at least one is not, or one is \
-stated more strongly than the passages warrant.
-- "no"      — its central claim is not supported by the passages.
+stated more strongly than the sources warrant.
+- "no"      — its central claim is not supported by the numbered sources.
 
 Rules:
 
-1. Judge only against the passages given. Do not use anything you know about the \
-subject; an answer that is true in the world and absent from the passages is "no".
-2. An answer that declines to answer, saying the sources do not cover the \
+1. Judge only against the numbered sources. Do not use anything you know about \
+the subject; a claim that is true in the world and absent from the sources is \
+unsupported.
+2. The sources are the whole of the evidence, not a summary of it. A claim \
+supported anywhere in them is supported, whether or not the answer drew \
+attention to that source.
+3. An answer that declines to answer, saying the sources do not cover the \
 question, is "yes" — refusing is not an unsupported claim.
-3. Length is not quality. A short answer that is fully supported is "yes"; a long \
-one that adds an unsupported sentence is "partial".
+4. Length is not quality, and detail is not invention. A long answer that \
+elaborates from the sources is "yes"; a long one that adds a sentence the \
+sources do not carry is "partial".
+5. A marker like [1] refers to the source of that number. A claim carrying the \
+wrong marker is still supported if the sources support it — whether a citation \
+points where it claims is checked by opening it, not by asking you.
+
+Reply with JSON only, in this order:
+
+{"reasoning": "<one or two sentences>", "verdict": "yes" | "partial" | "no"}
+
+Write the reasoning first and the verdict after it."""
+
+COMPLETENESS_RUBRIC = """You are grading whether an answer carries what its reference passages say.
+
+You will be given a question, the reference passages a golden set names as \
+answering it, and the answer.
+
+Decide:
+
+- "yes"     — the answer conveys what the reference passages say about the question.
+- "partial" — it conveys some of that and leaves out something they answer.
+- "no"      — it conveys none of it.
+
+Rules:
+
+1. Wording does not have to match. The question is whether a reader of the \
+answer learns what the passages say, not whether they were quoted.
+2. Extra material is not your concern here. An answer that says everything the \
+passages say **and more** is "yes"; whether the extra is supported is graded \
+separately.
+3. An answer that declines to answer is "no" when the passages do answer the \
+question. Refusing is an honest failure and it is still a failure to convey them.
 4. Citation markers like [1] are formatting. Ignore them.
 
 Reply with JSON only, in this order:
@@ -214,6 +283,7 @@ def majority(verdicts: Sequence[Verdict]) -> tuple[Verdict, bool]:
 
 
 __all__ = [
+    "COMPLETENESS_RUBRIC",
     "FAITHFULNESS_RUBRIC",
     "RELEVANCE_RUBRIC",
     "AnswerJudge",
