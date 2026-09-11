@@ -7,7 +7,13 @@
 # a Delete shows up before it happens, and the resources in later phases of this
 # project hold data.
 #
-# Two honest limitations, worth knowing before trusting the output:
+# It runs two checks, and they answer different questions. **Validation** asks
+# whether this deployment is possible at all: quota, SKU availability, resource
+# providers, property-level correctness. **what-if** asks what would change if it
+# were. Only the second was here to begin with, and it happily predicted sixteen
+# resources in a region that could not have created two of them.
+#
+# Two honest limitations of what-if, worth knowing before trusting the output:
 #
 #   * what-if cannot resolve reference() expressions, so properties that depend on
 #     one are reported as changing when they are not. Expect noise around keys,
@@ -25,6 +31,9 @@ announce
 PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
 export PAIMON_AZURE_OPERATOR_ID
 
+validate
+
+bold "▸ what would change"
 az deployment sub what-if \
     --name "paimon-${ENVIRONMENT}-preview" \
     --location "$LOCATION" \

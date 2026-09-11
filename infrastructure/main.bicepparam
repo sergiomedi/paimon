@@ -11,10 +11,13 @@ using 'main.bicep'
 
 param environmentName = readEnvironmentVariable('PAIMON_AZURE_ENV', 'dev')
 
-// Sweden Central: Azure OpenAI model availability is the binding constraint on
-// this choice, and it has been consistently early there. Change it only after
-// checking the model availability table, not on latency intuition.
-param location = readEnvironmentVariable('PAIMON_AZURE_LOCATION', 'swedencentral')
+// West Europe, and the reason is evidence rather than preference. Sweden Central
+// was the first choice on model-availability grounds and turned out to have no
+// GlobalStandard quota for the embedding model and no capacity for a Basic
+// search service — both discovered by a failed deployment, both invisible to
+// `what-if`. Before changing this, run `scripts/azure/preview.sh`: it validates
+// against the region first, which is how those two are caught in seconds.
+param location = readEnvironmentVariable('PAIMON_AZURE_LOCATION', 'westeurope')
 
 // az ad signed-in-user show --query id -o tsv
 param operatorPrincipalId = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_ID', '')

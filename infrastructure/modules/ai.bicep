@@ -33,6 +33,12 @@ param embeddingModel string
 @description('Version of the embedding model.')
 param embeddingModelVersion string
 
+@description('Deployment type for the embedding model. Quota is granted per model AND per deployment type, so this is a parameter rather than a constant.')
+param embeddingSku string
+
+@description('Deployment type for the chat model.')
+param chatSku string
+
 @description('Thousands of tokens per minute for each deployment. Lower this first when a deployment fails on quota.')
 @minValue(1)
 param modelCapacity int
@@ -87,7 +93,7 @@ resource embeddingDeployment 'Microsoft.CognitiveServices/accounts/deployments@2
   parent: openai
   name: 'paimon-embed'
   sku: {
-    name: 'GlobalStandard'
+    name: embeddingSku
     capacity: modelCapacity
   }
   properties: {
@@ -104,7 +110,7 @@ resource chatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-1
   name: 'paimon-chat'
   dependsOn: [embeddingDeployment]
   sku: {
-    name: 'GlobalStandard'
+    name: chatSku
     capacity: modelCapacity
   }
   properties: {

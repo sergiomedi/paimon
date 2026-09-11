@@ -52,3 +52,41 @@ operator_principal_id() {
     fi
     az ad signed-in-user show --query id -o tsv 2>/dev/null || printf ''
 }
+
+# Ask Azure whether this deployment *can* happen, before asking what it would
+# change. The two are different questions and only one of them was being asked:
+# what-if predicted sixteen resources in a region that had no quota for the
+# embedding model and no capacity for a search service, and said so nowhere.
+# Preflight validation catches both, creates nothing, and takes seconds.
+validate() {
+    bold "▸ can this be deployed here?"
+    local output
+    if output=$(az deployment sub validate \
+        --name "paimon-${ENVIRONMENT}-validate" \
+        --location "$LOCATION" \
+        --template-file "$INFRA/main.bicep" \
+        --parameters "$INFRA/main.bicepparam" 2>&1); then
+        printf '  yes\n\n'
+        return 0
+    fi
+
+    printf '\n'
+    # The useful part of an ARM error is buried several levels into a JSON blob
+    # that the CLI prints as one line.
+    printf '%s' "$output" | grep -oE '"(code|message)":"[^"]{0,300}"' | sed 's/^/  /' | head -12
+    printf '\n'
+    case "$output" in
+        *InsufficientQuota*)
+            warn "  No quota for that model in this deployment type and region. All three matter."
+            warn "  az cognitiveservices usage list --location $LOCATION -o table"
+            ;;
+        *ResourcesForSkuUnavailable*)
+            warn "  Azure has no capacity for that SKU in $LOCATION right now. Try another region."
+            ;;
+        *MissingSubscriptionRegistration*)
+            warn "  A resource provider is not registered. The message above names it:"
+            warn "  az provider register --namespace <the one it named>"
+            ;;
+    esac
+    die "nothing deployed."
+}

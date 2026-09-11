@@ -25,8 +25,8 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **Key Vault** | RBAC-authorized, for the few secrets that cannot be designed away. |
 | **Container registry** | Basic tier. The image lands here in a later batch. |
 | **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the collector, and Phase 8's migration job. |
-| **Azure OpenAI** | One chat deployment and one embedding deployment, both Global Standard. Local authentication **disabled**. |
-| **Azure AI Search** | Basic tier, local authentication **disabled**. |
+| **Azure OpenAI** | One chat deployment and one embedding deployment. Local authentication **disabled**. |
+| **Azure AI Search** | Free tier by default, local authentication **disabled**. |
 
 The first five store nothing and serve nothing: that half of the environment deploys for
 about a cent an hour, which is why it went first and why the deployment path could be
@@ -48,6 +48,14 @@ resources, attached to whatever they grant access to, under Access control (IAM)
 az login
 az account set --subscription "<the one you mean to spend>"
 az bicep install
+
+# Azure refuses to create a resource type whose provider is not registered, with
+# an error that does not obviously say so. Registering takes a few minutes and
+# only has to happen once per subscription.
+for ns in Microsoft.ManagedIdentity Microsoft.OperationalInsights Microsoft.KeyVault \
+          Microsoft.ContainerRegistry Microsoft.App Microsoft.CognitiveServices Microsoft.Search; do
+    az provider register --namespace "$ns"
+done
 ```
 
 The scripts print the subscription name and id before doing anything. Read that line —
@@ -76,18 +84,60 @@ export PAIMON_AZURE_ENV=dev              # names and tags everything
 export PAIMON_AZURE_LOCATION=swedencentral
 ```
 
-Region is worth a thought before the next batch rather than after it: **Azure OpenAI model
-availability varies by region more than anything else does**, and it is the binding
-constraint on this choice. Latency is not.
+**Region is not a latency decision, it is a quota decision**, and the default here was
+changed on evidence. Sweden Central was the first choice on model-availability grounds, and
+a real deployment failed there twice: no `GlobalStandard` quota for the embedding model, and
+no capacity for a Basic search service. West Europe has both. Before changing this, see the
+next section — the answer takes seconds to get and a failed deployment to guess.
+
+### What can actually be deployed here
+
+Three things decide whether a model deployment succeeds, and a subscription can have plenty
+of one combination and **zero** of the neighbouring one:
+
+**the model** × **the deployment type** × **the region**
+
+The catalogue and the quota are different questions. `az cognitiveservices model list` says
+what exists in a region; this says what you may create:
+
+```bash
+az cognitiveservices usage list --location westeurope -o json > /tmp/quota.json
+python3 - <<'EOF'
+import json
+rows = json.load(open("/tmp/quota.json"))
+usable = [r for r in rows if (r.get("limit") or 0) > 0]
+print(f"{len(rows)} quotas, {len(usable)} with a limit above zero\n")
+for r in sorted(usable, key=lambda r: r["name"]["value"]):
+    print(f'{r["name"]["value"]:<62} {r["currentValue"]:>7} / {r["limit"]}')
+EOF
+```
+
+The rows are named `OpenAI.<deployment type>.<model>`. A subscription that shows
+`OpenAI.Standard.text-embedding-3-large → 350` and has **no row at all** for
+`OpenAI.GlobalStandard.text-embedding-3-large` has 350 thousand tokens per minute of that
+model and cannot deploy a single one of it under Global Standard. That is not an edge case;
+it is what this project hit on its first attempt, and it is why `embeddingSku` and `chatSku`
+are parameters rather than constants.
+
+One more row worth finding before planning anything: `OpenAI.S0.AccountCount`. On a trial
+subscription it is often **1 / 1** — one Azure OpenAI account, total. A soft-deleted one
+still counts against it, which makes the purge in `destroy.sh` the difference between
+redeploying and not.
 
 ## The four commands
 
 ```bash
-./scripts/azure/preview.sh    # what would change, without changing it
-./scripts/azure/deploy.sh     # shows the same preview, then asks, then deploys
+./scripts/azure/preview.sh    # can this be deployed, and what would it change
+./scripts/azure/deploy.sh     # the same two checks, then asks, then deploys
 ./scripts/azure/status.sh     # what exists right now, anywhere in the subscription
 ./scripts/azure/destroy.sh    # delete, purge, and prove nothing is left
 ```
+
+`preview.sh` asks Azure **two different questions**, and the distinction is worth holding on
+to. *Validation* asks whether this deployment is possible at all — quota, SKU availability,
+resource providers, property-level correctness. *what-if* asks what would change if it were.
+This project shipped with only the second, and it cheerfully predicted sixteen resources in
+a region that could not have created two of them. Both create nothing and take seconds.
 
 `deploy.sh` is idempotent: names derive from the subscription and the environment name, so
 running it twice updates rather than duplicates. It writes the deployment outputs to
@@ -132,17 +182,22 @@ trusting a table in a repository.
 | Key Vault | Effectively free at this volume |
 | Log Analytics | Per GB ingested; the first 5 GB a month are free |
 | Container registry (Basic) | ~0.15 EUR/day |
-| **Azure AI Search, Basic** | **~0.10 EUR/hour, whether or not anything queries it** |
+| Azure AI Search, **free** tier | Free. 50 MB, three indexes, no standard semantic ranker |
+| Azure AI Search, Basic | ~0.10 EUR/hour, **whether or not anything queries it** |
 | Azure OpenAI | Per token. Nothing while idle |
 
-**So an afternoon is well under a euro, and a month is about 70.** That asymmetry is the
-whole reason this environment is built to be destroyed: the search service bills for
-existing, not for working, and it is the one resource here that will quietly consume a
-trial budget while nobody is using it.
+**On the defaults, this is roughly a cent an hour** — the registry, and nothing else that
+bills for existing.
 
-Azure OpenAI is the opposite and is worth knowing: a deployment that nobody calls costs
-nothing at all, because Global Standard is billed per token. The entire fifteen-question
-benchmark, answers and judgements included, is a few cents.
+Two shapes of cost, and the difference is the one that matters here. Azure OpenAI bills per
+token: a deployment nobody calls costs nothing at all, and the entire fifteen-question
+benchmark with judgements is a few cents. A Basic search service bills for **existing**,
+which is the shape that quietly consumes a trial budget while nobody is using it.
+
+`searchSku=basic` is needed for the full benchmark corpus and for the standard semantic
+ranker. The sample corpus fits in the free tier, so the default is free — and the reason to
+know the difference is that switching to basic turns an environment that costs nothing while
+forgotten into one that costs 70 EUR a month while forgotten.
 
 Still to come, for scale:
 

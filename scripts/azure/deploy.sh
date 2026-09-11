@@ -28,6 +28,8 @@ if [[ -z "$PAIMON_AZURE_OPERATOR_ID" ]]; then
     printf '\n'
 fi
 
+validate
+
 if [[ "$CONFIRM" == true ]]; then
     bold "▸ what would change"
     az deployment sub what-if \

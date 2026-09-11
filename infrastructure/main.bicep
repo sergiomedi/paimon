@@ -67,13 +67,39 @@ param embeddingModel string = 'text-embedding-3-large'
 @description('Version of the embedding model.')
 param embeddingModelVersion string = '1'
 
-@description('Thousands of tokens per minute for each deployment. The first thing to lower when a deployment fails on quota.')
+@description('''
+Deployment type for the embedding model, and for the chat model below.
+
+Parameters rather than constants, because **quota is granted per model AND per
+deployment type AND per region** — three dimensions, and a subscription can have
+plenty of one combination and zero of the neighbouring one. The first attempt at
+this template hardcoded GlobalStandard and failed on a subscription holding 350
+thousand tokens per minute of the same model under Standard and none at all under
+GlobalStandard.
+
+`az cognitiveservices usage list --location <region>` lists every combination and
+its limit. It is the only reliable answer, and it is worth reading before
+choosing a region.
+''')
+param embeddingSku string = 'GlobalStandard'
+
+@description('Deployment type for the chat model. See the note on embeddingSku.')
+param chatSku string = 'GlobalStandard'
+
+@description('Thousands of tokens per minute for each deployment. The first thing to lower when a deployment fails on quota — though a limit of zero cannot be lowered into.')
 @minValue(1)
 param modelCapacity int = 10
 
-@description('Azure AI Search tier. Free is 50 MB and three indexes: enough for the sample corpus, not for the benchmark.')
+@description('''
+Azure AI Search tier.
+
+Free by default: it holds 50 MB across three indexes, which fits the sample
+corpus comfortably, and it is the only tier that does not bill for existing.
+Basic is needed for the full benchmark corpus and for the standard semantic
+ranker, and costs about 0.10 EUR an hour whether or not anything queries it.
+''')
 @allowed(['free', 'basic', 'standard'])
-param searchSku string = 'basic'
+param searchSku string = 'free'
 
 // Deterministic across redeployments of the same environment in the same
 // subscription, which is what makes `deploy` idempotent — and is also why
@@ -122,6 +148,8 @@ module ai 'modules/ai.bicep' = {
     chatModelVersion: chatModelVersion
     embeddingModel: embeddingModel
     embeddingModelVersion: embeddingModelVersion
+    embeddingSku: embeddingSku
+    chatSku: chatSku
     modelCapacity: modelCapacity
     searchSku: searchSku
     tags: allTags
