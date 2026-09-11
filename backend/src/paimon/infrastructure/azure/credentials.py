@@ -165,3 +165,28 @@ def build_credential(
         )
         raise AzureAuthenticationError(msg) from error
     return EntraCredential(DefaultAzureCredential(), scope)
+
+
+def build_token_provider() -> TokenProvider:
+    """The raw credential, for callers that need a token rather than a header.
+
+    PostgreSQL is the odd one out among the Azure services this platform talks
+    to: it takes an Entra token in the **password field of a connection**, not in
+    an HTTP header, so :class:`AzureCredential` and its ``headers()`` are the
+    wrong shape for it. Same credential, different envelope.
+
+    Returns:
+        A credential that mints tokens for any scope.
+
+    Raises:
+        AzureAuthenticationError: If azure-identity is not installed.
+    """
+    try:
+        from azure.identity import DefaultAzureCredential  # noqa: PLC0415
+    except ImportError as error:  # pragma: no cover - depends on the install
+        msg = (
+            "Entra authentication was requested and azure-identity is not installed; "
+            "install the 'azure' extra"
+        )
+        raise AzureAuthenticationError(msg) from error
+    return DefaultAzureCredential()

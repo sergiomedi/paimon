@@ -21,3 +21,10 @@ param location = readEnvironmentVariable('PAIMON_AZURE_LOCATION', 'westeurope')
 
 // az ad signed-in-user show --query id -o tsv
 param operatorPrincipalId = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_ID', '')
+
+// az ad signed-in-user show --query userPrincipalName -o tsv
+//
+// Azure stores this beside the object id of the database administrator and
+// rejects a create where the two disagree, which is a confusing failure: the
+// object id is right, the principal exists, and the message is about a name.
+param administratorPrincipalName = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_NAME', '')

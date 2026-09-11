@@ -16,7 +16,7 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, SecretStr, model_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,8 +50,32 @@ class DatabaseSettings(BaseModel):
     host: str
     port: int = Field(default=5432, ge=1, le=65535)
     user: str
-    password: SecretStr
+    password: SecretStr | None = None
     name: str
+
+    auth: Literal["password", "entra"] = "password"
+    """How the platform proves who it is to PostgreSQL.
+
+    ``entra`` removes the password entirely: a Microsoft Entra access token is
+    presented **in the password field**, minted per connection. There is then no
+    database credential to store, rotate or leak — which is the same argument
+    ADR-0014 makes for the model and search services, applied to the one place
+    that actually holds data.
+
+    The catch is in the word *per connection*. The token is checked when a
+    connection opens and never again, so a pooled connection outlives its token
+    quite happily while the next one the pool opens fails to authenticate. That
+    is why the token is fetched in a connection hook rather than built into a
+    connection string once at startup, and why ``pool_recycle_seconds`` exists.
+    """
+
+    pool_recycle_seconds: int = Field(default=1800, ge=60)
+    """Age at which a pooled connection is closed and reopened.
+
+    Only meaningful under ``entra``, where it keeps the pool's connections
+    younger than the token that opened them. Half an hour against a token life
+    of at least an hour.
+    """
 
     pool_size: int = Field(default=10, ge=1, description="Connections for HTTP request handling.")
     max_overflow: int = Field(default=5, ge=0, description="Burst capacity above pool_size.")
@@ -59,10 +83,45 @@ class DatabaseSettings(BaseModel):
     pool_timeout_seconds: float = Field(default=10.0, gt=0)
     echo_sql: bool = False
 
+    @field_validator("password", mode="before")
+    @classmethod
+    def _empty_is_absent(cls, value: object) -> object:
+        """Treat an empty password as no password.
+
+        A deployment moving to Entra authentication leaves
+        ``PAIMON_DATABASE__PASSWORD=`` behind far more often than it deletes the
+        line, and an empty string is not a credential by any reading. Refusing it
+        as "a password must not be set" would be technically true and useless.
+        """
+        return None if value == "" else value
+
+    @model_validator(mode="after")
+    def _require_one_credential_and_only_one(self) -> Self:
+        if self.auth == "password" and self.password is None:
+            msg = "database.password is required when database.auth is 'password'"
+            raise ValueError(msg)
+        if self.auth == "entra" and self.password is not None:
+            # Refused rather than ignored. A password sitting in the
+            # configuration of a deployment that does not use one is a secret
+            # nobody rotates, protecting nothing, waiting to be copied into the
+            # deployment that does.
+            msg = (
+                "database.password must not be set when database.auth is 'entra': "
+                "the token is the password, and a spare credential is still a credential"
+            )
+            raise ValueError(msg)
+        return self
+
     @property
     def dsn(self) -> str:
-        """Async SQLAlchemy connection string."""
-        password = self.password.get_secret_value()
+        """Async SQLAlchemy connection string.
+
+        Under ``entra`` it carries no password at all. One is supplied per
+        connection by :func:`paimon.infrastructure.persistence.build_engine`.
+        """
+        if self.auth == "entra":
+            return f"postgresql+asyncpg://{self.user}@{self.host}:{self.port}/{self.name}"
+        password = self.password.get_secret_value() if self.password else ""
         return f"postgresql+asyncpg://{self.user}:{password}@{self.host}:{self.port}/{self.name}"
 
     @property
@@ -74,7 +133,7 @@ class DatabaseSettings(BaseModel):
         separately: two connection strings for one database is one more chance
         for a deployment to point half of itself somewhere else.
         """
-        password = self.password.get_secret_value()
+        password = self.password.get_secret_value() if self.password else ""
         return f"postgresql://{self.user}:{password}@{self.host}:{self.port}/{self.name}"
 
     @property
@@ -671,6 +730,31 @@ class Settings(BaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _resumable_agents_still_need_a_password(self) -> Self:
+        """Refuse the one combination that would fail hours after starting.
+
+        Resumable agent runs reach the same database through a second driver
+        (ADR-0017), and that driver is handed a connection string built once. A
+        Microsoft Entra token embedded in a string built at startup is valid
+        until it is not, and the failure arrives later — as authentication errors
+        on a feature that worked when it was tested.
+
+        So the combination is refused at startup instead, where it is one message
+        rather than an afternoon. Supporting it means giving the checkpointer a
+        per-connection credential of its own, which is worth doing when
+        resumable runs are deployed rather than speculatively.
+        """
+        if self.agents.resumable and self.database.auth == "entra":
+            msg = (
+                "agents.resumable cannot be used with database.auth='entra' yet: the graph "
+                "checkpointer takes a connection string built once, and a token in it expires "
+                "while the process keeps running. Use password authentication for the "
+                "database, or leave agents.resumable off."
+            )
+            raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
     def _a_judge_should_not_grade_its_own_family(self) -> Self:
         """Refuse a judge that is the model being judged.
 
@@ -729,7 +813,10 @@ class Settings(BaseSettings):
                     f"process from dialling itself, and is not allowed in {self.environment}"
                 )
                 raise ValueError(msg)
-            if self.database.password.get_secret_value() in SHIPPED_CREDENTIALS:
+            if (
+                self.database.password is not None
+                and self.database.password.get_secret_value() in SHIPPED_CREDENTIALS
+            ):
                 msg = (
                     "the database password is one of the values shipped in "
                     f".env.example, which is public; {self.environment} needs its own"

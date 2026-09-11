@@ -26,6 +26,15 @@ param keyVaultSoftDeleteDays int
 @description('Days of log retention in the workspace.')
 param logRetentionDays int
 
+@description('Address space of the virtual network everything runs in.')
+param virtualNetworkPrefix string
+
+@description('Subnet the Container Apps environment is injected into. Workload profiles need at least a /27; a /23 leaves room to grow without renumbering.')
+param appsSubnetPrefix string
+
+@description('Subnet private endpoints live in. Nothing runs here; it holds network interfaces.')
+param privateEndpointSubnetPrefix string
+
 @description('Tags applied to every resource.')
 param tags object
 
@@ -128,6 +137,51 @@ resource registry 'Microsoft.ContainerRegistry/registries@2023-07-01' = {
 }
 
 // ---------------------------------------------------------------------------
+// The network
+// ---------------------------------------------------------------------------
+
+// A virtual network exists here for one reason: the database has no public
+// address, and something has to be on the inside with it. The API keeps a public
+// ingress — this is not an isolated deployment, it is a deployment whose data
+// tier is unreachable from the internet, which is a different and more honest
+// claim.
+resource network 'Microsoft.Network/virtualNetworks@2024-05-01' = {
+  name: 'vnet-paimon-${environmentName}'
+  location: location
+  tags: tags
+  properties: {
+    addressSpace: {
+      addressPrefixes: [virtualNetworkPrefix]
+    }
+    subnets: [
+      {
+        name: 'snet-apps'
+        properties: {
+          addressPrefix: appsSubnetPrefix
+          // Container Apps takes the subnet over: the delegation is what lets it
+          // place infrastructure there, and the environment refuses a subnet
+          // without it.
+          delegations: [
+            {
+              name: 'container-apps'
+              properties: {
+                serviceName: 'Microsoft.App/environments'
+              }
+            }
+          ]
+        }
+      }
+      {
+        name: 'snet-data'
+        properties: {
+          addressPrefix: privateEndpointSubnetPrefix
+        }
+      }
+    ]
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Somewhere to run
 // ---------------------------------------------------------------------------
 
@@ -155,6 +209,13 @@ resource environment 'Microsoft.App/managedEnvironments@2024-03-01' = {
         workloadProfileType: 'Consumption'
       }
     ]
+    // Fixed when the environment is created and not changeable afterwards, which
+    // is the reason a Consumption-only environment was rejected in ADR-0034 and
+    // the reason this is here from the start rather than added when the database
+    // arrives: on a permanent deployment, adding it later is a rebuild.
+    vnetConfiguration: {
+      infrastructureSubnetId: network.properties.subnets[0].id
+    }
     zoneRedundant: false
   }
 }
@@ -208,3 +269,5 @@ output containerAppsDefaultDomain string = environment.properties.defaultDomain
 output keyVaultName string = vault.name
 output keyVaultUri string = vault.properties.vaultUri
 output logAnalyticsWorkspaceId string = workspace.id
+output virtualNetworkId string = network.id
+output privateEndpointSubnetId string = network.properties.subnets[1].id

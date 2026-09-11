@@ -56,7 +56,7 @@ Phase 7 is built in batches, and this template grows with them.
 |---|---|---|
 | 1 | Managed identity, Log Analytics, Key Vault, container registry, Container Apps environment | The registry, ~0.15 EUR/day. Nothing else. |
 | 2 | Azure OpenAI with two deployments, Azure AI Search | Nothing, on the defaults: the free search tier, and models that bill per token. `searchSku=basic` makes it ~0.10 EUR/hour. |
-| 3 | PostgreSQL Flexible Server, a VNet and a private endpoint | Yes, and this is the expensive one |
+| 3 | A virtual network, and PostgreSQL with no password and no public address | Yes — ~0.25 EUR/hour, and almost the whole bill |
 | 4 | The container app itself | Per request, and per replica above the floor |
 | 5 | The OpenTelemetry collector | A second small container |
 

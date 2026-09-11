@@ -101,6 +101,28 @@ ranker, and costs about 0.10 EUR an hour whether or not anything queries it.
 @allowed(['free', 'basic', 'standard'])
 param searchSku string = 'free'
 
+@description('Display name of the database administrator, normally your sign-in address. Azure stores it beside the object id and rejects a mismatch.')
+param administratorPrincipalName string = ''
+
+@description('Database compute tier. Burstable is cheaper and Microsoft is explicit that it is not for production: it has no high availability, no connection pooler, and vector search is the workload that exhausts its CPU credits.')
+param databaseSku string = 'Standard_D2ds_v5'
+
+@description('Database storage in gibibytes. The floor Azure allows, because storage only ever scales up and this environment is measured rather than filled.')
+@minValue(32)
+param databaseStorageGb int = 32
+
+@description('PostgreSQL major version.')
+param postgresVersion string = '17'
+
+@description('Address space of the virtual network.')
+param virtualNetworkPrefix string = '10.60.0.0/16'
+
+@description('Subnet the Container Apps environment is injected into.')
+param appsSubnetPrefix string = '10.60.0.0/23'
+
+@description('Subnet holding private endpoints.')
+param privateEndpointSubnetPrefix string = '10.60.4.0/28'
+
 // Deterministic across redeployments of the same environment in the same
 // subscription, which is what makes `deploy` idempotent — and is also why
 // `destroy` has to purge soft-deleted resources rather than leave their names
@@ -132,6 +154,27 @@ module platform 'modules/platform.bicep' = {
     operatorPrincipalId: operatorPrincipalId
     keyVaultSoftDeleteDays: keyVaultSoftDeleteDays
     logRetentionDays: logRetentionDays
+    virtualNetworkPrefix: virtualNetworkPrefix
+    appsSubnetPrefix: appsSubnetPrefix
+    privateEndpointSubnetPrefix: privateEndpointSubnetPrefix
+    tags: allTags
+  }
+}
+
+module data 'modules/data.bicep' = {
+  scope: group
+  name: 'data'
+  params: {
+    location: location
+    environmentName: environmentName
+    resourceToken: resourceToken
+    privateEndpointSubnetId: platform.outputs.privateEndpointSubnetId
+    virtualNetworkId: platform.outputs.virtualNetworkId
+    administratorPrincipalId: operatorPrincipalId
+    administratorPrincipalName: administratorPrincipalName
+    databaseSku: databaseSku
+    databaseStorageGb: databaseStorageGb
+    postgresVersion: postgresVersion
     tags: allTags
   }
 }
@@ -209,3 +252,12 @@ output searchEndpoint string = ai.outputs.searchEndpoint
 
 @description('Name of the search service.')
 output searchName string = ai.outputs.searchName
+
+@description('Database hostname, for PAIMON_DATABASE__HOST. Resolves privately from inside the network and to nothing useful outside it.')
+output databaseHost string = data.outputs.databaseHost
+
+@description('Database name, for PAIMON_DATABASE__NAME.')
+output databaseName string = data.outputs.databaseName
+
+@description('Name of the PostgreSQL server.')
+output databaseServerName string = data.outputs.databaseServerName

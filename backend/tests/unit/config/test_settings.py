@@ -313,6 +313,7 @@ class TestShippedCredentialsAreRefusedWhenDeployed:
         # nothing, and refusing it would break the clone-and-run path the
         # example file exists to provide.
         settings = build(monkeypatch, PAIMON_DATABASE__PASSWORD="paimon")  # noqa: S106
+        assert settings.database.password is not None
         assert settings.database.password.get_secret_value() == "paimon"
 
 
@@ -419,3 +420,36 @@ class TestTheJudge:
         # The verified metrics need no model, and a benchmark that silently costs
         # money per run is a benchmark people stop running.
         assert build(monkeypatch).evaluation.judge.enabled is False
+
+
+class TestDatabaseAuthentication:
+    """A password and a token are alternatives, not a pair."""
+
+    def test_entra_needs_no_password(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An emptied-out variable is the realistic shape of "we moved to Entra",
+        # and it is not a credential by any reading.
+        settings = build(
+            monkeypatch,
+            PAIMON_DATABASE__AUTH="entra",
+            PAIMON_DATABASE__PASSWORD="",
+            PAIMON_DATABASE__USER="id-paimon-dev",
+        )
+        assert settings.database.auth == "entra"
+        assert settings.database.password is None
+        credentials = settings.database.dsn.split("//")[1].split("@")[0]
+        assert credentials == "id-paimon-dev"
+
+    def test_resumable_agents_are_refused_with_entra(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The one combination that fails hours after it starts working.
+
+        The graph checkpointer takes a connection string built once at startup.
+        A token in it is valid until it is not, and the failure arrives as
+        authentication errors on a feature that passed its tests.
+        """
+        with pytest.raises(ValidationError, match=r"agents\.resumable cannot be used"):
+            build(
+                monkeypatch,
+                PAIMON_DATABASE__AUTH="entra",
+                PAIMON_DATABASE__PASSWORD="",
+                PAIMON_AGENTS__RESUMABLE="true",
+            )

@@ -21,7 +21,8 @@ require_az
 announce
 
 PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
-export PAIMON_AZURE_OPERATOR_ID
+PAIMON_AZURE_OPERATOR_NAME="$(operator_principal_name)"
+export PAIMON_AZURE_OPERATOR_ID PAIMON_AZURE_OPERATOR_NAME
 if [[ -z "$PAIMON_AZURE_OPERATOR_ID" ]]; then
     warn "No signed-in user object id: nobody will be granted access to the key vault."
     warn "That is correct for a pipeline and wrong for a laptop. Set PAIMON_AZURE_OPERATOR_ID to override."

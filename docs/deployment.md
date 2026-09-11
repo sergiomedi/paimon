@@ -27,6 +27,8 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the collector, and Phase 8's migration job. |
 | **Azure OpenAI** | One chat deployment and one embedding deployment. Local authentication **disabled**. |
 | **Azure AI Search** | Free tier by default, local authentication **disabled**. |
+| **Virtual network** | Two subnets: one the Container Apps environment is injected into, one holding private endpoints. |
+| **PostgreSQL Flexible Server** | General Purpose. **No password and no public address** — Entra only, reachable through a private endpoint. |
 
 The first five store nothing and serve nothing: that half of the environment deploys for
 about a cent an hour, which is why it went first and why the deployment path could be
@@ -185,9 +187,11 @@ trusting a table in a repository.
 | Azure AI Search, **free** tier | Free. 50 MB, three indexes, no standard semantic ranker |
 | Azure AI Search, Basic | ~0.10 EUR/hour, **whether or not anything queries it** |
 | Azure OpenAI | Per token. Nothing while idle |
+| Virtual network, private endpoint | Free, and about 0.01 EUR/hour respectively |
+| **PostgreSQL, General Purpose D2ds_v5** | **~0.25 EUR/hour, and it is the reason destroy.sh exists** |
 
-**On the defaults, this is roughly a cent an hour** — the registry, and nothing else that
-bills for existing.
+**On the defaults, an afternoon is well under a euro and a month is around 180.** Almost all
+of it is the database: everything else here is free while idle or billed per token.
 
 Two shapes of cost, and the difference is the one that matters here. Azure OpenAI bills per
 token: a deployment nobody calls costs nothing at all, and the entire fifteen-question
@@ -199,14 +203,31 @@ ranker. The sample corpus fits in the free tier, so the default is free — and 
 know the difference is that switching to basic turns an environment that costs nothing while
 forgotten into one that costs 70 EUR a month while forgotten.
 
-Still to come, for scale:
-
-| Resource | Per month, if left running |
-|---|---|
-| PostgreSQL Flexible Server, General Purpose D2ds_v5 | ~150–190 EUR |
-
 Hence `destroy.sh`, and hence `status.sh` looking at the whole subscription rather than at
 the resource group you happen to be thinking about.
+
+## The one manual step: letting the workload into the database
+
+The database has no password. The workload authenticates with a Microsoft Entra token, and
+a token only works once a **role exists for that identity inside PostgreSQL** — which is
+SQL, not ARM, so no template can do it.
+
+It is run once per environment, by the Entra administrator the template registered (you),
+from a machine inside the virtual network. The server has no public address, so this is not
+something to do from a laptop:
+
+```sql
+-- connected to the paimon database as the Entra administrator
+SELECT * FROM pgaadauth_create_principal('id-paimon-dev', false, false);
+GRANT ALL PRIVILEGES ON DATABASE paimon TO "id-paimon-dev";
+```
+
+The name must match the managed identity **exactly**, case included: it is the username the
+connection presents, and a mismatch is an authentication failure that says nothing about
+names.
+
+Until the schema migration step of Phase 8 exists, this is the one thing between a deployed
+environment and a working one, and it is stated here rather than discovered.
 
 ## Verifying the adapters against the real services
 

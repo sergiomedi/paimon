@@ -53,6 +53,18 @@ operator_principal_id() {
     az ad signed-in-user show --query id -o tsv 2>/dev/null || printf ''
 }
 
+# The same person's sign-in name. The database administrator is recorded as an
+# object id *and* a display name, and Azure refuses a create where the two
+# disagree — with a message about the name, which sends you looking in the wrong
+# place.
+operator_principal_name() {
+    if [[ -n "${PAIMON_AZURE_OPERATOR_NAME:-}" ]]; then
+        printf '%s' "$PAIMON_AZURE_OPERATOR_NAME"
+        return
+    fi
+    az ad signed-in-user show --query userPrincipalName -o tsv 2>/dev/null || printf ''
+}
+
 # Ask Azure whether this deployment *can* happen, before asking what it would
 # change. The two are different questions and only one of them was being asked:
 # what-if predicted sixteen resources in a region that had no quota for the

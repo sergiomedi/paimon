@@ -48,7 +48,7 @@ from paimon.domain.ports import (
     VectorStore,
 )
 from paimon.evaluation import AnswerJudge, ModelAnswerJudge
-from paimon.infrastructure.azure import build_credential
+from paimon.infrastructure.azure import build_credential, build_token_provider
 from paimon.infrastructure.azure.openai import (
     COGNITIVE_SERVICES_SCOPE,
     AzureOpenAIChatModel,
@@ -323,7 +323,12 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     Yields:
         The assembled resources.
     """
-    engine = build_engine(settings.database)
+    engine = build_engine(
+        settings.database,
+        # Only when the database asks for it: the token provider needs
+        # azure-identity, which a local deployment has no reason to install.
+        build_token_provider() if settings.database.auth == "entra" else None,
+    )
     redis = build_redis_client(settings.redis)
     embedding_model = _build_embedding_model(settings)
     chat_model = _build_chat_model(settings)

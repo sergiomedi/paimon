@@ -375,6 +375,7 @@ including the negative ones.
 | [0035](docs/adr/0035-bicep-and-templates-small-enough-to-read.md) | Bicep, and templates small enough to read |
 | [0036](docs/adr/0036-an-environment-built-to-be-destroyed.md) | The environment is built to be destroyed, and the teardown is a feature |
 | [0037](docs/adr/0037-keyless-is-enforced-at-the-resource.md) | Keyless is enforced at the resource, not chosen by the client |
+| [0038](docs/adr/0038-a-database-with-no-password-and-no-public-address.md) | A database with no password and no public address |
 
 ## Technology
 
@@ -389,7 +390,7 @@ including the negative ones.
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
 | Observability | OpenTelemetry · any OTLP backend | Plain OTel in the code; Langfuse, Azure Monitor or a collector by configuration — [ADR-0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md), [guide](docs/observability.md) |
-| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0037](docs/adr/0037-keyless-is-enforced-at-the-resource.md), [guide](docs/deployment.md) |
+| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0038](docs/adr/0038-a-database-with-no-password-and-no-public-address.md), [guide](docs/deployment.md) |
 | Evaluation | Golden sets · verified citations · LLM judge | Intervals, paired comparison and Cohen's kappa — [ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md) to [ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md), [guide](docs/evaluation.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
 | Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |
