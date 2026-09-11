@@ -60,15 +60,7 @@ bold "▸ writing $OUTPUTS"
 # secret should ever be: an ARM output is stored in the deployment history in
 # plaintext and readable by anybody with read access to the subscription.
 az deployment sub show --name "$DEPLOYMENT" --query properties.outputs -o json |
-    python3 -c '
-import json, re, sys
-
-outputs = json.load(sys.stdin)
-print("# Written by scripts/azure/deploy.sh. Regenerated on every deployment.")
-for key, value in sorted(outputs.items()):
-    name = re.sub(r"(?<!^)(?=[A-Z])", "_", key).upper()
-    print(f"AZURE_{name}={value[\"value\"]}")
-' > "$OUTPUTS"
+    python3 "$(dirname "${BASH_SOURCE[0]}")/outputs.py" > "$OUTPUTS"
 
 cat "$OUTPUTS"
 

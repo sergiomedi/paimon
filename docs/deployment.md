@@ -42,6 +42,21 @@ The scripts print the subscription name and id before doing anything. Read that 
 "which subscription am I in" is the question behind most of the expensive mistakes
 available here.
 
+**If `az login` fails with `AADSTS530035`**, you reached for `--use-device-code`. Microsoft
+Entra's security defaults — on by default in a new tenant — block the device code flow
+outright, because it is what phishing attacks abuse: *"authentication requests that use
+device code flow are blocked"*. The fix is the browser flow, not a retry. From WSL, install
+`wslu` so the Windows browser can be opened:
+
+```bash
+sudo apt install -y wslu
+az login --tenant <tenant-id>
+```
+
+Turning security defaults off would also work and is the wrong trade: it disables enforced
+multi-factor authentication for the whole tenant to work around having picked the wrong
+sign-in flow.
+
 Two optional settings, both with defaults:
 
 ```bash

@@ -46,6 +46,21 @@ if [[ "$TARGET" == "all" || "$TARGET" == "frontend" ]]; then
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
+    cd "$ROOT"
+
+    # The deployment scripts, and the programs inside them.
+    #
+    # `bash -n` alone is what let a broken deploy.sh ship: it checks the shell
+    # and says nothing about a Python program passed to `python3 -c` as a string,
+    # because to the shell that string is an argument. So the Python lives in a
+    # file now, and this compiles it and then *runs* it against a fixture —
+    # compiling would have caught that bug, and running is what catches the next
+    # one.
+    step "scripts"
+    find scripts -name '*.sh' -print0 | xargs -0 -n1 bash -n
+    python3 -m py_compile scripts/azure/outputs.py
+    printf '{"aB": {"value": "x"}}' | python3 scripts/azure/outputs.py | grep -qx 'AZURE_A_B=x'
+
     # Either the standalone CLI or the one the Azure CLI manages. Compiling is
     # the gate: the linter runs inside it, and infrastructure/bicepconfig.json
     # raises the rules that matter here to errors, so a template that builds is a
