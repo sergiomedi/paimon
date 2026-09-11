@@ -22,7 +22,7 @@ from paimon.infrastructure.azure.credentials import AzureCredential
 from paimon.infrastructure.http import error_detail
 
 SEARCH_SCOPE = "https://search.azure.com/.default"
-DEFAULT_API_VERSION = "2024-07-01"
+DEFAULT_API_VERSION = "2026-04-01"
 DEFAULT_TIMEOUT_SECONDS = 30.0
 # Azure caps a document-index request; batches above this are rejected outright.
 MAX_BATCH = 1000
@@ -290,6 +290,19 @@ class AzureSearchStore:
                     "searchable": True,
                     "dimensions": self._config.dimensions,
                     "vectorSearchProfile": VECTOR_PROFILE,
+                    # Searchable but never returned, and never kept in a form
+                    # that could be. Nothing in this platform reads a vector
+                    # back: a hit carries the chunk's text and its offsets, and
+                    # a citation is resolved against the document. Storing the
+                    # source copy as well roughly doubles the index, which on a
+                    # tier billed by size is a bill for something nobody reads.
+                    #
+                    # "retrievable" can be changed later. "stored" cannot — it is
+                    # fixed when the index is created, so it is a decision that
+                    # has to be made before the first document is indexed rather
+                    # than after the first invoice.
+                    "retrievable": False,
+                    "stored": False,
                 },
             ],
             "vectorSearch": {

@@ -55,6 +55,12 @@ Phase 7 is built in batches, and this template grows with them.
 | Batch | Adds | Bills while it exists |
 |---|---|---|
 | 1 | Managed identity, Log Analytics, Key Vault, container registry, Container Apps environment | The registry, ~0.15 EUR/day. Nothing else. |
-| 2 | PostgreSQL Flexible Server, Azure AI Search, Azure OpenAI | Yes — this is the expensive batch, and the reason `destroy.sh` exists |
-| 3 | The container app itself | Per request, and per replica above the floor |
-| 4 | The OpenTelemetry collector | A second small container |
+| 2 | Azure OpenAI with two deployments, Azure AI Search | The search service, ~0.10 EUR/hour. Models bill per token and cost nothing idle. |
+| 3 | PostgreSQL Flexible Server, a VNet and a private endpoint | Yes, and this is the expensive one |
+| 4 | The container app itself | Per request, and per replica above the floor |
+| 5 | The OpenTelemetry collector | A second small container |
+
+Batch 2 deliberately comes before the database. The riskiest thing in this phase is two
+adapters that have never been executed against the services they adapt, and the benchmark
+can exercise both with PostgreSQL running locally — which makes the check cost about a euro
+instead of a rebuild of everything wired around them.

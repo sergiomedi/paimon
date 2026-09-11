@@ -32,10 +32,10 @@ az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].{name:name, 
 
 printf '\n'
 bold "▸ what bills by the hour while it exists"
-printf 'Nothing in the current template does, beyond the container registry at roughly\n'
-printf '0.15 EUR a day. The resources that do — AI Search, PostgreSQL — arrive in a\n'
-printf 'later batch, and this script is here so that when they do, one command answers\n'
-printf 'whether they are still running.\n'
+printf 'Azure AI Search, at roughly 0.10 EUR an hour whether or not anything queries it.\n'
+printf 'That is the one to care about: it bills for existing, not for working.\n'
+printf 'The container registry adds about 0.15 EUR a day. The model deployments bill per\n'
+printf 'token and cost nothing while idle.\n'
 printf '\nSpend to date is in the portal under Cost Management; the CLI cannot read it on\n'
 printf 'every subscription type, so it is deliberately not scripted here rather than\n'
 printf 'scripted and wrong.\n'

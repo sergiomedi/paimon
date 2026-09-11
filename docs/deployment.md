@@ -25,10 +25,22 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **Key Vault** | RBAC-authorized, for the few secrets that cannot be designed away. |
 | **Container registry** | Basic tier. The image lands here in a later batch. |
 | **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the collector, and Phase 8's migration job. |
+| **Azure OpenAI** | One chat deployment and one embedding deployment, both Global Standard. Local authentication **disabled**. |
+| **Azure AI Search** | Basic tier, local authentication **disabled**. |
 
-Nothing here stores data and nothing here serves traffic, which is deliberate: the whole
-batch deploys for cents, so the deployment path can be exercised repeatedly without
-spending the budget on proving that it works.
+The first five store nothing and serve nothing: that half of the environment deploys for
+about a cent an hour, which is why it went first and why the deployment path could be
+exercised repeatedly before anything expensive depended on it.
+
+The last two are where the money starts, and where this platform stops being theoretical:
+it has had adapters for both since Phase 2 and has never once talked to either.
+
+**A number you will count and question.** `what-if` reports nine changes and the portal
+shows five resources. Both are right. `what-if` counts *changes* — five resources, the
+resource group, and three role assignments; the portal's resource list shows what is
+*inside* resource groups, and role assignments are not there. They are extension
+resources, attached to whatever they grant access to, under Access control (IAM).
+`az role assignment list --resource-group rg-paimon-dev` is where they show up.
 
 ## Before you start
 
@@ -120,22 +132,96 @@ trusting a table in a repository.
 | Key Vault | Effectively free at this volume |
 | Log Analytics | Per GB ingested; the first 5 GB a month are free |
 | Container registry (Basic) | ~0.15 EUR/day |
+| **Azure AI Search, Basic** | **~0.10 EUR/hour, whether or not anything queries it** |
+| Azure OpenAI | Per token. Nothing while idle |
 
-**So this batch is roughly 1 cent an hour.** That is the point of it going first: the
-deployment mechanism gets exercised before anything expensive depends on it.
+**So an afternoon is well under a euro, and a month is about 70.** That asymmetry is the
+whole reason this environment is built to be destroyed: the search service bills for
+existing, not for working, and it is the one resource here that will quietly consume a
+trial budget while nobody is using it.
 
-The expensive resources arrive in the next batch. For scale, and why this phase is run the
-way it is:
+Azure OpenAI is the opposite and is worth knowing: a deployment that nobody calls costs
+nothing at all, because Global Standard is billed per token. The entire fifteen-question
+benchmark, answers and judgements included, is a few cents.
+
+Still to come, for scale:
 
 | Resource | Per month, if left running |
 |---|---|
-| Azure AI Search, Basic | ~70 EUR |
 | PostgreSQL Flexible Server, General Purpose D2ds_v5 | ~150–190 EUR |
-| Azure OpenAI | Per token — a few euros for an entire benchmark run |
 
-An afternoon of both is around one euro. A month of both is more than the budget for this
-phase. Hence `destroy.sh`, and hence `status.sh` looking at the whole subscription rather
-than at the resource group you happen to be thinking about.
+Hence `destroy.sh`, and hence `status.sh` looking at the whole subscription rather than at
+the resource group you happen to be thinking about.
+
+## Verifying the adapters against the real services
+
+This is the step the whole phase exists for, and it does **not** need a container, a
+database in Azure, or a private network. It needs a laptop.
+
+This platform has had Azure OpenAI and Azure AI Search adapters since Phase 2, tested
+against an in-process stand-in that answers with the shapes the real services are
+documented to answer with. That stand-in cannot tell you whether those shapes are still
+what Azure sends, whether the authentication works, or whether the index definition is
+accepted. Only Azure can, and until now nothing had asked it.
+
+So the first thing that touches these services is the benchmark, run **hybrid**: PostgreSQL
+and Redis local in Docker, models and retrieval in Azure. It costs the search service's
+hourly rate plus a few cents of tokens, and it exercises every line of both adapters.
+
+```bash
+docker compose -f docker/compose.yaml up -d      # postgres and redis, local
+cd backend
+uv sync --extra azure                            # the Entra credential is an extra
+
+set -a; source ../infrastructure/.env.dev; set +a
+
+export PAIMON_EMBEDDING__PROVIDER=azure
+export PAIMON_CHAT__PROVIDER=azure
+export PAIMON_RETRIEVAL__STORE=azure_search
+export PAIMON_AZURE_OPENAI__ENDPOINT="$AZURE_OPENAI_ENDPOINT"
+export PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT="$AZURE_EMBEDDING_DEPLOYMENT_NAME"
+export PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT="$AZURE_CHAT_DEPLOYMENT_NAME"
+export PAIMON_AZURE_SEARCH__ENDPOINT="$AZURE_SEARCH_ENDPOINT"
+
+# The index schema is the application's. Creating it is a deliberate command, and
+# the workload's identity deliberately cannot do it.
+uv run python -c "
+import asyncio
+from paimon.config import get_settings
+from paimon.interfaces.api.dependencies import build_resources
+
+async def main():
+    async with build_resources(get_settings()) as resources:
+        await resources.vector_store.ensure_index()
+
+asyncio.run(main())
+"
+
+uv run python -m paimon.interfaces.cli.evaluate --answers \
+    --corpus ../evaluation/corpus/sample \
+    --dataset ../evaluation/datasets/retrieval-v1.jsonl \
+    --label "azure openai + ai search" \
+    --report ../evaluation/reports/azure.json
+```
+
+Nowhere in that is there an API key, and there is nowhere for one to go: both services were
+created with key authentication switched off
+([ADR-0037](adr/0037-keyless-is-enforced-at-the-resource.md)). `az login` on the laptop and
+a managed identity in Azure take the same code path.
+
+**If the first call returns 403, wait before debugging.** Role assignments take minutes to
+propagate — sometimes longer — and a deployment that finished thirty seconds ago has almost
+certainly not finished granting. Re-provisioning does not help and costs another cycle.
+
+### Why this runs before the infrastructure around it
+
+The riskiest thing in this phase is not the networking. It is two adapters that have never
+been executed against the services they adapt, and everything else in the phase is built on
+top of them. Finding out they work — or exactly how they do not — costs about a euro here,
+and costs a rebuild of the environment if it is discovered after the database, the private
+endpoint and the container app are wired around them.
+
+Highest risk, lowest cost, first.
 
 ## What this deployment will not tell you
 

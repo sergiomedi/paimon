@@ -116,6 +116,23 @@ class TestIndexDefinition:
         assert vector_field["dimensions"] == DIMENSIONS
         assert definition["vectorSearch"]["algorithms"][0]["hnswParameters"]["metric"] == "cosine"
 
+    def test_vectors_are_searchable_but_not_stored(self) -> None:
+        """Nothing reads a vector back, and storing one doubles the index.
+
+        Pinned because ``stored`` cannot be changed after the index exists. Every
+        other field option here is a redeployment away from being fixed; this one
+        is a reindex of the entire corpus, so it is worth a test that fails
+        before the first document is written rather than after the first bill.
+        """
+        store = store_for(FakeAzureSearchService(), FakeEmbeddingModel(dimensions=DIMENSIONS))
+
+        vector_field = next(
+            f for f in store.index_definition()["fields"] if f["name"] == "embedding"
+        )
+        assert vector_field["searchable"] is True
+        assert vector_field["stored"] is False
+        assert vector_field["retrievable"] is False
+
     async def test_ensure_index_sends_the_definition(self) -> None:
         service = FakeAzureSearchService()
         store = store_for(service, FakeEmbeddingModel(dimensions=DIMENSIONS))

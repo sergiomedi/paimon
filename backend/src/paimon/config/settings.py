@@ -213,7 +213,12 @@ class AzureSearchSettings(BaseModel):
     endpoint: str | None = None
     api_key: SecretStr | None = None
     index_name: str = "paimon-chunks"
-    api_version: str = "2024-07-01"
+    # Pinned, and deliberately current. The data-plane version is mandatory on
+    # every request, and the one this defaulted to was four stable releases
+    # behind — which is how a platform ends up unable to use a field type that
+    # has existed for two years. Upgrading it is a deliberate act; being years
+    # behind by inattention is not the same thing as being conservative.
+    api_version: str = "2026-04-01"
     # A capability pgvector has no equivalent for. Off unless a configuration
     # exists on the index, so the difference between backends stays visible.
     semantic_configuration: str | None = None

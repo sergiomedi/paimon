@@ -47,6 +47,7 @@ reasoning trail, and rewriting history destroys it.
 | [0034](0034-container-apps-not-app-service.md) | The platform runs on Container Apps, not App Service | Accepted |
 | [0035](0035-bicep-and-templates-small-enough-to-read.md) | Bicep, and templates small enough to read | Accepted |
 | [0036](0036-an-environment-built-to-be-destroyed.md) | The environment is built to be destroyed, and the teardown is a feature | Accepted |
+| [0037](0037-keyless-is-enforced-at-the-resource.md) | Keyless is enforced at the resource, not chosen by the client | Accepted |
 
 ## Writing a new ADR
 
