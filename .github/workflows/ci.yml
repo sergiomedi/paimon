@@ -212,6 +212,18 @@ jobs:
           python3 -m py_compile scripts/azure/outputs.py
           printf '{"aB": {"value": "x"}}' | python3 scripts/azure/outputs.py | grep -qx 'AZURE_A_B=x'
 
+      # Bicep loads the collector's configuration with loadTextContent(), which
+      # checks that the file exists and nothing else. A template that compiles
+      # cleanly around malformed YAML is a deployment that succeeds and a
+      # collector that crash-loops, so the YAML is parsed here. PyYAML is
+      # installed rather than assumed: without it the check skips itself, which
+      # is right on a laptop and wrong in CI.
+      - name: Check the collector configuration
+        run: |
+          python3 -m pip install --quiet pyyaml
+          python3 -m py_compile scripts/azure/collector_config.py
+          python3 scripts/azure/collector_config.py
+
       # The runner ships the Azure CLI; this adds the Bicep compiler to it. No
       # Azure credentials are involved and nothing is deployed — compiling is a
       # local operation, and a template that does not compile cannot be reviewed.

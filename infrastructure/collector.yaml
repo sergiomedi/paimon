@@ -1,0 +1,71 @@
+# Configuration for the OpenTelemetry collector that fronts Application Insights.
+#
+# A real file rather than a string inside the template, so that an editor lints it
+# and scripts/check.sh can parse it. It is read at compile time with
+# loadTextContent() by modules/observability.bicep, which substitutes the two
+# placeholders below — the identity that authenticates and the component that is
+# written to — because neither is known until the deployment runs.
+#
+# Placeholders rather than the collector's own ${env:...} expansion, so that what
+# is written here is what runs. One fewer layer to be wrong about when nothing
+# arrives in the portal.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # First in every pipeline, deliberately. Without it a burst of spans is held in
+  # memory until the container is killed for it, and a collector that dies under
+  # load takes the telemetry that would have explained the load with it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 15
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  # The user-assigned identity, named explicitly. Inside a container app more
+  # than one identity is visible, and a credential that guesses picks wrong
+  # eventually.
+  azure_auth:
+    managed_identity:
+      client_id: "__CLIENT_ID__"
+    scopes:
+      - https://monitor.azure.com/.default
+
+exporters:
+  azuremonitor:
+    # The connection string names the destination. It does not authorize the
+    # write: the component has local authentication disabled, so the token the
+    # extension above mints is what does.
+    connection_string: "__CONNECTION_STRING__"
+    auth:
+      authenticator: azure_auth
+    # Span events carry the exception records the instrumentation attaches, which
+    # is most of what makes a failed trace worth reading.
+    spaneventsenabled: true
+
+service:
+  extensions: [health_check, azure_auth]
+  # No logs pipeline. Logs are structured JSON on stdout, which Container Apps
+  # already ships to the same workspace this component writes into — routing them
+  # through here would produce two copies of every line and bill for both.
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [azuremonitor]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [azuremonitor]
+  telemetry:
+    logs:
+      level: info

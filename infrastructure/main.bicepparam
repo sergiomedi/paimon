@@ -50,3 +50,17 @@ param apiAudience = readEnvironmentVariable('PAIMON_AZURE_API_AUDIENCE', 'api://
 // The tenant whose tokens are accepted. Empty means the tenant being deployed
 // into, which is the right answer whenever the API and its callers live together.
 param apiTenantId = readEnvironmentVariable('PAIMON_AZURE_TENANT_ID', '')
+
+// Price list for cost attribution, as JSON:
+//   {"gpt-4.1-mini": {"input": 0.4, "output": 1.6}}
+//
+// Empty by default and deliberately not filled in here. Cost is token counts
+// times a table somebody typed — the invoice is the authority — so the numbers
+// belong to whoever read the pricing page that day, not to a default committed
+// months earlier. A model absent from the table produces no cost measurement
+// rather than a cost of zero, because zero is a claim.
+param modelPrices = json(readEnvironmentVariable('PAIMON_AZURE_MODEL_PRICES', '{}'))
+
+// A label for that table, recorded on every measurement so a figure can be
+// traced back to the prices that produced it. Required as soon as there are any.
+param priceRevision = readEnvironmentVariable('PAIMON_AZURE_PRICE_REVISION', 'unset')

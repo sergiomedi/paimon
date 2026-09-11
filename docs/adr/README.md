@@ -51,6 +51,7 @@ reasoning trail, and rewriting history destroys it.
 | [0038](0038-a-database-with-no-password-and-no-public-address.md) | A database with no password and no public address | Accepted |
 | [0039](0039-the-cache-runs-beside-the-thing-that-uses-it.md) | The cache runs beside the thing that uses it | Accepted |
 | [0040](0040-migrations-run-from-inside-the-network.md) | Migrations run from inside the network, as a job | Accepted |
+| [0041](0041-telemetry-leaves-through-a-collector-we-control.md) | Telemetry leaves through a collector we control | Accepted |
 
 ## Writing a new ADR
 

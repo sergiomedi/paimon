@@ -81,6 +81,33 @@ param embeddingDeploymentName string
 param searchEndpoint string
 
 @description('''
+OTLP/HTTP address of the collector, or empty to emit nothing.
+
+Empty is not a degraded mode: the platform's own no-op tracer costs almost
+nothing and keeps `if tracing_enabled:` out of the code doing the work
+(ADR-0025). What is refused is tracing switched on with nowhere to send, because
+that looks exactly like tracing that works until somebody opens the backend.
+''')
+param collectorEndpoint string = ''
+
+@description('''
+Price list for cost attribution, as `{ "<model id>": { "input": <per million>, "output": <per million> } }`.
+
+Empty by default, and empty means no cost measurement rather than a cost of zero
+— zero is a claim, and the honest answer when a model is unpriced is silence.
+Nothing here is derived from Azure: cost is token counts multiplied by a table
+somebody typed, the invoice is the authority, and inventing the table in a
+template would be the fastest way to produce a confident wrong number.
+''')
+param modelPrices object = {}
+
+@description('Currency the prices above are in. Recorded on every measurement, because a chart mixing two currencies is worse than no chart.')
+param priceCurrency string = 'USD'
+
+@description('A label for that price list — a date will do. Required as soon as there are prices: a cost figure that cannot be traced back to the table that produced it is uninterpretable the moment the table changes.')
+param priceRevision string = 'unset'
+
+@description('''
 Replicas to keep running when nothing is being asked of it.
 
 Zero by default, which is the right answer for an environment that exists to be
@@ -118,6 +145,50 @@ var jobName = 'cj-paimon-migrate-${environmentName}'
 // things that are otherwise a second deployment — see the MCP settings below.
 var apiUrl = 'https://${appName}.${containerAppsDefaultDomain}'
 var apiHost = '${appName}.${containerAppsDefaultDomain}'
+
+// Telemetry goes to the collector or nowhere. Both signals are named explicitly
+// rather than sharing a base URL: several backends accept OTLP traces and not
+// OTLP metrics, and pointing metrics at a traces endpoint fails quietly — an
+// empty dashboard that looks like a platform emitting nothing.
+var telemetryEnvironment = empty(collectorEndpoint)
+  ? []
+  : [
+      {
+        name: 'PAIMON_OBSERVABILITY__TRACING__ENABLED'
+        value: 'true'
+      }
+      {
+        name: 'PAIMON_OBSERVABILITY__TRACING__ENDPOINT'
+        value: '${collectorEndpoint}/v1/traces'
+      }
+      {
+        name: 'PAIMON_OBSERVABILITY__METRICS__ENABLED'
+        value: 'true'
+      }
+      {
+        name: 'PAIMON_OBSERVABILITY__METRICS__ENDPOINT'
+        value: '${collectorEndpoint}/v1/metrics'
+      }
+    ]
+
+var pricingEnvironment = empty(modelPrices)
+  ? []
+  : [
+      {
+        name: 'PAIMON_OBSERVABILITY__METRICS__PRICING__CURRENCY'
+        value: priceCurrency
+      }
+      {
+        name: 'PAIMON_OBSERVABILITY__METRICS__PRICING__REVISION'
+        value: priceRevision
+      }
+      {
+        // Pydantic parses a nested mapping from JSON, so the object is passed
+        // through as written rather than flattened into one variable per model.
+        name: 'PAIMON_OBSERVABILITY__METRICS__PRICING__MODELS'
+        value: string(modelPrices)
+      }
+    ]
 
 // The API and the migration job are the same image with different commands and
 // need most of the same configuration. Written once.
@@ -285,7 +356,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
               // client at an authority that does not serve that cloud.
               value: '${environment().authentication.loginEndpoint}${tenantId}/v2.0'
             }
-          ])
+          ], telemetryEnvironment, pricingEnvironment)
           probes: [
             {
               // Startup, not liveness, does the waiting. A liveness probe

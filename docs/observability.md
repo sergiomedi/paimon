@@ -118,6 +118,32 @@ PAIMON_OBSERVABILITY__METRICS__ENDPOINT=http://localhost:4318/v1/metrics
 Both providers share one resource — `service.name`, `service.version`, `deployment.environment`
 — so a backend receiving both reads them as one service rather than two with similar names.
 
+### Azure Monitor, which needs the collector
+
+Azure Monitor is the one backend that does not simply accept OTLP, so the deployed environment
+sends everything through a collector — the same four variables above, pointed at a hostname
+inside the Container Apps environment instead of at localhost. The collector runs the upstream
+`opentelemetry-collector-contrib` image with
+[`infrastructure/collector.yaml`](../infrastructure/collector.yaml), and the application does
+not know Azure Monitor exists.
+
+Container Apps has a managed OpenTelemetry agent that would remove the collector. It is not
+used here, and the reason is worth knowing before reaching for it: **it cannot send metrics to
+Application Insights** — Microsoft's destination matrix says logs and traces only — and the
+metrics are the half of this platform's telemetry that carries tokens, cost and retrieval
+quality. It also speaks OTLP over gRPC only, while these exporters are the HTTP ones.
+[ADR-0041](adr/0041-telemetry-leaves-through-a-collector-we-control.md) has the rest.
+
+Ingestion is authenticated with a managed identity rather than the instrumentation key: the
+component is created with local authentication disabled, so the connection string names the
+destination and a Microsoft Entra token authorizes the write.
+
+**Where an export failure shows up.** Only in the collector's own logs
+(`az containerapp logs show --name ca-paimon-otel-<env>`). Its health endpoint reports that it
+is accepting data, not that it is delivering any, so an exporter that cannot authenticate looks
+healthy and drops everything. If the portal is empty, read the collector before reading the
+application.
+
 ### Prices, if you want a cost figure
 
 ```bash

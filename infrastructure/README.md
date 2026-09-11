@@ -13,6 +13,8 @@ The Azure environment, as code. **How to deploy it and what it costs is in
 | `modules/data.bicep` | PostgreSQL with no password and no public address, and the private endpoint that is the only route to it. |
 | `modules/ai.bicep` | Azure OpenAI and Azure AI Search, both with local authentication disabled. |
 | `modules/api.bicep` | The container app, its Redis sidecar, and the migration job. |
+| `modules/observability.bicep` | Application Insights with local authentication off, and the OpenTelemetry collector that is the only thing allowed to write to it. |
+| `collector.yaml` | The collector's configuration. A real file so an editor lints it and `check.sh` parses it; Bicep reads it with `loadTextContent()`. |
 | `bicepconfig.json` | Linter rules, raised to errors. |
 | `.env.<environment>` | Deployment outputs, written by `deploy.sh`. Git-ignored. |
 
@@ -61,7 +63,7 @@ Phase 7 is built in batches, and this template grows with them.
 | 2 | Azure OpenAI with two deployments, Azure AI Search | Nothing, on the defaults: the free search tier, and models that bill per token. `searchSku=basic` makes it ~0.10 EUR/hour. |
 | 3 | A virtual network, and PostgreSQL with no password and no public address | Yes — ~0.25 EUR/hour, and almost the whole bill |
 | 4 | The container app, a Redis sidecar and the migration job | Nothing while idle: it scales to zero. ~0.02 EUR/hour per running replica |
-| 5 | The OpenTelemetry collector | A second small container |
+| 5 | Application Insights, and the OpenTelemetry collector in front of it | ~0.01 EUR/hour for the collector, which does not scale to zero. Ingestion is per GB into the existing workspace |
 
 Batch 2 deliberately comes before the database. The riskiest thing in this phase is two
 adapters that have never been executed against the services they adapt, and the benchmark

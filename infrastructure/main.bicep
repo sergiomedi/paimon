@@ -160,6 +160,31 @@ param apiMinReplicas int = 0
 param apiMaxReplicas int = 3
 
 @description('''
+Whether to deploy Application Insights and the OpenTelemetry collector.
+
+On by default. Turning it off leaves the application emitting to its own no-op
+tracer, which is what a local deployment does and costs nothing — useful when the
+only thing being measured is the cost of everything else.
+''')
+param deployObservability bool = true
+
+@description('''
+Price list for cost attribution, as `{ "<model id>": { "input": <per million>, "output": <per million> } }`.
+
+Empty by default and deliberately not filled in here. Cost is token counts times a
+table somebody typed — the provider's invoice is the authority — so the numbers
+have to come from whoever is reading the pricing page on the day, not from a
+default checked into a repository months earlier.
+''')
+param modelPrices object = {}
+
+@description('Currency the prices above are in.')
+param priceCurrency string = 'USD'
+
+@description('A label for that price list. A date will do, and one is required as soon as there are prices.')
+param priceRevision string = 'unset'
+
+@description('''
 Whether to deploy the application.
 
 False for the first deployment of a new environment, and only then. The registry
@@ -250,6 +275,21 @@ module ai 'modules/ai.bicep' = {
   }
 }
 
+module observability 'modules/observability.bicep' = if (deployObservability) {
+  scope: group
+  name: 'observability'
+  params: {
+    location: location
+    environmentName: environmentName
+    containerAppsEnvironmentName: platform.outputs.containerAppsEnvironmentName
+    logAnalyticsWorkspaceId: platform.outputs.logAnalyticsWorkspaceId
+    identityResourceId: platform.outputs.identityResourceId
+    identityClientId: platform.outputs.identityClientId
+    identityPrincipalId: platform.outputs.identityPrincipalId
+    tags: allTags
+  }
+}
+
 module api 'modules/api.bicep' = if (deployApi) {
   scope: group
   name: 'api'
@@ -273,6 +313,10 @@ module api 'modules/api.bicep' = if (deployApi) {
     searchEndpoint: ai.outputs.searchEndpoint
     minReplicas: apiMinReplicas
     maxReplicas: apiMaxReplicas
+    collectorEndpoint: observability.?outputs.collectorEndpoint ?? ''
+    modelPrices: modelPrices
+    priceCurrency: priceCurrency
+    priceRevision: priceRevision
     tags: allTags
   }
 }
@@ -357,3 +401,12 @@ output migrationJobName string = api.?outputs.migrationJobName ?? ''
 
 @description('Image this environment is running, so that "which build is deployed" has an answer that is not a guess.')
 output apiImageDeployed string = api.?outputs.apiImageDeployed ?? ''
+
+@description('OTLP/HTTP address of the collector, reachable only from inside the environment.')
+output collectorEndpoint string = observability.?outputs.collectorEndpoint ?? ''
+
+@description('Name of the collector app. An export that is failing says so in its logs and nowhere else.')
+output collectorName string = observability.?outputs.collectorName ?? ''
+
+@description('Name of the Application Insights component the traces land in.')
+output insightsName string = observability.?outputs.insightsName ?? ''

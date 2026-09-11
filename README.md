@@ -391,7 +391,7 @@ including the negative ones.
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
 | Observability | OpenTelemetry · any OTLP backend | Plain OTel in the code; Langfuse, Azure Monitor or a collector by configuration — [ADR-0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md), [guide](docs/observability.md) |
-| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0040](docs/adr/0040-migrations-run-from-inside-the-network.md), [guide](docs/deployment.md) |
+| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0041](docs/adr/0041-telemetry-leaves-through-a-collector-we-control.md), [guide](docs/deployment.md) |
 | Evaluation | Golden sets · verified citations · LLM judge | Intervals, paired comparison and Cohen's kappa — [ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md) to [ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md), [guide](docs/evaluation.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
 | Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |

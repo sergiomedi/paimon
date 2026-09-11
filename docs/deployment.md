@@ -31,6 +31,8 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **PostgreSQL Flexible Server** | General Purpose. **No password and no public address** — Entra only, reachable through a private endpoint. |
 | **Container app** | The API and the MCP endpoint, with a Redis sidecar (ADR-0039). External ingress, scales to zero, `secrets: []`. |
 | **Container apps job** | `alembic upgrade head`, manually triggered, from the same image (ADR-0040). |
+| **Application Insights** | Workspace-based, into the same workspace as the logs. **Local authentication disabled** — ingestion needs a token, not a key. |
+| **OpenTelemetry collector** | The upstream contrib image, internal ingress only, the one thing allowed to write telemetry (ADR-0041). |
 
 The first five store nothing and serve nothing: that half of the environment deploys for
 about a cent an hour, which is why it went first and why the deployment path could be
@@ -246,6 +248,8 @@ trusting a table in a repository.
 | Container app, **idle** | Free. `minReplicas` is 0, so nothing runs and nothing bills |
 | Container app, **one replica running** | ~0.02 EUR/hour for 1 vCPU and 2 GiB, and the first 180,000 vCPU-seconds a month are free |
 | Migration job | Per second while it runs, which is seconds |
+| OpenTelemetry collector | ~0.01 EUR/hour. It does **not** scale to zero, on purpose |
+| Application Insights | Per GB into the workspace above; the first 5 GB a month are free |
 | **PostgreSQL, General Purpose D2ds_v5** | **~0.25 EUR/hour, and it is the reason destroy.sh exists** |
 
 **On the defaults, an afternoon is well under a euro and a month is around 180.** Almost all
@@ -315,6 +319,26 @@ it. And Alembic's `env.py` builds its engine through the application's own `buil
 rather than from a URL — a URL is enough with a password and not enough with an Entra token,
 which is fetched per connection. Handing Alembic a DSN would have worked on every laptop and
 failed in every deployed environment.
+
+## Getting a cost figure out of it
+
+Cost is not measured. It is token counts multiplied by a table somebody typed, and the
+provider's invoice is the authority — so the table is empty by default and no cost is reported
+at all, because a model absent from the price list produces silence rather than a zero.
+
+To fill it, read the pricing page on the day and pass the numbers in, per **million** tokens,
+which is the unit providers publish:
+
+```bash
+export PAIMON_AZURE_MODEL_PRICES='{"gpt-4.1-mini":{"input":0.4,"output":1.6}}'
+export PAIMON_AZURE_PRICE_REVISION="$(date -u +%Y-%m-%d)"
+./scripts/azure/deploy.sh
+```
+
+The revision label is required as soon as there are prices, and it is recorded on every
+measurement: a cost figure that cannot be traced back to the table that produced it becomes
+uninterpretable the moment the table changes. The numbers above are an example of the shape,
+not a quotation.
 
 ## Verifying the adapters against the real services
 
@@ -403,3 +427,8 @@ Stated here rather than left to be assumed:
   streaming or a job — not a larger timeout, because there is no timeout property to raise.
 - **Nothing about a shared cache.** Redis runs beside each replica rather than between them
   (ADR-0039), so a hit rate measured at one replica is not the hit rate at three.
+- **Nothing about whether the telemetry arrived.** The collector's health endpoint reports that
+  it is accepting data, not that it is delivering it. An exporter that cannot authenticate looks
+  healthy and drops everything, and it says so only in its own logs. If Application Insights is
+  empty, `az containerapp logs show --name ca-paimon-otel-<env>` is the first place to look, not
+  the second.
