@@ -92,8 +92,24 @@ validate() {
 
     printf '\n'
     # The useful part of an ARM error is buried several levels into a JSON blob
-    # that the CLI prints as one line.
-    printf '%s' "$output" | grep -oE '"(code|message)":"[^"]{0,300}"' | sed 's/^/  /' | head -12
+    # that the CLI prints as one line, so this digs it out.
+    #
+    # `|| true`, and the result kept in a variable rather than piped straight to
+    # the terminal, because of a bug this had: under `set -euo pipefail` a grep
+    # that matches nothing exits 1 and kills the script *there* — before the
+    # explanation, before the hint, before `die`. A validation failure printed a
+    # heading, no error, and an empty prompt. The one code path whose entire job
+    # is explaining a failure was the one that could not survive an unexpected
+    # one.
+    local detail
+    detail="$(printf '%s' "$output" | grep -oE '"(code|message)":"[^"]{0,300}"' || true)"
+    if [[ -n "$detail" ]]; then
+        printf '%s\n' "$detail" | sed 's/^/  /'
+    else
+        # Not the shape expected. Print it whole rather than print nothing: an
+        # error nobody recognises is exactly the one worth seeing verbatim.
+        printf '%s\n' "$output" | sed 's/^/  /'
+    fi
     printf '\n'
     case "$output" in
         *InsufficientQuota*)
