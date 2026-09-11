@@ -112,6 +112,11 @@ validate() {
     fi
     printf '\n'
     case "$output" in
+        *RequestDisallowedByAzure*|*locationineligible*)
+            warn "  Azure is not accepting new customers in $LOCATION. This is not quota and"
+            warn "  not a template problem: the region is closed to this subscription today."
+            warn "  ./scripts/azure/regions.sh   — which regions will take it"
+            ;;
         *InsufficientQuota*)
             warn "  No quota for that model in this deployment type and region. All three matter."
             warn "  az cognitiveservices usage list --location $LOCATION -o table"

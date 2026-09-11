@@ -114,11 +114,30 @@ export PAIMON_AZURE_ENV=dev              # names and tags everything
 export PAIMON_AZURE_LOCATION=swedencentral
 ```
 
-**Region is not a latency decision, it is a quota decision**, and the default here was
-changed on evidence. Sweden Central was the first choice on model-availability grounds, and
-a real deployment failed there twice: no `GlobalStandard` quota for the embedding model, and
-no capacity for a Basic search service. West Europe has both. Before changing this, see the
-next section — the answer takes seconds to get and a failed deployment to guess.
+**Region is not a latency decision, and it is not only a quota decision either.** Ask
+rather than choose:
+
+```bash
+./scripts/azure/regions.sh
+```
+
+It validates this template in each candidate region and says which will take it. Nothing is
+created and it takes about ten seconds a region.
+
+That script exists because picking a region from documentation has failed three times here,
+each for a different reason and each discovered only by trying:
+
+| | |
+|---|---|
+| Sweden Central | The models were in its catalogue and there was **no quota** for the deployment type the template asked for. |
+| Sweden Central | No **Basic search capacity** either. |
+| West Europe | Had both — and then stopped **accepting new customers**, which fails every resource in the template including the managed identities. |
+
+None of those is a property of the region. Each is a property of *this subscription, in that
+region, on that day*, which is why no table in any document can answer it and why the probe
+asks Azure instead. `RequestDisallowedByAzure` with a link to `aka.ms/locationineligible` is
+the third one's signature, and it is not quota: the region is simply closed to the
+subscription, and the fix is another region rather than a smaller request.
 
 ### What can actually be deployed here
 
@@ -157,6 +176,7 @@ redeploying and not.
 ## The commands
 
 ```bash
+./scripts/azure/regions.sh    # which regions will take this deployment at all
 ./scripts/azure/preview.sh    # can this be deployed, and what would it change
 ./scripts/azure/deploy.sh     # the same two checks, then asks, then deploys
 ./scripts/azure/publish.sh    # build the image into this environment's registry

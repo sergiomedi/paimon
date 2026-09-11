@@ -14,6 +14,7 @@ The Azure environment, as code. **How to deploy it and what it costs is in
 | `modules/ai.bicep` | Azure OpenAI and Azure AI Search, both with local authentication disabled. |
 | `modules/api.bicep` | The container app, its Redis sidecar, and the two jobs: the database bootstrap and the migration. |
 | `modules/observability.bicep` | Application Insights with local authentication off, and the OpenTelemetry collector that is the only thing allowed to write to it. |
+| `../scripts/azure/regions.sh` | Validates this template in every candidate region and says which will take it. Creates nothing. |
 | `collector.yaml` | The collector's configuration. A real file so an editor lints it and `check.sh` parses it; Bicep reads it with `loadTextContent()`. |
 | `bicepconfig.json` | Linter rules, raised to errors. |
 | `.env.<environment>` | Deployment outputs, written by `deploy.sh`. Git-ignored. |
