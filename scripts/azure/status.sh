@@ -31,13 +31,30 @@ bold "▸ soft-deleted key vaults holding a name"
 az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].{name:name, deleted:properties.deletionDate, purgeAfter:properties.scheduledPurgeDate}" -o table 2>/dev/null || true
 
 printf '\n'
+# This one is not a curiosity. Quota for Azure OpenAI includes a row named
+# OpenAI.S0.AccountCount, which on a trial subscription is often 1 of 1 — one
+# account, total — and a soft-deleted account still counts against it. A row here
+# is the difference between redeploying and being told there is no quota for a
+# model the subscription plainly has quota for.
+bold "▸ soft-deleted Azure OpenAI accounts still holding the account quota"
+az cognitiveservices account list-deleted \
+    --query "[?starts_with(name, 'oai-paimon')].{name:name, location:location, group:resourceGroup}" \
+    -o table 2>/dev/null || true
+
+printf '\n'
 bold "▸ what bills by the hour while it exists"
-printf 'On the default settings, almost nothing: the search service is on the free tier\n'
-printf 'and the model deployments bill per token. Deploy with searchSku=basic and that\n'
-printf 'changes — roughly 0.10 EUR an hour, whether or not anything queries it. That is\n'
-printf 'the one to care about, because it bills for existing rather than for working.\n'
-printf 'The container registry adds about 0.15 EUR a day. The model deployments bill per\n'
-printf 'token and cost nothing while idle.\n'
+printf 'Ordered by what actually matters, which changed once the database arrived:\n\n'
+printf '  ~0.25 EUR/h   PostgreSQL flexible server, General Purpose. It bills for\n'
+printf '                existing, it is the largest line by an order of magnitude, and\n'
+printf '                a month of it costs more than this phase has budget for.\n'
+printf '  ~0.01 EUR/h   the OpenTelemetry collector, which does not scale to zero.\n'
+printf '  ~0.15 EUR/day the container registry.\n'
+printf '  ~0.10 EUR/h   Azure AI Search, but ONLY with searchSku=basic. The default is\n'
+printf '                the free tier, which bills nothing for existing.\n'
+printf '  per token     the model deployments, and the API while it serves. Both cost\n'
+printf '                nothing idle; the API scales to zero.\n\n'
+printf 'So an environment left running overnight costs a few euros, and the way to pay\n'
+printf 'nothing is ./scripts/azure/destroy.sh rather than a quiet weekend.\n'
 printf '\nSpend to date is in the portal under Cost Management; the CLI cannot read it on\n'
 printf 'every subscription type, so it is deliberately not scripted here rather than\n'
 printf 'scripted and wrong.\n'

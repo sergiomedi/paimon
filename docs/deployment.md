@@ -425,6 +425,50 @@ endpoint and the container app are wired around them.
 
 Highest risk, lowest cost, first.
 
+## A measured run, end to end
+
+The environment exists to be measured once and destroyed, so this is the whole
+sequence in one place, with the things worth writing down as they go past. Budget
+a couple of hours and perhaps five euros; most of that is the database billing
+while you work.
+
+**Before the clock starts.** `az login`, the providers registered, the app
+registration created, and the quota table read for the region you are using.
+Everything above this section. None of it bills.
+
+```bash
+./scripts/azure/preview.sh                 # can this be deployed at all
+./scripts/azure/deploy.sh                  # everything except the application
+./scripts/azure/publish.sh                 # build the image, in Azure
+./scripts/azure/deploy.sh                  # again, now with the application
+./scripts/azure/bootstrap.sh               # the database role and extensions
+./scripts/azure/migrate.sh                 # the schema
+```
+
+Between the second `deploy.sh` and `bootstrap.sh`, give role assignments a few
+minutes. A bootstrap that fails on propagation is safe to retry and usually needs
+nothing else.
+
+**Then, in order, with what to record beside each:**
+
+| | Record |
+|---|---|
+| `./scripts/azure/status.sh` | What exists, and what it bills per hour. |
+| Ingest a document and ask a question through the API | The wall-clock time of the **first** request, which is a cold start: image pull, process start, pool open. It is the number nobody publishes and everybody meets. |
+| Ask the same question again | The warm number. The gap between the two is the interesting figure, not either one alone. |
+| Open Application Insights | That traces arrived at all, and what one request's span tree looks like end to end. If it is empty, read the collector's logs before anything else. |
+| The hybrid benchmark, below | Retrieval and answer quality against the real services rather than against Ollama. This is the number worth quoting, because it was measured against what a deployment would actually use. |
+| Cost Management in the portal | Actual spend for the session, per service. Not the estimate — the invoice. |
+
+Then `./scripts/azure/destroy.sh`, and `./scripts/azure/status.sh` once more to
+prove the table is empty. The second one matters: it is what turns "I destroyed
+it" into something checked rather than assumed.
+
+**Write the numbers down before the environment goes away.** Every figure above
+becomes unavailable the moment the resource group does, and the whole argument
+for provisioning, measuring and destroying is that the measurements outlive the
+environment.
+
 ## What this deployment will not tell you
 
 Stated here rather than left to be assumed:
