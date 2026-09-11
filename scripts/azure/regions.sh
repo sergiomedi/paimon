@@ -7,6 +7,12 @@
 # Creates nothing. It runs `az deployment sub validate` — this template, these
 # parameters — once per region and reports the first reason each one says no.
 #
+# It asks Azure twice per region, because one question is not enough. `validate`
+# checks the template, the providers, ordinary SKUs and whether the region is open
+# — and returns success for a region with no model quota at all. The first version
+# of this script reported ten usable regions for a subscription that could not
+# deploy a chat model in any of them. So the quota list is read as well.
+#
 # This exists because choosing a region by reading documentation has now failed
 # three times, each for a different reason, and each time the answer took a
 # failed deployment to find:
@@ -56,6 +62,19 @@ PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
 PAIMON_AZURE_OPERATOR_NAME="$(operator_principal_name)"
 export PAIMON_AZURE_OPERATOR_ID PAIMON_AZURE_OPERATOR_NAME
 
+# Resolved once. `bicep build-params` emits the parameter file and the compiled
+# template separately, and every one of these four values is currently a template
+# default rather than something the parameter file sets — so reading only the
+# parameter file would report nothing at all.
+PARAMS="$(mktemp)"
+trap 'rm -f "$PARAMS"' EXIT
+bicep_cli build-params "$INFRA/main.bicepparam" --stdout > "$PARAMS" 2>/dev/null \
+    || die "could not compile the parameter file. Try: ./scripts/check.sh infrastructure"
+
+bold "▸ what the template asks for"
+python3 "$(dirname "${BASH_SOURCE[0]}")/model_quota.py" --parameters "$PARAMS" --list | sed 's/^/  /'
+printf '\n'
+
 USABLE=()
 
 for region in "${REGIONS[@]}"; do
@@ -70,8 +89,15 @@ for region in "${REGIONS[@]}"; do
         --location "$region" \
         --template-file "$INFRA/main.bicep" \
         --parameters "$INFRA/main.bicepparam" 2>&1); then
-        printf '\033[32myes\033[0m\n'
-        USABLE+=("$region")
+        # Validated. Now the question validate does not answer.
+        if quota=$(az cognitiveservices usage list --location "$region" -o json 2>/dev/null |
+            python3 "$(dirname "${BASH_SOURCE[0]}")/model_quota.py" \
+                --parameters "$PARAMS" --usage - 2>&1); then
+            printf '\033[32myes\033[0m\n'
+            USABLE+=("$region")
+        else
+            printf '\033[33mno\033[0m   %s\n' "$(printf '%s' "$quota" | head -1)"
+        fi
         continue
     fi
 

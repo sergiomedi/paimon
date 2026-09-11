@@ -64,6 +64,34 @@ if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
     # The collector's configuration, parsed rather than trusted. Bicep loads it
     # with loadTextContent(), which checks that the file exists and nothing else.
     # Compiled first and then *run*, for the reason in the comment above this one.
+    # The quota checker, compiled and then run against a fixture built from real
+    # Azure output — including the row whose name disagrees with the model's
+    # (`gpt4.1-mini` against `gpt-4.1-mini`) and the dot inside it, which a naive
+    # split drops. Both of those cost a day each; neither can cost another.
+    step "model quota"
+    python3 -m py_compile scripts/azure/model_quota.py
+    python3 - <<'PYTHON'
+import json
+import pathlib
+import sys
+
+sys.path.insert(0, "scripts/azure")
+from model_quota import Wanted, missing, normalise  # noqa: E402
+
+assert normalise("gpt-4.1-mini") == normalise("gpt4.1-mini"), "the two spellings must agree"
+
+usage = [
+    {"name": {"value": "OpenAI.GlobalStandard.gpt4.1-mini"}, "limit": 200},
+    {"name": {"value": "OpenAI.Standard.text-embedding-3-large"}, "limit": 350},
+    {"name": {"value": "OpenAI.GlobalStandard.text-embedding-3-large"}, "limit": 0},
+]
+assert not missing(usage, [Wanted("GlobalStandard", "gpt-4.1-mini")]), "dotted name must match"
+assert missing(usage, [Wanted("GlobalStandard", "text-embedding-3-large")]), "limit 0 is not quota"
+assert missing(usage, [Wanted("Standard", "gpt-4.1-mini")]), "the deployment type matters"
+assert not missing(usage, [Wanted("Standard", "text-embedding-3-large")])
+print("  quota matching holds across both spellings")
+PYTHON
+
     step "collector config"
     python3 -m py_compile scripts/azure/collector_config.py
     python3 scripts/azure/collector_config.py

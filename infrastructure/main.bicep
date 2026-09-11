@@ -79,9 +79,16 @@ GlobalStandard.
 
 `az cognitiveservices usage list --location <region>` lists every combination and
 its limit. It is the only reliable answer, and it is worth reading before
-choosing a region.
+choosing a region — `scripts/azure/regions.sh` now reads it for you.
+
+The defaults below are not preferences. They are the only combination this
+subscription actually has, found by dumping every row with a limit above zero in
+ten regions: **Standard** for the embedding model, because
+`GlobalStandard.text-embedding-3-large` is present at limit 0 everywhere, and
+**GlobalStandard** for the chat model, which is the only type it is granted
+under.
 ''')
-param embeddingSku string = 'GlobalStandard'
+param embeddingSku string = 'Standard'
 
 @description('Deployment type for the chat model. See the note on embeddingSku.')
 param chatSku string = 'GlobalStandard'

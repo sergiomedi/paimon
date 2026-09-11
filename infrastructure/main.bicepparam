@@ -17,7 +17,7 @@ param environmentName = readEnvironmentVariable('PAIMON_AZURE_ENV', 'dev')
 // search service — both discovered by a failed deployment, both invisible to
 // `what-if`. Before changing this, run `scripts/azure/preview.sh`: it validates
 // against the region first, which is how those two are caught in seconds.
-param location = readEnvironmentVariable('PAIMON_AZURE_LOCATION', 'westeurope')
+param location = readEnvironmentVariable('PAIMON_AZURE_LOCATION', 'swedencentral')
 
 // az ad signed-in-user show --query id -o tsv
 param operatorPrincipalId = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_ID', '')

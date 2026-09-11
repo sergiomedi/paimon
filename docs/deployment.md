@@ -121,8 +121,14 @@ rather than choose:
 ./scripts/azure/regions.sh
 ```
 
-It validates this template in each candidate region and says which will take it. Nothing is
-created and it takes about ten seconds a region.
+It asks each candidate region **two** questions and reports which will take the deployment.
+Nothing is created; about ten seconds a region.
+
+Two questions, because one is not enough. `validate` checks the template, the providers,
+ordinary SKUs and whether the region is open to the subscription — and returns success for a
+region with no model quota at all. The first version of this probe reported ten usable
+regions for a subscription that could not deploy a chat model in any of them. So it reads the
+quota list as well, and a region is only green when both agree.
 
 That script exists because picking a region from documentation has failed three times here,
 each for a different reason and each discovered only by trying:
@@ -162,11 +168,18 @@ EOF
 ```
 
 The rows are named `OpenAI.<deployment type>.<model>`. A subscription that shows
-`OpenAI.Standard.text-embedding-3-large → 350` and has **no row at all** for
-`OpenAI.GlobalStandard.text-embedding-3-large` has 350 thousand tokens per minute of that
-model and cannot deploy a single one of it under Global Standard. That is not an edge case;
-it is what this project hit on its first attempt, and it is why `embeddingSku` and `chatSku`
-are parameters rather than constants.
+`OpenAI.Standard.text-embedding-3-large → 350` and has a row for
+`OpenAI.GlobalStandard.text-embedding-3-large` at **limit 0** has 350 thousand tokens per
+minute of that model and cannot deploy a single one of it under Global Standard. That is not
+an edge case; it is what this project hit on its first attempt and again on its third, and it
+is why `embeddingSku` and `chatSku` are parameters rather than constants — and why the
+defaults are now `Standard` for the embedding model and `GlobalStandard` for the chat model,
+which is the only combination this subscription actually holds.
+
+**The quota row is not named after the model.** The catalogue calls it `gpt-4.1-mini`; the
+quota row is `OpenAI.GlobalStandard.gpt4.1-mini` — no hyphen after `gpt`. Searching the quota
+list for the model's own name finds nothing, which reads exactly like having no quota, and it
+cost two days here. `regions.sh` normalises both spellings so nobody has to remember this.
 
 One more row worth finding before planning anything: `OpenAI.S0.AccountCount`. On a trial
 subscription it is often **1 / 1** — one Azure OpenAI account, total. A soft-deleted one

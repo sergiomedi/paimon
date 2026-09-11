@@ -218,6 +218,22 @@ jobs:
       # collector that crash-loops, so the YAML is parsed here. PyYAML is
       # installed rather than assumed: without it the check skips itself, which
       # is right on a laptop and wrong in CI.
+      # A quota row is named gpt4.1-mini where the model is gpt-4.1-mini, and the
+      # name contains a dot that a naive split drops. Both mistakes were made
+      # here and both are cheap to make again.
+      - name: Check the model quota matching
+        run: |
+          python3 -m py_compile scripts/azure/model_quota.py
+          python3 -c "
+import sys; sys.path.insert(0, 'scripts/azure')
+from model_quota import Wanted, missing, normalise
+assert normalise('gpt-4.1-mini') == normalise('gpt4.1-mini')
+usage = [{'name': {'value': 'OpenAI.GlobalStandard.gpt4.1-mini'}, 'limit': 200}]
+assert not missing(usage, [Wanted('GlobalStandard', 'gpt-4.1-mini')])
+assert missing(usage, [Wanted('Standard', 'gpt-4.1-mini')])
+print('ok')
+"
+
       - name: Check the collector configuration
         run: |
           python3 -m pip install --quiet pyyaml
