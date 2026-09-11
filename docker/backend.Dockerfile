@@ -19,13 +19,25 @@ WORKDIR /app
 # Dependencies are installed before the source is copied, so that editing a
 # module does not invalidate the dependency layer.
 COPY backend/pyproject.toml backend/uv.lock backend/.python-version ./
+# The azure extra, not just the base dependencies. It carries azure-identity,
+# which is what every keyless path in this platform runs on: model calls,
+# search calls, and since ADR-0038 the database connection itself. It is an
+# extra rather than a dependency because a laptop running against Ollama and a
+# local PostgreSQL has no use for it — and a deployed image that inherited that
+# default would fail to authenticate to everything, at once, on first request.
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-install-project
+    uv sync --frozen --no-dev --extra azure --no-install-project
 
 COPY backend/src ./src
 COPY backend/README.md ./
+# The schema's history travels with the code that assumes it. A runtime image
+# without migrations means the only thing that can migrate a database is a
+# developer's checkout, and since ADR-0038 there is no route from a checkout to
+# the database at all — the migration runs as a job, from this image.
+COPY backend/alembic.ini ./
+COPY backend/migrations ./migrations
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --extra azure
 
 
 FROM python:3.13-slim-bookworm AS runtime
@@ -39,6 +51,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=paimon:paimon /app/.venv /app/.venv
 COPY --from=builder --chown=paimon:paimon /app/src /app/src
+COPY --from=builder --chown=paimon:paimon /app/alembic.ini /app/alembic.ini
+COPY --from=builder --chown=paimon:paimon /app/migrations /app/migrations
 
 ENV PATH="/app/.venv/bin:${PATH}" \
     PYTHONUNBUFFERED=1 \

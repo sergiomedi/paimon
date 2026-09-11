@@ -9,7 +9,10 @@ The Azure environment, as code. **How to deploy it and what it costs is in
 |---|---|
 | `main.bicep` | Subscription-scoped entry point. Creates the resource group and calls the modules. |
 | `main.bicepparam` | Parameters, read from the environment rather than written down. |
-| `modules/platform.bicep` | Identity, logs, secrets, registry, Container Apps environment. |
+| `modules/platform.bicep` | Identity, logs, secrets, registry, virtual network, Container Apps environment. |
+| `modules/data.bicep` | PostgreSQL with no password and no public address, and the private endpoint that is the only route to it. |
+| `modules/ai.bicep` | Azure OpenAI and Azure AI Search, both with local authentication disabled. |
+| `modules/api.bicep` | The container app, its Redis sidecar, and the migration job. |
 | `bicepconfig.json` | Linter rules, raised to errors. |
 | `.env.<environment>` | Deployment outputs, written by `deploy.sh`. Git-ignored. |
 
@@ -57,7 +60,7 @@ Phase 7 is built in batches, and this template grows with them.
 | 1 | Managed identity, Log Analytics, Key Vault, container registry, Container Apps environment | The registry, ~0.15 EUR/day. Nothing else. |
 | 2 | Azure OpenAI with two deployments, Azure AI Search | Nothing, on the defaults: the free search tier, and models that bill per token. `searchSku=basic` makes it ~0.10 EUR/hour. |
 | 3 | A virtual network, and PostgreSQL with no password and no public address | Yes — ~0.25 EUR/hour, and almost the whole bill |
-| 4 | The container app itself | Per request, and per replica above the floor |
+| 4 | The container app, a Redis sidecar and the migration job | Nothing while idle: it scales to zero. ~0.02 EUR/hour per running replica |
 | 5 | The OpenTelemetry collector | A second small container |
 
 Batch 2 deliberately comes before the database. The riskiest thing in this phase is two

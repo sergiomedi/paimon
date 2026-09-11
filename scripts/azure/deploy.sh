@@ -29,6 +29,8 @@ if [[ -z "$PAIMON_AZURE_OPERATOR_ID" ]]; then
     printf '\n'
 fi
 
+resolve_api_image
+
 validate
 
 if [[ "$CONFIRM" == true ]]; then
@@ -69,5 +71,18 @@ cat "$OUTPUTS"
 
 printf '\n'
 bold "▸ deployed"
-printf 'Nothing in this environment bills by the hour yet except the registry, at roughly\n'
-printf '0.15 EUR a day. When you are finished: ./scripts/azure/destroy.sh\n'
+
+if [[ "$PAIMON_DEPLOY_API" == "false" ]]; then
+    printf 'The application was not part of this pass, because there was no image to run.\n'
+    printf 'Next:\n'
+    printf '  ./scripts/azure/publish.sh      build the image into this registry\n'
+    printf '  ./scripts/azure/deploy.sh       deploy it\n\n'
+else
+    printf 'Next:\n'
+    printf '  ./scripts/azure/migrate.sh      bring the schema up to date\n\n'
+    printf 'The schema step is not optional on a new environment, and it needs the manual\n'
+    printf 'PostgreSQL role from "The one manual step" in docs/deployment.md to exist first.\n\n'
+fi
+
+printf 'This environment bills for the database at roughly 0.25 EUR an hour whether or not\n'
+printf 'anything queries it. When you are finished: ./scripts/azure/destroy.sh\n'

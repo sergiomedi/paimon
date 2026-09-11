@@ -9,22 +9,24 @@ import asyncio
 
 from alembic import context
 from sqlalchemy import Connection, pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.ext.asyncio import AsyncEngine, async_engine_from_config
 
 from paimon.config import get_settings
+from paimon.infrastructure.azure import build_token_provider
+from paimon.infrastructure.persistence.engine import build_engine
 from paimon.infrastructure.persistence.models import Base
 
 config = context.config
 target_metadata = Base.metadata
 
 
-def _database_url() -> str:
-    """The URL to migrate.
+def _url_override() -> str | None:
+    """An explicitly supplied URL, or ``None`` to use the application's settings.
 
-    Three sources, in order: a URL set programmatically (how the integration
-    tests migrate a throwaway database), then ``-x db_url=...`` on the command
-    line, then the application's own settings. The last is the normal path, and
-    it is why there is no database URL written into alembic.ini.
+    Two sources, in order: a URL set programmatically (how the integration tests
+    migrate a throwaway database), then ``-x db_url=...`` on the command line.
+    Neither is the normal path, and it is why there is no database URL written
+    into alembic.ini.
     """
     programmatic = config.attributes.get("db_url")
     if programmatic:
@@ -32,7 +34,41 @@ def _database_url() -> str:
     override = context.get_x_argument(as_dictionary=True).get("db_url")
     if override:
         return str(override)
-    return get_settings().database.dsn
+    return None
+
+
+def _database_url() -> str:
+    """The URL to migrate, for the offline mode that only renders SQL."""
+    return _url_override() or get_settings().database.dsn
+
+
+def _engine() -> AsyncEngine:
+    """The engine to migrate with.
+
+    An explicit URL is honoured exactly as written, on a null pool: a caller who
+    passed a URL meant that URL, and the integration tests pass one pointing at a
+    throwaway database.
+
+    Everything else goes through the application's own engine builder rather than
+    through a URL, because since ADR-0038 a URL is not enough to connect. Under
+    Microsoft Entra authentication the credential is a token presented in the
+    password field and fetched per connection, and only ``build_engine`` installs
+    the hook that does it. Handing a DSN to SQLAlchemy here would work on a laptop
+    and fail in every deployed environment — which is the worst place for the
+    difference to show up, since the deployed database is the only one a
+    migration cannot be rehearsed against.
+    """
+    override = _url_override()
+    if override is not None:
+        section: dict[str, str] = config.get_section(config.config_ini_section, {})
+        section["sqlalchemy.url"] = override
+        return async_engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
+
+    database = get_settings().database
+    # build_token_provider imports azure-identity lazily and says so when it is
+    # missing, so a local migration never needs the extra installed.
+    provider = build_token_provider() if database.auth == "entra" else None
+    return build_engine(database, provider)
 
 
 def include_object(
@@ -73,9 +109,7 @@ def do_run_migrations(connection: Connection) -> None:
 
 async def run_async_migrations() -> None:
     """Connect asynchronously and run the migrations."""
-    section: dict[str, str] = config.get_section(config.config_ini_section, {})
-    section["sqlalchemy.url"] = _database_url()
-    engine = async_engine_from_config(section, prefix="sqlalchemy.", poolclass=pool.NullPool)
+    engine = _engine()
     async with engine.connect() as connection:
         await connection.run_sync(do_run_migrations)
     await engine.dispose()

@@ -13,8 +13,16 @@ INFRA="$ROOT/infrastructure"
 # Name of the environment. Everything is named and tagged after it, and every
 # script acts on exactly one.
 ENVIRONMENT="${PAIMON_AZURE_ENV:-dev}"
-LOCATION="${PAIMON_AZURE_LOCATION:-swedencentral}"
+# West Europe, matching the default in main.bicepparam. They have to agree:
+# these scripts export PAIMON_AZURE_LOCATION, and an exported value wins over the
+# parameter file's default — so a stale default here silently overrode the one
+# that was changed on evidence, and every deployment went to the region that had
+# neither the quota nor the search capacity.
+LOCATION="${PAIMON_AZURE_LOCATION:-westeurope}"
 GROUP="rg-paimon-${ENVIRONMENT}"
+
+# Name of the image repository inside the registry. One repository, many tags.
+IMAGE_REPOSITORY="paimon-api"
 
 export PAIMON_AZURE_ENV="$ENVIRONMENT"
 export PAIMON_AZURE_LOCATION="$LOCATION"
@@ -101,4 +109,66 @@ validate() {
             ;;
     esac
     die "nothing deployed."
+}
+
+# Name of this environment's container registry. Empty when the environment does
+# not exist yet, which is the case publish.sh has to report rather than trip over.
+registry_name() {
+    az acr list --resource-group "$GROUP" --query "[0].name" -o tsv 2>/dev/null || printf ''
+}
+
+# The image to deploy: whatever was asked for, or the newest tag in the registry.
+#
+# Resolved rather than defaulted. A Container App pointed at an image that does
+# not exist deploys successfully and then fails every revision, so the failure
+# arrives minutes later as an unhealthy app rather than immediately as a refused
+# deployment. Asking the registry first turns that into one legible message.
+api_image() {
+    if [[ -n "${PAIMON_API_IMAGE:-}" ]]; then
+        printf '%s' "$PAIMON_API_IMAGE"
+        return
+    fi
+
+    local registry tag
+    registry="$(registry_name)"
+    if [[ -z "$registry" ]]; then
+        printf ''
+        return
+    fi
+
+    # Ordered by the time the manifest was written, newest first. Not by tag name:
+    # the tags here are commit hashes, and those do not sort chronologically.
+    tag="$(az acr repository show-tags --name "$registry" --repository "$IMAGE_REPOSITORY" \
+        --orderby time_desc --top 1 -o tsv 2>/dev/null || printf '')"
+    [[ -n "$tag" ]] || { printf ''; return; }
+
+    printf '%s.azurecr.io/%s:%s' "$registry" "$IMAGE_REPOSITORY" "$tag"
+}
+
+# Resolve the image and decide whether the application can be deployed at all.
+#
+# The first deployment of a new environment cannot include the application: the
+# registry it pulls from is created *by* that deployment, so there is nowhere for
+# an image to have been pushed to yet. Rather than paper over that with a
+# placeholder image — which produces an app that exists and never starts — the
+# application is simply left out of the first pass and added by the second.
+#
+# This is the same shape as `azd provision` followed by `azd deploy`, for the
+# same reason, and it is why the sequence in the guide is three commands.
+resolve_api_image() {
+    PAIMON_API_IMAGE="$(api_image)"
+    if [[ -n "$PAIMON_API_IMAGE" ]]; then
+        PAIMON_DEPLOY_API="true"
+        printf 'image         %s\n\n' "$PAIMON_API_IMAGE"
+    else
+        PAIMON_DEPLOY_API="false"
+        # A value the template will not use, present only because the parameter
+        # is required and a required parameter with a usable default is how an
+        # unstartable app gets deployed by accident.
+        PAIMON_API_IMAGE="none"
+        warn "No image published yet, so this pass leaves the application out."
+        warn "Afterwards:  ./scripts/azure/publish.sh  &&  ./scripts/azure/deploy.sh"
+        printf '\n'
+    fi
+    export PAIMON_API_IMAGE PAIMON_DEPLOY_API
 }

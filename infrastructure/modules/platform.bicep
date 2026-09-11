@@ -260,6 +260,9 @@ resource operatorWritesSecrets 'Microsoft.Authorization/roleAssignments@2022-04-
 }
 
 output identityName string = identity.name
+// The resource id, not just the principal id: a container app names the identity
+// it pulls images with by resource id, and the two are not interchangeable.
+output identityResourceId string = identity.id
 output identityClientId string = identity.properties.clientId
 output identityPrincipalId string = identity.properties.principalId
 output containerRegistryName string = registry.name

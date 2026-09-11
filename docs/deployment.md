@@ -23,12 +23,14 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **User-assigned managed identity** | Everything else's answer to "who is calling". Assigned roles before any workload exists, which is the ordering that a system-assigned identity cannot give you. |
 | **Log Analytics workspace** | Where container logs land, and later where traces do. |
 | **Key Vault** | RBAC-authorized, for the few secrets that cannot be designed away. |
-| **Container registry** | Basic tier. The image lands here in a later batch. |
-| **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the collector, and Phase 8's migration job. |
+| **Container registry** | Basic tier. `publish.sh` builds the image into it, in Azure rather than on your machine. |
+| **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the migration job, and the collector in the next batch. |
 | **Azure OpenAI** | One chat deployment and one embedding deployment. Local authentication **disabled**. |
 | **Azure AI Search** | Free tier by default, local authentication **disabled**. |
 | **Virtual network** | Two subnets: one the Container Apps environment is injected into, one holding private endpoints. |
 | **PostgreSQL Flexible Server** | General Purpose. **No password and no public address** — Entra only, reachable through a private endpoint. |
+| **Container app** | The API and the MCP endpoint, with a Redis sidecar (ADR-0039). External ingress, scales to zero, `secrets: []`. |
+| **Container apps job** | `alembic upgrade head`, manually triggered, from the same image (ADR-0040). |
 
 The first five store nothing and serve nothing: that half of the environment deploys for
 about a cent an hour, which is why it went first and why the deployment path could be
@@ -55,9 +57,32 @@ az bicep install
 # an error that does not obviously say so. Registering takes a few minutes and
 # only has to happen once per subscription.
 for ns in Microsoft.ManagedIdentity Microsoft.OperationalInsights Microsoft.KeyVault \
-          Microsoft.ContainerRegistry Microsoft.App Microsoft.CognitiveServices Microsoft.Search; do
+          Microsoft.ContainerRegistry Microsoft.App Microsoft.CognitiveServices Microsoft.Search \
+          Microsoft.Network Microsoft.DBforPostgreSQL; do
     az provider register --namespace "$ns"
 done
+```
+
+### The app registration, which no template can create
+
+The API validates Microsoft Entra tokens and a deployed environment **refuses the
+development identity provider outright** — there is no bypass to fall back on. So an
+application to issue tokens for has to exist, and an Entra app registration is not an ARM
+resource, so this is the one prerequisite that is genuinely manual:
+
+```bash
+APP_ID="$(az ad app create --display-name paimon-api --query appId -o tsv)"
+
+# The application ID URI is what clients name when asking for a token, and what the
+# API checks the 'aud' claim against. They have to be the same string.
+az ad app update --id "$APP_ID" --identifier-uris "api://paimon"
+
+export PAIMON_AZURE_API_AUDIENCE="api://paimon"
+```
+
+`api://paimon` is the default the parameter file uses, so if you use that URI there is
+nothing to export. Anything else has to be exported before `deploy.sh`, because the value
+is baked into the container's configuration rather than read at runtime.
 ```
 
 The scripts print the subscription name and id before doing anything. Read that line —
@@ -126,14 +151,44 @@ subscription it is often **1 / 1** — one Azure OpenAI account, total. A soft-d
 still counts against it, which makes the purge in `destroy.sh` the difference between
 redeploying and not.
 
-## The four commands
+## The commands
 
 ```bash
 ./scripts/azure/preview.sh    # can this be deployed, and what would it change
 ./scripts/azure/deploy.sh     # the same two checks, then asks, then deploys
+./scripts/azure/publish.sh    # build the image into this environment's registry
+./scripts/azure/migrate.sh    # bring the database schema up to date
 ./scripts/azure/status.sh     # what exists right now, anywhere in the subscription
 ./scripts/azure/destroy.sh    # delete, purge, and prove nothing is left
 ```
+
+### A new environment takes four of them, in this order
+
+```bash
+./scripts/azure/deploy.sh     # everything except the application
+./scripts/azure/publish.sh    # build the image
+./scripts/azure/deploy.sh     # again, now with the application
+#   ... the manual PostgreSQL role, once — see below
+./scripts/azure/migrate.sh    # create the schema
+```
+
+**Why twice.** The registry the application pulls from is created *by* this template, so on
+the very first pass there is nowhere an image could already have been pushed to. Rather than
+deploy a Container App pointed at an image that does not exist — which succeeds, then fails
+every revision it starts, silently, minutes later — `deploy.sh` asks the registry what is in
+it and simply leaves the application out of the first pass. It tells you so, and tells you
+what to run next. This is the same shape as `azd provision` followed by `azd deploy`, for
+the same reason.
+
+After that, a code change is two commands: `publish.sh` then `deploy.sh`. The image is
+tagged with the commit it was built from — with a `-dirty` suffix when the tree had
+uncommitted changes — so "which build is deployed" has an answer, and it is in the
+deployment outputs as `AZURE_API_IMAGE_DEPLOYED`.
+
+**The build happens in Azure.** `publish.sh` uses `az acr build`, which uploads the build
+context and runs the Dockerfile on ACR's own agents. No Docker daemon is needed locally,
+which matters on WSL without Docker Desktop and in CI, and the image never crosses the
+network as layers.
 
 `preview.sh` asks Azure **two different questions**, and the distinction is worth holding on
 to. *Validation* asks whether this deployment is possible at all — quota, SKU availability,
@@ -188,10 +243,19 @@ trusting a table in a repository.
 | Azure AI Search, Basic | ~0.10 EUR/hour, **whether or not anything queries it** |
 | Azure OpenAI | Per token. Nothing while idle |
 | Virtual network, private endpoint | Free, and about 0.01 EUR/hour respectively |
+| Container app, **idle** | Free. `minReplicas` is 0, so nothing runs and nothing bills |
+| Container app, **one replica running** | ~0.02 EUR/hour for 1 vCPU and 2 GiB, and the first 180,000 vCPU-seconds a month are free |
+| Migration job | Per second while it runs, which is seconds |
 | **PostgreSQL, General Purpose D2ds_v5** | **~0.25 EUR/hour, and it is the reason destroy.sh exists** |
 
 **On the defaults, an afternoon is well under a euro and a month is around 180.** Almost all
 of it is the database: everything else here is free while idle or billed per token.
+
+The application is in the second category on purpose. `minReplicas: 0` means an environment
+nobody is using costs nothing for the application, and the price is a cold start on the
+first request after roughly five minutes of quiet — an image pull, a process start and two
+connection pools opening. That is worth knowing *before* the first latency measurement
+rather than after it: the first request is not a measurement of anything.
 
 Two shapes of cost, and the difference is the one that matters here. Azure OpenAI bills per
 token: a deployment nobody calls costs nothing at all, and the entire fifteen-question
@@ -226,8 +290,31 @@ The name must match the managed identity **exactly**, case included: it is the u
 connection presents, and a mismatch is an authentication failure that says nothing about
 names.
 
-Until the schema migration step of Phase 8 exists, this is the one thing between a deployed
-environment and a working one, and it is stated here rather than discovered.
+This is the one thing between a deployed environment and a working one, and it is stated
+here rather than discovered. It comes **before** `migrate.sh`, because the migration job
+authenticates as the same identity and fails the same way without it — which is why
+`migrate.sh` names this section when a migration fails.
+
+## Migrating the schema
+
+```bash
+./scripts/azure/migrate.sh
+```
+
+Starts the migration job, waits for it, and prints its logs. The job runs the deployed image
+with `alembic upgrade head`, inside the virtual network, because since the database lost its
+public address there is no route to it from anywhere else (ADR-0040).
+
+It is **manually triggered**, not run on every deployment and not on a schedule. A migration
+is a decision; Phase 8 is where the decision gets a gate in front of it rather than being
+removed.
+
+Two things follow from the job running the same image as the API. The image carries
+`alembic.ini` and `migrations/`, so the schema's history travels with the code that assumes
+it. And Alembic's `env.py` builds its engine through the application's own `build_engine`
+rather than from a URL — a URL is enough with a password and not enough with an Entra token,
+which is fetched per connection. Handing Alembic a DSN would have worked on every laptop and
+failed in every deployed environment.
 
 ## Verifying the adapters against the real services
 
@@ -310,3 +397,9 @@ Stated here rather than left to be assumed:
   a check that the adapters work against real services, not a performance benchmark.
 - **Nothing about cost at volume.** Per-token pricing over fifteen benchmark questions
   does not extrapolate to a working day of real use.
+- **Nothing about requests longer than four minutes.** Container Apps closes an ingress
+  connection at 240 seconds and that number belongs to the platform. An agent run that takes
+  longer is cut off by the infrastructure rather than by the application, and the answer is
+  streaming or a job — not a larger timeout, because there is no timeout property to raise.
+- **Nothing about a shared cache.** Redis runs beside each replica rather than between them
+  (ADR-0039), so a hit rate measured at one replica is not the hit rate at three.

@@ -41,7 +41,6 @@ dependencies = [
     "opentelemetry-instrumentation-fastapi>=0.51b0",
     "opentelemetry-instrumentation-httpx>=0.51b0",
     "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
-    "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
 ]
 
 # Entra ID authentication. Optional: a deployment using service keys needs

@@ -300,8 +300,9 @@ would otherwise hold them, and `status.sh` looks across the whole subscription r
 at the resource group you happen to be thinking about
 ([ADR-0036](docs/adr/0036-an-environment-built-to-be-destroyed.md)).
 
-☁️ **[Deploying Paimon](docs/deployment.md)** — what gets created, the four commands, what
-it costs by the hour, and what a deployment that lives for an afternoon cannot tell you.
+☁️ **[Deploying Paimon](docs/deployment.md)** — what gets created, the commands in the order
+a new environment needs them, what it costs by the hour, and what a deployment that lives for
+an afternoon cannot tell you.
 
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
@@ -390,7 +391,7 @@ including the negative ones.
 | Data | PostgreSQL 17 · Redis 7 | System of record, and cache plus coordination |
 | Identity | Microsoft Entra ID (OIDC) | The platform stores no credentials |
 | Observability | OpenTelemetry · any OTLP backend | Plain OTel in the code; Langfuse, Azure Monitor or a collector by configuration — [ADR-0025](docs/adr/0025-opentelemetry-as-the-only-instrumentation.md), [guide](docs/observability.md) |
-| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0038](docs/adr/0038-a-database-with-no-password-and-no-public-address.md), [guide](docs/deployment.md) |
+| Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0040](docs/adr/0040-migrations-run-from-inside-the-network.md), [guide](docs/deployment.md) |
 | Evaluation | Golden sets · verified citations · LLM judge | Intervals, paired comparison and Cohen's kappa — [ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md) to [ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md), [guide](docs/evaluation.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
 | Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |
@@ -689,7 +690,7 @@ frontend/
 
 evaluation/          Corpus, golden set, manifest
 infrastructure/      The Azure environment as Bicep, and the modules it calls
-scripts/azure/       preview, deploy, status, destroy
+scripts/azure/       preview, deploy, publish, migrate, status, destroy
 ```
 
 ## Demo

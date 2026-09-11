@@ -28,3 +28,25 @@ param operatorPrincipalId = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_ID', 
 // rejects a create where the two disagree, which is a confusing failure: the
 // object id is right, the principal exists, and the message is about a name.
 param administratorPrincipalName = readEnvironmentVariable('PAIMON_AZURE_OPERATOR_NAME', '')
+
+// The image to run, registry included. Set by scripts/azure/deploy.sh, which
+// resolves it from the registry when PAIMON_API_IMAGE is not set and refuses to
+// deploy when the registry is empty. There is deliberately no usable default: a
+// placeholder here would produce a Container App that exists, passes no probe,
+// and has to be noticed rather than announced.
+param apiImage = readEnvironmentVariable('PAIMON_API_IMAGE', 'none')
+
+// False only on the first deployment of a new environment, when the registry
+// this template creates is necessarily still empty. deploy.sh works it out by
+// asking the registry and sets it; nobody sets it by hand.
+param deployApi = readEnvironmentVariable('PAIMON_DEPLOY_API', 'true') == 'true'
+
+// Application id URI of the app registration the API validates tokens for, for
+// example api://paimon. See "Before you start" in docs/deployment.md — this is
+// the one thing the template cannot create, because an Entra app registration is
+// not an ARM resource.
+param apiAudience = readEnvironmentVariable('PAIMON_AZURE_API_AUDIENCE', 'api://paimon')
+
+// The tenant whose tokens are accepted. Empty means the tenant being deployed
+// into, which is the right answer whenever the API and its callers live together.
+param apiTenantId = readEnvironmentVariable('PAIMON_AZURE_TENANT_ID', '')

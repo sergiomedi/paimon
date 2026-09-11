@@ -123,6 +123,57 @@ param appsSubnetPrefix string = '10.60.0.0/23'
 @description('Subnet holding private endpoints.')
 param privateEndpointSubnetPrefix string = '10.60.4.0/28'
 
+@description('''
+Fully-qualified image the API and the migration job run, registry included.
+
+There is no default, because there is no image until one is built: the registry
+is created by this template and filled by `scripts/azure/publish.sh`, which
+prints this value. Deploying a Container App whose image does not exist produces
+an app that is deployed and permanently broken, which is a worse outcome than a
+deployment that refuses to start — so this is required, and deploy.sh resolves it
+from the registry when it is not set.
+''')
+@minLength(3)
+param apiImage string
+
+@description('Microsoft Entra tenant whose tokens the API accepts. Empty means the tenant being deployed into, which is right whenever the API and its callers live together.')
+param apiTenantId string = ''
+
+@description('''
+Application id URI of the app registration the API validates tokens for — the
+expected `aud` claim.
+
+The one prerequisite this template cannot create for you: an Entra app
+registration is not an ARM resource. A deployed environment refuses the
+development identity provider outright, so there is no bypass and no way to defer
+this. The deployment guide has the two commands that create it.
+''')
+@minLength(1)
+param apiAudience string
+
+@description('Replicas to keep warm. Zero costs nothing while idle and pays a cold start on the first request after roughly five minutes of quiet.')
+@minValue(0)
+param apiMinReplicas int = 0
+
+@description('Ceiling on replicas. Three rather than the default ten, because this environment is bounded by a budget rather than by demand.')
+@minValue(1)
+param apiMaxReplicas int = 3
+
+@description('''
+Whether to deploy the application.
+
+False for the first deployment of a new environment, and only then. The registry
+the application pulls from is created *by* this template, so on the first pass
+there is nowhere an image could have been pushed to yet — and a Container App
+pointed at an image that does not exist is created successfully and then fails
+every revision it starts.
+
+So the first pass creates everything else, `publish.sh` fills the registry, and
+the second pass adds the application. deploy.sh sets this on its own by asking
+the registry what is in it.
+''')
+param deployApi bool = true
+
 // Deterministic across redeployments of the same environment in the same
 // subscription, which is what makes `deploy` idempotent — and is also why
 // `destroy` has to purge soft-deleted resources rather than leave their names
@@ -199,6 +250,33 @@ module ai 'modules/ai.bicep' = {
   }
 }
 
+module api 'modules/api.bicep' = if (deployApi) {
+  scope: group
+  name: 'api'
+  params: {
+    location: location
+    environmentName: environmentName
+    containerAppsEnvironmentName: platform.outputs.containerAppsEnvironmentName
+    containerAppsDefaultDomain: platform.outputs.containerAppsDefaultDomain
+    containerRegistryLoginServer: platform.outputs.containerRegistryLoginServer
+    identityResourceId: platform.outputs.identityResourceId
+    identityClientId: platform.outputs.identityClientId
+    identityName: platform.outputs.identityName
+    apiImage: apiImage
+    tenantId: empty(apiTenantId) ? subscription().tenantId : apiTenantId
+    apiAudience: apiAudience
+    databaseHost: data.outputs.databaseHost
+    databaseName: data.outputs.databaseName
+    openaiEndpoint: ai.outputs.openaiEndpoint
+    chatDeploymentName: ai.outputs.chatDeploymentName
+    embeddingDeploymentName: ai.outputs.embeddingDeploymentName
+    searchEndpoint: ai.outputs.searchEndpoint
+    minReplicas: apiMinReplicas
+    maxReplicas: apiMaxReplicas
+    tags: allTags
+  }
+}
+
 @description('Resource group holding this environment. Deleting it removes everything except the soft-deleted key vault.')
 output resourceGroupName string = group.name
 
@@ -261,3 +339,21 @@ output databaseName string = data.outputs.databaseName
 
 @description('Name of the PostgreSQL server.')
 output databaseServerName string = data.outputs.databaseServerName
+
+// Empty rather than absent when the application was not deployed: an output that
+// disappears breaks whatever reads the list, and "" is a readable answer to
+// "where is the API" when the answer is "nowhere yet".
+@description('Public address of the API. Everything else in this list is a means to it.')
+output apiUrl string = api.?outputs.apiUrl ?? ''
+
+@description('Hostname the API answers to, which is also the only Host header the MCP transport accepts.')
+output apiFqdn string = api.?outputs.apiFqdn ?? ''
+
+@description('Name of the container app, for az containerapp logs.')
+output apiName string = api.?outputs.apiName ?? ''
+
+@description('Name of the migration job, which migrate.sh starts.')
+output migrationJobName string = api.?outputs.migrationJobName ?? ''
+
+@description('Image this environment is running, so that "which build is deployed" has an answer that is not a guess.')
+output apiImageDeployed string = api.?outputs.apiImageDeployed ?? ''

@@ -49,6 +49,8 @@ reasoning trail, and rewriting history destroys it.
 | [0036](0036-an-environment-built-to-be-destroyed.md) | The environment is built to be destroyed, and the teardown is a feature | Accepted |
 | [0037](0037-keyless-is-enforced-at-the-resource.md) | Keyless is enforced at the resource, not chosen by the client | Accepted |
 | [0038](0038-a-database-with-no-password-and-no-public-address.md) | A database with no password and no public address | Accepted |
+| [0039](0039-the-cache-runs-beside-the-thing-that-uses-it.md) | The cache runs beside the thing that uses it | Accepted |
+| [0040](0040-migrations-run-from-inside-the-network.md) | Migrations run from inside the network, as a job | Accepted |
 
 ## Writing a new ADR
 
