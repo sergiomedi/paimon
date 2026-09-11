@@ -30,7 +30,8 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **Virtual network** | Two subnets: one the Container Apps environment is injected into, one holding private endpoints. |
 | **PostgreSQL Flexible Server** | General Purpose. **No password and no public address** — Entra only, reachable through a private endpoint. |
 | **Container app** | The API and the MCP endpoint, with a Redis sidecar (ADR-0039). External ingress, scales to zero, `secrets: []`. |
-| **Container apps job** | `alembic upgrade head`, manually triggered, from the same image (ADR-0040). |
+| **Container apps jobs** | Two, both manual, both the same image as the API: one bootstraps the database role and extensions (ADR-0042), one runs `alembic upgrade head` (ADR-0040). |
+| **A second managed identity** | A database administrator, attached to the bootstrap job and to nothing that serves traffic. |
 | **Application Insights** | Workspace-based, into the same workspace as the logs. **Local authentication disabled** — ingestion needs a token, not a key. |
 | **OpenTelemetry collector** | The upstream contrib image, internal ingress only, the one thing allowed to write telemetry (ADR-0041). |
 
@@ -159,20 +160,25 @@ redeploying and not.
 ./scripts/azure/preview.sh    # can this be deployed, and what would it change
 ./scripts/azure/deploy.sh     # the same two checks, then asks, then deploys
 ./scripts/azure/publish.sh    # build the image into this environment's registry
+./scripts/azure/bootstrap.sh  # create the workload's database role and extensions
 ./scripts/azure/migrate.sh    # bring the database schema up to date
 ./scripts/azure/status.sh     # what exists right now, anywhere in the subscription
 ./scripts/azure/destroy.sh    # delete, purge, and prove nothing is left
 ```
 
-### A new environment takes four of them, in this order
+### A new environment takes five of them, in this order
 
 ```bash
 ./scripts/azure/deploy.sh     # everything except the application
 ./scripts/azure/publish.sh    # build the image
 ./scripts/azure/deploy.sh     # again, now with the application
-#   ... the manual PostgreSQL role, once — see below
+./scripts/azure/bootstrap.sh  # the workload's database role, once per environment
 ./scripts/azure/migrate.sh    # create the schema
 ```
+
+There is no manual SQL step. There was one until ADR-0042, and it could not
+actually be carried out: it asked the Entra administrator to connect from inside
+a network their laptop is not in.
 
 **Why twice.** The registry the application pulls from is created *by* this template, so on
 the very first pass there is nowhere an image could already have been pushed to. Rather than
@@ -274,30 +280,39 @@ forgotten into one that costs 70 EUR a month while forgotten.
 Hence `destroy.sh`, and hence `status.sh` looking at the whole subscription rather than at
 the resource group you happen to be thinking about.
 
-## The one manual step: letting the workload into the database
+## Letting the workload into the database
 
-The database has no password. The workload authenticates with a Microsoft Entra token, and
-a token only works once a **role exists for that identity inside PostgreSQL** — which is
-SQL, not ARM, so no template can do it.
-
-It is run once per environment, by the Entra administrator the template registered (you),
-from a machine inside the virtual network. The server has no public address, so this is not
-something to do from a laptop:
-
-```sql
--- connected to the paimon database as the Entra administrator
-SELECT * FROM pgaadauth_create_principal('id-paimon-dev', false, false);
-GRANT ALL PRIVILEGES ON DATABASE paimon TO "id-paimon-dev";
+```bash
+./scripts/azure/bootstrap.sh
 ```
 
-The name must match the managed identity **exactly**, case included: it is the username the
-connection presents, and a mismatch is an authentication failure that says nothing about
-names.
+The database has no password, so the workload authenticates with a Microsoft Entra token —
+and a token only works once a **role exists for that identity inside PostgreSQL**. That is
+SQL rather than ARM, so no template can do it, and since the database has no public address
+there is nowhere outside the network to run it from either.
 
-This is the one thing between a deployed environment and a working one, and it is stated
-here rather than discovered. It comes **before** `migrate.sh`, because the migration job
-authenticates as the same identity and fails the same way without it — which is why
-`migrate.sh` names this section when a migration fails.
+So it runs as a job, as a **second managed identity that exists only for this**
+(ADR-0042). The identity is a database administrator; the workload's is a plain user, which
+keeps the property worth keeping: the thing a role is created for is not the thing that
+creates it.
+
+The job does three things, all idempotent:
+
+| | |
+|---|---|
+| Creates the `vector` extension | An administrator's privilege, and one the workload should not hold. Doing it here makes the migration's own `CREATE EXTENSION IF NOT EXISTS` a no-op rather than a failure. |
+| Creates the workload's role | By **object id**, not by display name — a service principal's display name is not unique in a tenant. |
+| Grants the database **and the schema** | Both, because neither implies the other. PostgreSQL 15 revoked `CREATE` on `public` from `PUBLIC`, so without the second grant the migration authenticates perfectly and fails on its first `CREATE TABLE`. |
+
+Run it again whenever you are unsure whether it ran. It reports what already existed and
+changes nothing.
+
+**It can fail on timing alone.** Registering an Entra administrator and assigning a role
+both take minutes to become effective, so a bootstrap started the moment a deployment
+finishes may be too early. Retrying is safe and is usually the whole fix.
+
+It comes **before** `migrate.sh`: the migration authenticates as the workload and fails the
+same way without it, which is why each script names the other when it fails.
 
 ## Migrating the schema
 

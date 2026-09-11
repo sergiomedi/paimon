@@ -248,6 +248,8 @@ module data 'modules/data.bicep' = {
     virtualNetworkId: platform.outputs.virtualNetworkId
     administratorPrincipalId: operatorPrincipalId
     administratorPrincipalName: administratorPrincipalName
+    administrationIdentityPrincipalId: platform.outputs.administrationIdentityPrincipalId
+    administrationIdentityName: platform.outputs.administrationIdentityName
     databaseSku: databaseSku
     databaseStorageGb: databaseStorageGb
     postgresVersion: postgresVersion
@@ -302,6 +304,10 @@ module api 'modules/api.bicep' = if (deployApi) {
     identityResourceId: platform.outputs.identityResourceId
     identityClientId: platform.outputs.identityClientId
     identityName: platform.outputs.identityName
+    identityPrincipalId: platform.outputs.identityPrincipalId
+    administrationIdentityResourceId: platform.outputs.administrationIdentityResourceId
+    administrationIdentityClientId: platform.outputs.administrationIdentityClientId
+    administrationIdentityName: platform.outputs.administrationIdentityName
     apiImage: apiImage
     tenantId: empty(apiTenantId) ? subscription().tenantId : apiTenantId
     apiAudience: apiAudience
@@ -401,6 +407,9 @@ output migrationJobName string = api.?outputs.migrationJobName ?? ''
 
 @description('Image this environment is running, so that "which build is deployed" has an answer that is not a guess.')
 output apiImageDeployed string = api.?outputs.apiImageDeployed ?? ''
+
+@description('Name of the bootstrap job, which creates the workload database role. It runs once per environment, before the migration.')
+output bootstrapJobName string = api.?outputs.bootstrapJobName ?? ''
 
 @description('OTLP/HTTP address of the collector, reachable only from inside the environment.')
 output collectorEndpoint string = observability.?outputs.collectorEndpoint ?? ''

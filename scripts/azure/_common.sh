@@ -172,3 +172,48 @@ resolve_api_image() {
     fi
     export PAIMON_API_IMAGE PAIMON_DEPLOY_API
 }
+
+# Start a manually-triggered container apps job, wait for it, print its logs, and
+# leave the outcome in JOB_STATUS.
+#
+# Two jobs now need this and a copy would drift: the bootstrap and the migration
+# differ only in which container's logs to read and in what to say when it fails.
+#
+# Usage: run_job <job name> <container name>
+run_job() {
+    local job="$1" container="$2" execution status
+
+    az containerapp job show --name "$job" --resource-group "$GROUP" -o none 2>/dev/null \
+        || die "no job named ${job} in ${GROUP}. Deploy the environment first: ./scripts/azure/deploy.sh"
+
+    bold "▸ starting ${job}"
+    execution="$(az containerapp job start --name "$job" --resource-group "$GROUP" \
+        --query name -o tsv)"
+    printf 'execution    %s\n\n' "$execution"
+
+    bold "▸ waiting"
+    # `job start` has no --wait, so this polls. Thirty tries at ten seconds covers
+    # the five minutes a cold image pull and the work itself take between them;
+    # each job's own replicaTimeout is the real limit.
+    status="Running"
+    for _ in $(seq 1 30); do
+        status="$(az containerapp job execution show --name "$job" --resource-group "$GROUP" \
+            --job-execution-name "$execution" --query properties.status -o tsv 2>/dev/null || echo Unknown)"
+        [[ "$status" == "Running" || "$status" == "Unknown" ]] || break
+        printf '.'
+        sleep 10
+    done
+    printf '\n\n'
+
+    bold "▸ logs"
+    # Ingestion lags the execution by a few seconds, which is long enough that a
+    # job that has just finished often has nothing to show yet.
+    sleep 5
+    az containerapp job logs show --name "$job" --resource-group "$GROUP" \
+        --container "$container" --execution "$execution" --tail 100 2>/dev/null \
+        || warn "  no logs yet. Try again in a moment, or look in Log Analytics."
+
+    printf '\n'
+    JOB_STATUS="$status"
+    JOB_EXECUTION="$execution"
+}

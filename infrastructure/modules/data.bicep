@@ -39,6 +39,12 @@ param administratorPrincipalId string
 @description('Display name of that principal, which Azure stores alongside the object id.')
 param administratorPrincipalName string
 
+@description('Principal id of the administration identity, registered as a second Entra administrator so that the bootstrap job can create the workload role without a person at a terminal.')
+param administrationIdentityPrincipalId string
+
+@description('Name of that identity, which Azure stores beside its object id and which is also its PostgreSQL role name.')
+param administrationIdentityName string
+
 @description('Compute tier. Burstable is explicitly not recommended for production and supports no high availability; vector search is exactly the workload that exhausts its CPU credits.')
 param databaseSku string
 
@@ -114,6 +120,43 @@ resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators
     principalType: 'User'
     principalName: administratorPrincipalName
     tenantId: subscription().tenantId
+  }
+}
+
+// A second administrator, and not a person. Entra-only authentication means the
+// workload's role has to be created by an administrator connected from inside
+// the network, which on a private database is nobody with a laptop. This is the
+// identity the bootstrap job runs as (ADR-0042).
+//
+// principalType is 'ServicePrincipal' rather than 'User': a managed identity is
+// one, and getting this wrong produces a server that accepts the registration
+// and then refuses the sign-in.
+resource administrationPrincipal 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
+  parent: server
+  name: administrationIdentityPrincipalId
+  properties: {
+    principalType: 'ServicePrincipal'
+    principalName: administrationIdentityName
+    tenantId: subscription().tenantId
+  }
+  dependsOn: [
+    // Azure applies these one at a time and rejects the second while the first
+    // is still being applied.
+    administrator
+  ]
+}
+
+// Without this, `CREATE EXTENSION vector` fails on a server that is otherwise
+// perfectly configured — Azure refuses to create an extension that is not on the
+// server's allow-list, whoever asks. The local pgvector image needs no
+// equivalent, which is exactly why this is the kind of difference that is found
+// in a deployment rather than in a test.
+resource extensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
+  parent: server
+  name: 'azure.extensions'
+  properties: {
+    value: 'VECTOR'
+    source: 'user-override'
   }
 }
 

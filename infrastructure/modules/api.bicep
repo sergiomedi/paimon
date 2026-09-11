@@ -32,8 +32,20 @@ param identityResourceId string
 @description('Client id of that identity. DefaultAzureCredential needs it whenever more than one identity is visible to the process, and inside a Container App more than one always is.')
 param identityClientId string
 
-@description('Name of that identity. It is also the PostgreSQL role name, because that is the name pgaadauth_create_principal was given.')
+@description('Name of that identity. It is also the PostgreSQL role name, because that is the name the bootstrap job creates it under.')
 param identityName string
+
+@description('Principal id of that identity. The bootstrap job names it by object id rather than by display name, which is not unique among service principals.')
+param identityPrincipalId string
+
+@description('Resource id of the administration identity the bootstrap job runs as.')
+param administrationIdentityResourceId string
+
+@description('Client id of that identity, so DefaultAzureCredential picks it and not the workload\'s.')
+param administrationIdentityClientId string
+
+@description('Name of that identity, which is its PostgreSQL role name. It is a database administrator; the workload is deliberately not.')
+param administrationIdentityName string
 
 @description('''
 Fully-qualified image reference, registry included.
@@ -138,6 +150,7 @@ param tags object
 
 var appName = 'ca-paimon-api-${environmentName}'
 var jobName = 'cj-paimon-migrate-${environmentName}'
+var bootstrapName = 'cj-paimon-bootstrap-${environmentName}'
 
 // Known before the app exists, because both halves are: the name is ours and the
 // domain belongs to the environment. That is what makes it possible to tell the
@@ -202,9 +215,9 @@ var databaseEnvironment = [
     value: databaseName
   }
   {
-    // The managed identity's name, which is also the PostgreSQL role created by
-    // the one manual step in the deployment guide. If they disagree, the symptom
-    // is an authentication failure that says nothing about names.
+    // The managed identity's name, which is also the PostgreSQL role the
+    // bootstrap job creates for it. If those two disagree the symptom is an
+    // authentication failure that says nothing whatsoever about names.
     name: 'PAIMON_DATABASE__USER'
     value: identityName
   }
@@ -466,6 +479,131 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
 // Schema changes
 // ---------------------------------------------------------------------------
 
+// Everything a job needs that is not the database. Settings are validated as a
+// whole, so a job needs every value the API needs even where it reaches none of
+// those services: they have to be present and well-formed. Written once, because
+// two jobs need the same set and a second copy drifts from the first.
+var jobEnvironment = [
+          {
+            name: 'PAIMON_ENVIRONMENT'
+            value: 'production'
+          }
+          {
+            // Settings are validated as a whole even here, so the job needs the
+            // values the API needs. It reaches none of these services; it needs
+            // them to be present and well-formed.
+            name: 'PAIMON_REDIS__HOST'
+            value: '127.0.0.1'
+          }
+          {
+            name: 'PAIMON_AUTH__PROVIDER'
+            value: 'entra'
+          }
+          {
+            name: 'PAIMON_AUTH__TENANT_ID'
+            value: tenantId
+          }
+          {
+            name: 'PAIMON_AUTH__AUDIENCE'
+            value: apiAudience
+          }
+          {
+            name: 'PAIMON_EMBEDDING__PROVIDER'
+            value: 'azure'
+          }
+          {
+            name: 'PAIMON_CHAT__PROVIDER'
+            value: 'azure'
+          }
+          {
+            name: 'PAIMON_AZURE_OPENAI__ENDPOINT'
+            value: openaiEndpoint
+          }
+          {
+            name: 'PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT'
+            value: chatDeploymentName
+          }
+          {
+            name: 'PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT'
+            value: embeddingDeploymentName
+          }
+          {
+            name: 'PAIMON_AZURE_SEARCH__ENDPOINT'
+            value: searchEndpoint
+          }
+]
+// Run as the administration identity, not the workload's, so three values differ
+// from every other container here: which identity is attached, which one
+// DefaultAzureCredential picks, and which role name the connection presents.
+// Overridden rather than parameterised, because everything else — image, host,
+// database — genuinely is the same. A later entry wins in concat().
+var administrationEnvironment = concat(databaseEnvironment, [
+  {
+    name: 'PAIMON_DATABASE__USER'
+    value: administrationIdentityName
+  }
+  {
+    name: 'AZURE_CLIENT_ID'
+    value: administrationIdentityClientId
+  }
+])
+
+resource bootstrap 'Microsoft.App/jobs@2024-03-01' = {
+  name: bootstrapName
+  location: location
+  tags: tags
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: {
+      '${administrationIdentityResourceId}': {}
+    }
+  }
+  properties: {
+    environmentId: containerAppsEnvironment.id
+    configuration: {
+      triggerType: 'Manual'
+      // Short, unlike the migration's. This opens one connection and runs five
+      // statements; one still running after five minutes cannot reach the
+      // database, and waiting half an hour to be told that helps nobody.
+      replicaTimeout: 300
+      replicaRetryLimit: 0
+      manualTriggerConfig: {
+        parallelism: 1
+        replicaCompletionCount: 1
+      }
+      secrets: []
+      registries: [
+        {
+          server: containerRegistryLoginServer
+          identity: administrationIdentityResourceId
+        }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'bootstrap'
+          image: apiImage
+          command: ['python']
+          args: [
+            '-m'
+            'paimon.interfaces.cli.bootstrap_database'
+            '--role'
+            identityName
+            '--object-id'
+            identityPrincipalId
+          ]
+          resources: {
+            cpu: json('0.5')
+            memory: '1Gi'
+          }
+          env: concat(administrationEnvironment, jobEnvironment)
+        }
+      ]
+    }
+  }
+}
+
 resource migrate 'Microsoft.App/jobs@2024-03-01' = {
   name: jobName
   location: location
@@ -517,60 +655,15 @@ resource migrate 'Microsoft.App/jobs@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: concat(databaseEnvironment, [
-            {
-              name: 'PAIMON_ENVIRONMENT'
-              value: 'production'
-            }
-            {
-              // Settings are validated as a whole even here, so the job needs the
-              // values the API needs. It reaches none of these services; it needs
-              // them to be present and well-formed.
-              name: 'PAIMON_REDIS__HOST'
-              value: '127.0.0.1'
-            }
-            {
-              name: 'PAIMON_AUTH__PROVIDER'
-              value: 'entra'
-            }
-            {
-              name: 'PAIMON_AUTH__TENANT_ID'
-              value: tenantId
-            }
-            {
-              name: 'PAIMON_AUTH__AUDIENCE'
-              value: apiAudience
-            }
-            {
-              name: 'PAIMON_EMBEDDING__PROVIDER'
-              value: 'azure'
-            }
-            {
-              name: 'PAIMON_CHAT__PROVIDER'
-              value: 'azure'
-            }
-            {
-              name: 'PAIMON_AZURE_OPENAI__ENDPOINT'
-              value: openaiEndpoint
-            }
-            {
-              name: 'PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT'
-              value: chatDeploymentName
-            }
-            {
-              name: 'PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT'
-              value: embeddingDeploymentName
-            }
-            {
-              name: 'PAIMON_AZURE_SEARCH__ENDPOINT'
-              value: searchEndpoint
-            }
-          ])
+          env: concat(databaseEnvironment, jobEnvironment)
         }
       ]
     }
   }
 }
+
+@description('Name of the bootstrap job, which creates the workload role and the extensions. It runs once per environment, before the migration.')
+output bootstrapJobName string = bootstrap.name
 
 @description('Public address of the API.')
 output apiUrl string = apiUrl

@@ -12,7 +12,7 @@ The Azure environment, as code. **How to deploy it and what it costs is in
 | `modules/platform.bicep` | Identity, logs, secrets, registry, virtual network, Container Apps environment. |
 | `modules/data.bicep` | PostgreSQL with no password and no public address, and the private endpoint that is the only route to it. |
 | `modules/ai.bicep` | Azure OpenAI and Azure AI Search, both with local authentication disabled. |
-| `modules/api.bicep` | The container app, its Redis sidecar, and the migration job. |
+| `modules/api.bicep` | The container app, its Redis sidecar, and the two jobs: the database bootstrap and the migration. |
 | `modules/observability.bicep` | Application Insights with local authentication off, and the OpenTelemetry collector that is the only thing allowed to write to it. |
 | `collector.yaml` | The collector's configuration. A real file so an editor lints it and `check.sh` parses it; Bicep reads it with `loadTextContent()`. |
 | `bicepconfig.json` | Linter rules, raised to errors. |

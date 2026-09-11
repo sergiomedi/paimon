@@ -66,6 +66,21 @@ resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' 
   tags: tags
 }
 
+// A second identity, which exists to hold one privilege the first must not have.
+//
+// The database has no password and no public address, so the workload's
+// PostgreSQL role has to be created from inside the network by a Microsoft Entra
+// administrator — and the thing a role is created *for* should not be the thing
+// that creates it (ADR-0038, and ADR-0042 for what was done about it). This
+// identity is a database administrator; the workload's is a plain user. Nothing
+// serving traffic ever runs as this one: it is used by a single job that runs
+// once per environment.
+resource administrationIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
+  name: 'id-paimon-dbadmin-${environmentName}'
+  location: location
+  tags: tags
+}
+
 // ---------------------------------------------------------------------------
 // Logs
 // ---------------------------------------------------------------------------
@@ -265,6 +280,18 @@ output identityName string = identity.name
 output identityResourceId string = identity.id
 output identityClientId string = identity.properties.clientId
 output identityPrincipalId string = identity.properties.principalId
+
+@description('Name of the administration identity. It is also its PostgreSQL role name, because that is how a managed identity signs in.')
+output administrationIdentityName string = administrationIdentity.name
+
+@description('Resource id of the administration identity.')
+output administrationIdentityResourceId string = administrationIdentity.id
+
+@description('Client id of the administration identity, so a job can name which identity to authenticate as.')
+output administrationIdentityClientId string = administrationIdentity.properties.clientId
+
+@description('Principal id of the administration identity, for registering it as the database Entra administrator.')
+output administrationIdentityPrincipalId string = administrationIdentity.properties.principalId
 output containerRegistryName string = registry.name
 output containerRegistryLoginServer string = registry.properties.loginServer
 output containerAppsEnvironmentName string = environment.name

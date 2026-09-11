@@ -52,6 +52,7 @@ reasoning trail, and rewriting history destroys it.
 | [0039](0039-the-cache-runs-beside-the-thing-that-uses-it.md) | The cache runs beside the thing that uses it | Accepted |
 | [0040](0040-migrations-run-from-inside-the-network.md) | Migrations run from inside the network, as a job | Accepted |
 | [0041](0041-telemetry-leaves-through-a-collector-we-control.md) | Telemetry leaves through a collector we control | Accepted |
+| [0042](0042-a-second-identity-that-exists-to-grant-one-privilege.md) | A second identity, which exists to grant one privilege | Accepted |
 
 ## Writing a new ADR
 

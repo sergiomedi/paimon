@@ -308,6 +308,28 @@ def _vector_store_adapter(
     )
 
 
+def build_database_engine(settings: Settings) -> AsyncEngine:
+    """Build the database engine, and nothing else.
+
+    Separated from :func:`build_resources` because two callers need a database
+    and need nothing else at all: the schema bootstrap, and Alembic. Assembling
+    the whole platform to open one connection would mean a migration that fails
+    when a model endpoint is unreachable.
+
+    Args:
+        settings: Validated application settings.
+
+    Returns:
+        An engine, authenticating however the settings say to.
+    """
+    return build_engine(
+        settings.database,
+        # Only when the database asks for it: the token provider needs
+        # azure-identity, which a local deployment has no reason to install.
+        build_token_provider() if settings.database.auth == "entra" else None,
+    )
+
+
 @asynccontextmanager
 async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     """Construct every long-lived dependency and release it on exit.
@@ -323,12 +345,7 @@ async def build_resources(settings: Settings) -> AsyncIterator[Resources]:
     Yields:
         The assembled resources.
     """
-    engine = build_engine(
-        settings.database,
-        # Only when the database asks for it: the token provider needs
-        # azure-identity, which a local deployment has no reason to install.
-        build_token_provider() if settings.database.auth == "entra" else None,
-    )
+    engine = build_database_engine(settings)
     redis = build_redis_client(settings.redis)
     embedding_model = _build_embedding_model(settings)
     chat_model = _build_chat_model(settings)
