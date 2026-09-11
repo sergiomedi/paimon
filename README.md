@@ -17,7 +17,7 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 6 complete. Phase 7 — cloud deployment — next.**
+> **Project status: Phases 1 to 6 complete. Phase 7 — cloud deployment — in progress.**
 > Ingestion, hybrid retrieval and grounded answering with citations work end to end; three
 > agents run as LangGraph workflows over the same use cases, streaming their steps and pausing
 > for a person when asked to; the platform speaks
@@ -282,6 +282,26 @@ concluding something from noise ([ADR-0029](docs/adr/0029-benchmark-numbers-carr
 
 🎯 **[Evaluating Paimon](docs/evaluation.md)** — running both benchmarks, reading the report,
 calibrating the judge, and what the numbers cannot tell you.
+
+### Putting it on Azure
+
+In progress. The environment is **Bicep, written to be read**: one subscription-scoped
+template and one module, compiled by the same `check.sh` that lints the code, with no state
+file, no module registry to restore from at build time, and role definition GUIDs that have
+their names written beside them — because the authorization model of a deployment is the
+deliverable, and an unreviewable one is not a model.
+
+It is also **built to be destroyed**. This platform is deployed to Azure to prove that the
+Azure adapters work against the real services rather than against the in-process stand-in
+their tests use, and to prove the architecture stands up; neither requires it to keep
+existing afterwards, and a search service nobody destroyed bills for every hour it is
+alive. So names are deterministic, the teardown purges the soft-deleted resources that
+would otherwise hold them, and `status.sh` looks across the whole subscription rather than
+at the resource group you happen to be thinking about
+([ADR-0036](docs/adr/0036-an-environment-built-to-be-destroyed.md)).
+
+☁️ **[Deploying Paimon](docs/deployment.md)** — what gets created, the four commands, what
+it costs by the hour, and what a deployment that lives for an afternoon cannot tell you.
 
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
@@ -607,6 +627,12 @@ pnpm typecheck                 # tsc --noEmit, strict
 pnpm build
 ```
 
+The Azure templates are compiled by the same command. The Bicep linter runs inside the
+compiler and `infrastructure/bicepconfig.json` raises its rules to errors, so a template
+that builds is one that passed them. Without the compiler installed the step skips with a
+message rather than passing silently. Infrastructure that nothing checks rots exactly like
+code that nothing checks, and unlike code nobody notices until the day it is needed.
+
 `lint-imports` is the one worth explaining: it fails the build when a layer imports
 outward, when the domain imports a framework, or when agent logic imports the orchestration
 framework. Clean Architecture here is a test, not a diagram. The contracts are themselves
@@ -651,7 +677,8 @@ frontend/
   src/lib/           Typed API client
 
 evaluation/          Corpus, golden set, manifest
-infrastructure/      Infrastructure as code, Azure  (Phase 7)
+infrastructure/      The Azure environment as Bicep, and the modules it calls
+scripts/azure/       preview, deploy, status, destroy
 ```
 
 ## Demo

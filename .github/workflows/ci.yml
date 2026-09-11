@@ -19,9 +19,9 @@ name: CI
 on:
   push:
     branches: [main]
-    paths: ["backend/**", "frontend/**", "docker/**", ".github/workflows/ci.yml"]
+    paths: ["backend/**", "frontend/**", "docker/**", "infrastructure/**", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["backend/**", "frontend/**", "docker/**", ".github/workflows/ci.yml"]
+    paths: ["backend/**", "frontend/**", "docker/**", "infrastructure/**", ".github/workflows/ci.yml"]
 
 # A new push supersedes the run in flight for the same ref.
 concurrency:
@@ -33,6 +33,9 @@ permissions:
 
 env:
   UV_VERSION: "0.12.8"
+  # Pinned for the same reason the actions are: a moving version is different
+  # code running on the same commit.
+  BICEP_VERSION: "v0.47.16"
 
 defaults:
   run:
@@ -186,6 +189,31 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  infrastructure:
+    name: Azure templates compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: infrastructure
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # The runner ships the Azure CLI; this adds the Bicep compiler to it. No
+      # Azure credentials are involved and nothing is deployed — compiling is a
+      # local operation, and a template that does not compile cannot be reviewed.
+      - name: Install Bicep
+        run: az bicep install --version ${{ env.BICEP_VERSION }}
+
+      # infrastructure/bicepconfig.json raises the linter rules that matter here
+      # to errors, and the linter runs inside the build, so this step failing
+      # means a rule was broken and not merely a warning printed.
+      - name: Compile the template
+        run: az bicep build --file main.bicep --stdout > /dev/null
+
+      - name: Compile the parameters
+        run: az bicep build-params --file main.bicepparam --stdout > /dev/null
 
   image:
     name: Container image builds

@@ -44,6 +44,9 @@ reasoning trail, and rewriting history destroys it.
 | [0031](0031-a-judge-on-terms-that-account-for-what-it-is-worth.md) | A judge, on terms that account for what a judge is worth | Accepted |
 | [0032](0032-a-judge-is-uncalibrated-until-a-person-checks-it.md) | A judge is uncalibrated until a person has checked it | Accepted |
 | [0033](0033-faithfulness-is-graded-against-the-sources-shown.md) | Faithfulness is graded against the sources shown, completeness against the golden set | Accepted |
+| [0034](0034-container-apps-not-app-service.md) | The platform runs on Container Apps, not App Service | Accepted |
+| [0035](0035-bicep-and-templates-small-enough-to-read.md) | Bicep, and templates small enough to read | Accepted |
+| [0036](0036-an-environment-built-to-be-destroyed.md) | The environment is built to be destroyed, and the teardown is a feature | Accepted |
 
 ## Writing a new ADR
 

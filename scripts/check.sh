@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Run the same gates CI runs, in the same order, and stop at the first failure.
 #
-#   ./scripts/check.sh              backend and frontend
-#   ./scripts/check.sh backend      backend only
+#   ./scripts/check.sh                  backend, frontend and infrastructure
+#   ./scripts/check.sh backend          backend only
+#   ./scripts/check.sh infrastructure   the Azure templates only
 #
 # This exists because a change once reached CI having passed its tests but not
 # its linter: the checks were run individually and one was forgotten. One
@@ -41,6 +42,34 @@ if [[ "$TARGET" == "all" || "$TARGET" == "frontend" ]]; then
         step "next build"; pnpm build
     else
         printf '\n\033[33mSkipping frontend: run pnpm install in frontend/ first.\033[0m\n'
+    fi
+fi
+
+if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
+    # Either the standalone CLI or the one the Azure CLI manages. Compiling is
+    # the gate: the linter runs inside it, and infrastructure/bicepconfig.json
+    # raises the rules that matter here to errors, so a template that builds is a
+    # template that passed them.
+    if command -v bicep >/dev/null 2>&1; then
+        BICEP=(bicep)
+    elif command -v az >/dev/null 2>&1 && az bicep version >/dev/null 2>&1; then
+        BICEP=(az bicep)
+    else
+        BICEP=()
+    fi
+
+    if [[ ${#BICEP[@]} -gt 0 ]]; then
+        cd "$ROOT/infrastructure"
+        step "bicep build"
+        if [[ "${BICEP[0]}" == "az" ]]; then
+            az bicep build --file main.bicep --stdout >/dev/null
+            az bicep build-params --file main.bicepparam --stdout >/dev/null
+        else
+            bicep build main.bicep --stdout >/dev/null
+            bicep build-params main.bicepparam --stdout >/dev/null
+        fi
+    else
+        printf '\n\033[33mSkipping infrastructure: install Bicep (az bicep install) to check the templates.\033[0m\n'
     fi
 fi
 
