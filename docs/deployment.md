@@ -1,11 +1,15 @@
 # Deploying Paimon to Azure
 
-> **Everything described here has been deployed and measured**, on 2026-09-12, in Sweden
-> Central: the platform resources, the database, the search service, the models, the
-> collector and the application itself. The figures that run produced are in
-> [docs/measurements](measurements/), and the environment was destroyed afterwards, which
-> is the arrangement this document exists to describe. Nothing is described here as working
-> before it works.
+> **Everything described here has been deployed**, on 2026-09-12, in Sweden Central, and
+> the application was measured end to end: requests authenticated, a document indexed, a
+> question answered from it, traces arriving in Application Insights. The figures are in
+> [docs/measurements](measurements/) and the environment was destroyed afterwards, which is
+> the arrangement this document exists to describe.
+>
+> One qualification, kept here rather than in a footnote: the deployed configuration
+> retrieves from **pgvector**, so **Azure AI Search was deployed and never queried**. Only
+> the hybrid benchmark below sends a real query through that adapter. Nothing is described
+> here as working before it works.
 
 This deployment is **ephemeral by design**. It is created to be measured and then removed,
 because the budget for this phase is a fixed amount of trial credit and the resources that
@@ -26,7 +30,7 @@ One resource group, `rg-paimon-<environment>`, holding:
 | **Log Analytics workspace** | Where container logs land, and later where traces do. |
 | **Key Vault** | RBAC-authorized, for the few secrets that cannot be designed away. |
 | **Container registry** | Basic tier. `publish.sh` builds the image into it, in Azure rather than on your machine. |
-| **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, the migration job, and the collector in the next batch. |
+| **Container Apps environment** | Workload profiles, Consumption profile. Hosts the API, both jobs and the collector. |
 | **Azure OpenAI** | One chat deployment and one embedding deployment. Local authentication **disabled**. |
 | **Azure AI Search** | Free tier by default, local authentication **disabled**. |
 | **Virtual network** | Two subnets: one the Container Apps environment is injected into, one holding private endpoints. |
@@ -41,8 +45,10 @@ The first five store nothing and serve nothing: that half of the environment dep
 about a cent an hour, which is why it went first and why the deployment path could be
 exercised repeatedly before anything expensive depended on it.
 
-The last two are where the money starts, and where this platform stops being theoretical:
-it has had adapters for both since Phase 2 and has never once talked to either.
+Azure OpenAI and Azure AI Search are where the money starts, and where this platform stops
+being theoretical: it has had adapters for both since Phase 2. The deployed run has now
+exercised the first — embeddings and generation, keyless, under a managed identity — and
+not the second, for the reason in the note at the top of this page.
 
 **A number you will count and question.** `what-if` reports nine changes and the portal
 shows five resources. Both are right. `what-if` counts *changes* — five resources, the
@@ -670,6 +676,13 @@ Two things it cannot read, to be added to that file by hand:
 
 And one worth a screenshot: a single request's span tree in Application Insights'
 transaction view, which is the clearest picture of what the platform does per question.
+
+**The benchmark is not optional, and here is why.** The deployed configuration leaves
+`retrieval.store` at its default, which is `pgvector` — so a measured run against the
+deployed API exercises Azure OpenAI and PostgreSQL and never touches **Azure AI Search**,
+which is deployed and billing throughout. The hybrid benchmark is the only thing in this
+phase that runs a real query through that adapter, so without it the search service costs
+money and proves nothing.
 
 Then `./scripts/azure/destroy.sh`, and `./scripts/azure/status.sh` once more to
 prove the table is empty. The second one matters: it is what turns "I destroyed

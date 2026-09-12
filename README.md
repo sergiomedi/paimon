@@ -17,7 +17,7 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 6 complete. Phase 7 — cloud deployment — in progress.**
+> **Project status: Phases 1 to 7 complete. Phase 8 — continuous delivery — next.**
 > Ingestion, hybrid retrieval and grounded answering with citations work end to end; three
 > agents run as LangGraph workflows over the same use cases, streaming their steps and pausing
 > for a person when asked to; the platform speaks
@@ -29,10 +29,11 @@ grounded answers, cited evidence and automated workflows.
 > carrying its interval and its calibration;
 > and every port is
 > implemented twice — locally (pgvector, any OpenAI-compatible endpoint) and on Azure
-> (Azure OpenAI, Azure AI Search). This README is updated as each phase lands, and nothing
-> is described here as working before it works: see
-> [What works today](#what-works-today) for the current, verified surface, including what
-> the Azure adapters have and have not been tested against.
+> (Azure OpenAI, Azure AI Search), which as of Phase 7 have been **run against the real
+> services** in a deployed environment rather than against the stand-in their tests use.
+> This README is updated as each phase lands, and nothing is described here as working
+> before it works: see [What works today](#what-works-today) for the current, verified
+> surface.
 
 ---
 
@@ -137,11 +138,16 @@ key and Microsoft Entra ID; with Entra the platform stores no secret at all
 ([ADR-0014](docs/adr/0014-azure-adapters-and-authentication.md),
 [setup guide](docs/azure-setup.md)).
 
-**The honest caveat about Azure:** those adapters are verified against an in-process
-stand-in for the service, not against Azure. A stand-in written by the author of the
-adapter can find inconsistencies; it cannot find wrong assumptions. The numbers in
-[Evaluation](#evaluation) come from the local backend, which has been run against real
-PostgreSQL and a real model server.
+**What has and has not been run against Azure.** As of Phase 7, **Azure OpenAI** — both
+embeddings and generation, authenticated with a managed identity and no key — has served
+real requests in a deployed environment, as has **PostgreSQL with pgvector** over a private
+endpoint with a token in place of a password. **Azure AI Search has not.** The deployed
+configuration leaves `retrieval.store` at its default, so the measured run fused rankings
+in-process against pgvector; the search adapter is still verified only against the
+in-process stand-in for the service, and a stand-in written by the author of the adapter can
+find inconsistencies but not wrong assumptions — which is precisely how the Entra adapter
+carried a defect from Phase 1 to its first deployed request. The numbers in
+[Evaluation](#evaluation) come from the local backend.
 
 ### Three agents, and why they are workflows
 
@@ -285,11 +291,42 @@ calibrating the judge, and what the numbers cannot tell you.
 
 ### Putting it on Azure
 
-In progress. The environment is **Bicep, written to be read**: one subscription-scoped
-template and one module, compiled by the same `check.sh` that lints the code, with no state
-file, no module registry to restore from at build time, and role definition GUIDs that have
-their names written beside them — because the authorization model of a deployment is the
-deliverable, and an unreviewable one is not a model.
+**Deployed, measured, and destroyed** — in Sweden Central, on 12 September 2026. Not a
+diagram of a deployment: a resource group that existed for an afternoon, answered
+authenticated requests, indexed a document and answered a question about it, and was then
+removed on purpose.
+
+| | |
+|---|---|
+| **Cold start** | **28.5s** to the first response, from zero replicas: image pull, process start, two connection pools. |
+| **Warm** | **0.23–0.30s** on readiness — which opens the database, the cache and the model endpoint, so it is the cheapest request that touches everything. |
+| **Ingest a document** | **0.84s** for six chunks: parsed, embedded through Azure OpenAI, written to PostgreSQL over a private endpoint. |
+| **The same document again** | **0.26s**, `unchanged: true`, nothing written. Ingestion is idempotent by document id, and that is what a repeat costs. |
+| **Answer a question** | **1.2–1.9s**, grounded, one citation, 656 tokens. |
+| **Telemetry** | Traces in Application Insights, through a collector this deployment owns, authenticated with a managed identity. No instrumentation key anywhere. |
+
+Every figure is in [docs/measurements](docs/measurements/), written by the script that took
+them, because the environment they describe no longer exists.
+
+The environment is **Bicep, written to be read**: one subscription-scoped template and six
+modules, compiled by the same `check.sh` that lints the code, with no state file, no module
+registry to restore from at build time, and role definition GUIDs that have their names
+written beside them — because the authorization model of a deployment is the deliverable,
+and an unreviewable one is not a model.
+
+**What deploying it found, which nothing else would have.** Four defects survived every
+linter, contract and test in this repository and died on contact with Azure. A guard against
+configuration typos walked one level of a four-level settings model and rejected four valid
+variables, so the container exited 1 two seconds into every start. The Entra adapter passed
+`str(jwk.key)` to PyJWT — a string describing a key object rather than a key — so every real
+token had been rejected since Phase 1, hidden by a test double that answered with a PEM
+string the library never returns. An app registration created by the documented commands
+cannot be asked for a token at all, and the three changes that fix it cannot be made in one
+request. And a trial subscription is not a small paid subscription: closed regions, quota per
+model *and* deployment type *and* region, one Azure OpenAI account, and no ACR Tasks.
+
+Each one is now a gate rather than a memory — including a test that reads the deployment
+template and asserts every variable it sets is one the application consumes.
 
 It is also **built to be destroyed**. This platform is deployed to Azure to prove that the
 Azure adapters work against the real services rather than against the in-process stand-in
@@ -301,8 +338,10 @@ at the resource group you happen to be thinking about
 ([ADR-0036](docs/adr/0036-an-environment-built-to-be-destroyed.md)).
 
 ☁️ **[Deploying Paimon](docs/deployment.md)** — what gets created, the commands in the order
-a new environment needs them, what it costs by the hour, and what a deployment that lives for
-an afternoon cannot tell you.
+a new environment needs them, what it costs by the hour, every failure worth recognising with
+the reason behind it, and what a deployment that lives for an afternoon cannot tell you.
+
+📏 **[Measurements](docs/measurements/)** — the runs themselves, as the script recorded them.
 
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
@@ -407,7 +446,7 @@ previous one is complete.
 - [x] **Phase 4 — MCP** · MCP server and tools, client integration
 - [x] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
 - [x] **Phase 6 — Evaluation** · golden sets, verified attribution, a calibrated judge
-- [ ] **Phase 7 — Cloud** · Azure deployment architecture
+- [x] **Phase 7 — Cloud** · Azure deployment, deployed and measured, then destroyed
 - [ ] **Phase 8 — Delivery** · automated build, deploy and release gating
 
 ## Getting started
