@@ -605,6 +605,15 @@ It reports whether the first request was *actually* cold, because that is only t
 replica was running: if one still is, leave the environment idle for the scale-to-zero
 cooldown — about five minutes — and run it again.
 
+**A 504 after 240 seconds is not a slow application.** 240 seconds is the Container Apps
+ingress timeout, and reaching it on `/api/v1/health/live` — which touches nothing — means
+the ingress had no ready replica to route to. `measure.sh` stops at the first one rather
+than measuring the same fact six more times, and `./scripts/azure/diagnose.sh` wakes the app
+and reads the revision, the replicas and both log streams in the order the answer is usually
+in. The most common cause is the startup probe: it is wired to `/api/v1/health/ready`, which
+opens the database, the cache and the model endpoint, so any one of those failing keeps the
+replica out of the ingress entirely.
+
 Two things it cannot read, to be added to that file by hand:
 
 | | |

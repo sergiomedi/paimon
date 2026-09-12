@@ -123,6 +123,27 @@ fi
 record ""
 printf '  %ss  HTTP %s\n\n' "$SECONDS_TAKEN" "$STATUS"
 
+# Stop here if nothing answered. The first version of this did not, and the run
+# spent twenty minutes proving the same thing six times: liveness touches nothing
+# at all, so a 5xx or a timeout on it means there is no ready replica to route
+# to, and every measurement after it would be a second copy of that fact.
+#
+# A 401 is different and not fatal here — liveness is unauthenticated, so a token
+# problem shows up further down where it can be told apart from this.
+case "$STATUS" in
+    000|5*)
+        record "Nothing after that: liveness touches no dependency, so a ${STATUS} here means the"
+        record "request never reached a ready replica. Every later figure would have measured the"
+        record "same thing again."
+        record ""
+        warn "The application is not serving. 240 seconds is the Container Apps ingress"
+        warn "timeout, not the application being slow: the ingress had no ready replica."
+        warn ""
+        warn "  ./scripts/azure/diagnose.sh    what the revision and its logs say"
+        die "stopped at the first request. The report so far is at ${REPORT#"$ROOT"/}"
+        ;;
+esac
+
 # ── Warm ─────────────────────────────────────────────────────────────────────
 bold "▸ warm requests"
 WARM=()
