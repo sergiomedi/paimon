@@ -57,6 +57,30 @@ OBJECT_ID = re.compile(r"^[0-9a-fA-F-]{36}$")
 #: leaves the workload with no privilege it does not need.
 EXTENSIONS = ("vector",)
 
+#: The database the Entra principal functions live in.
+#:
+#: Not the application's. Azure installs ``pgaadauth_create_principal`` and its
+#: relatives **only in the server's own ``postgres`` database**, and a connection
+#: to any other database reports them as simply not existing — an
+#: ``UndefinedFunctionError`` whose hint suggests adding type casts, which sends
+#: you looking at argument types for a function that is not there at all.
+#:
+#: A role, once created, is cluster-wide. So the role is created on a connection
+#: to this database and everything else happens on the application's own, which
+#: is where an extension and a schema grant have to happen because both belong to
+#: one database rather than to the server.
+ADMINISTRATION_DATABASE = "postgres"
+
+WRONG_DATABASE = (
+    "the pgaadauth functions are not available on this connection. They exist "
+    f"only in the server's {ADMINISTRATION_DATABASE!r} database, so the role has "
+    "to be created there — see ADMINISTRATION_DATABASE in this module."
+)
+
+
+class MissingEntraFunctionsError(RuntimeError):
+    """Azure's Entra principal functions are not reachable from this connection."""
+
 
 def quoted(identifier: str) -> str:
     """Quote an identifier for use in SQL.
@@ -71,6 +95,21 @@ def quoted(identifier: str) -> str:
     return f'"{escaped}"'
 
 
+async def entra_functions_present(connection: AsyncConnection) -> bool:
+    """Report whether Azure's Entra principal functions exist on this connection.
+
+    Checked before calling one rather than after failing to, so that the error
+    names the cause — the wrong database — instead of arriving as a missing
+    function and a misleading hint about type casts.
+    """
+    found = await connection.scalar(
+        text(
+            "SELECT 1 FROM pg_catalog.pg_proc WHERE proname = 'pgaadauth_create_principal_with_oid'"
+        )
+    )
+    return found is not None
+
+
 async def role_exists(connection: AsyncConnection, role: str) -> bool:
     """Report whether a PostgreSQL role of this name already exists."""
     found = await connection.scalar(
@@ -79,21 +118,54 @@ async def role_exists(connection: AsyncConnection, role: str) -> bool:
     return found is not None
 
 
-async def bootstrap(
-    connection: AsyncConnection, *, role: str, object_id: str, database: str
-) -> list[str]:
-    """Create the extensions, the role, and the grants the role needs.
+async def create_role(connection: AsyncConnection, *, role: str, object_id: str) -> str:
+    """Create the workload's role, on a connection to the administration database.
 
     Args:
-        connection: An open connection, as an administrator.
+        connection: An open connection **to the ``postgres`` database**, as a
+            Microsoft Entra administrator.
         role: Name of the workload's managed identity, which is also its role
             name. It must match exactly, case included: it is the username the
             connection presents, and a mismatch is an authentication failure that
             says nothing whatsoever about names.
         object_id: Object id of that identity. Preferred over the name-only form
-            of the function below, which resolves a service principal by display
-            name and is ambiguous the moment two of them share one.
-        database: Database to grant on.
+            of the function, which resolves a service principal by display name
+            and is ambiguous the moment two of them share one.
+
+    Returns:
+        One line describing what happened.
+
+    Raises:
+        MissingEntraFunctionsError: If the ``pgaadauth`` functions are not reachable.
+    """
+    if await role_exists(connection, role):
+        return f"role {role} already exists"
+
+    if not await entra_functions_present(connection):
+        raise MissingEntraFunctionsError(WRONG_DATABASE)
+
+    await connection.execute(
+        text(
+            "SELECT pg_catalog.pgaadauth_create_principal_with_oid("
+            ":role, :object_id, 'service', false, false)"
+        ),
+        {"role": role, "object_id": object_id},
+    )
+    return f"created role {role}"
+
+
+async def prepare_database(connection: AsyncConnection, *, role: str, database: str) -> list[str]:
+    """Create the extensions and the grants, on the application's own database.
+
+    A role is cluster-wide, so the one created above already exists here. An
+    extension and a schema grant are not: both belong to one database, and doing
+    them on the administration connection would prepare the wrong database
+    perfectly.
+
+    Args:
+        connection: An open connection to the application's database.
+        role: The workload's role name.
+        database: The database being granted.
 
     Returns:
         What was done, in order, for a caller to print.
@@ -103,18 +175,6 @@ async def bootstrap(
     for extension in EXTENSIONS:
         await connection.execute(text(f"CREATE EXTENSION IF NOT EXISTS {quoted(extension)}"))
         done.append(f"extension {extension} is present")
-
-    if await role_exists(connection, role):
-        done.append(f"role {role} already exists")
-    else:
-        await connection.execute(
-            text(
-                "SELECT pg_catalog.pgaadauth_create_principal_with_oid("
-                ":role, :object_id, 'service', false, false)"
-            ),
-            {"role": role, "object_id": object_id},
-        )
-        done.append(f"created role {role}")
 
     # Both are needed and neither implies the other. The database grant lets the
     # role connect; the schema grant lets it create tables — which PostgreSQL 15
@@ -167,14 +227,34 @@ async def run(argv: Sequence[str] | None = None) -> int:
         logger.error("invalid_object_id", object_id=arguments.object_id)
         return USAGE_ERROR
 
+    done: list[str] = []
+
+    # Two connections, to two databases, because the work splits that way and
+    # nothing can paper over it: the principal functions exist only in the
+    # server's own database, and an extension and a schema grant exist only in
+    # the application's.
+    administration = settings.model_copy(
+        update={"database": settings.database.model_copy(update={"name": ADMINISTRATION_DATABASE})}
+    )
+    engine = build_database_engine(administration)
+    try:
+        async with engine.begin() as connection:
+            done.append(
+                await create_role(connection, role=arguments.role, object_id=arguments.object_id)
+            )
+    except MissingEntraFunctionsError as error:
+        logger.error("bootstrap_failed", reason=str(error))
+        return 1
+    finally:
+        await engine.dispose()
+
     engine = build_database_engine(settings)
     try:
         async with engine.begin() as connection:
-            done = await bootstrap(
-                connection,
-                role=arguments.role,
-                object_id=arguments.object_id,
-                database=settings.database.name,
+            done.extend(
+                await prepare_database(
+                    connection, role=arguments.role, database=settings.database.name
+                )
             )
     finally:
         await engine.dispose()

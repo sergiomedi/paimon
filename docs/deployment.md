@@ -397,8 +397,16 @@ The job does three things, all idempotent:
 | | |
 |---|---|
 | Creates the `vector` extension | An administrator's privilege, and one the workload should not hold. Doing it here makes the migration's own `CREATE EXTENSION IF NOT EXISTS` a no-op rather than a failure. |
-| Creates the workload's role | By **object id**, not by display name — a service principal's display name is not unique in a tenant. |
+| Creates the workload's role | On a connection to the server's **`postgres`** database, because that is the only place Azure installs the `pgaadauth` functions. By **object id**, not by display name — a service principal's display name is not unique in a tenant. |
 | Grants the database **and the schema** | Both, because neither implies the other. PostgreSQL 15 revoked `CREATE` on `public` from `PUBLIC`, so without the second grant the migration authenticates perfectly and fails on its first `CREATE TABLE`. |
+
+**Two databases, and that is not an implementation detail.** Azure installs
+`pgaadauth_create_principal` and its relatives **only in the server's own `postgres`
+database**. A connection to the application's database reports them as not existing, with an
+`UndefinedFunctionError` whose hint suggests adding explicit type casts — which sends you
+inspecting argument types for a function that is not there at all. A PostgreSQL role is
+cluster-wide, so the role is created there and takes effect everywhere; an extension and a
+schema grant belong to one database, so those happen on the application's own.
 
 Run it again whenever you are unsure whether it ran. It reports what already existed and
 changes nothing.
