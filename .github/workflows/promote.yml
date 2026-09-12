@@ -1,0 +1,118 @@
+# Promotion: deploy to an environment that is meant to keep existing.
+#
+# Deliberately not triggered by a merge. Whether a deployment exists is a
+# spending decision — this platform's environment bills about six euros a day for
+# a database nobody is querying — and a spending decision is not something a
+# merge should make on somebody's behalf (ADR-0044).
+#
+# The gate is the `environment:` line below. A GitHub Environment with a required
+# reviewer turns "the pipeline can deploy" into "a person decided to", and the
+# federated credential is scoped to that environment's subject, so a run that
+# somehow started without the approval could not obtain a token either.
+#
+# What this leaves behind bills until somebody destroys it:
+#   ./scripts/azure/destroy.sh
+
+name: Promote
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Azure environment name (the resource group suffix)"
+        required: true
+        default: prod
+        type: string
+      migrate:
+        description: "Run migrations before shifting traffic"
+        required: false
+        default: true
+        type: boolean
+
+# Never two releases into the same environment at once. Unlike the verification
+# workflow this one may be cancelled safely — it creates nothing it must clean up,
+# and a cancelled promotion leaves the previous revision serving.
+concurrency:
+  group: promote-${{ inputs.target }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  promote:
+    name: Release to ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # The approval gate, and the subject the federated credential was created
+    # for: repo:<owner>/<repo>:environment:production. The GitHub Environment and
+    # the Azure environment are different things with confusable names — this one
+    # is the gate, `inputs.target` is the resource group.
+    environment: production
+
+    env:
+      AZURE_PAIMON_ENV: ${{ inputs.target }}
+      AZURE_PAIMON_LOCATION: swedencentral
+      AZURE_PAIMON_API_AUDIENCE: ${{ vars.AZURE_PAIMON_API_AUDIENCE }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Sign in to Azure
+        uses: azure/login@v2.4.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the containerapp extension
+        run: az extension add --name containerapp --allow-preview true --only-show-errors
+
+      - name: Provision
+        # Traffic-preserving: deploy.sh reads the live revision and passes it
+        # back, so this updates infrastructure and creates a revision without
+        # putting it in front of anybody.
+        run: ./scripts/azure/deploy.sh --yes
+
+      - name: Build and push the image
+        run: ./scripts/azure/publish.sh
+
+      - name: Deploy the application
+        run: ./scripts/azure/deploy.sh --yes
+
+      - name: Create the database role and extensions
+        # Idempotent, and only does anything the first time this environment is
+        # promoted to. It reports what already exists rather than failing on it.
+        run: ./scripts/azure/bootstrap.sh
+
+      - name: Migrate the schema
+        # **Before** the release, which is the ordering the whole expand-contract
+        # rule exists to make safe: for the length of this step and the next one,
+        # the schema is ahead of the code that is serving. A migration that
+        # removed or renamed anything the running revision uses would break
+        # production here, in the window between these two steps, with nothing
+        # deployed yet to blame.
+        if: inputs.migrate
+        run: ./scripts/azure/migrate.sh
+
+      - name: Release
+        # A new revision, checked through its own hostname, and only then given
+        # the traffic. Nothing above this line has taken a request away from what
+        # was already serving.
+        run: ./scripts/azure/release.sh
+
+      - name: Say what is now serving
+        if: always()
+        run: |
+          {
+            printf '## %s\n\n' "${AZURE_PAIMON_ENV}"
+            printf '| | |\n|---|---|\n'
+            printf '| commit | `%s` |\n' "${GITHUB_SHA::7}"
+            printf '| approved by | @%s |\n' "${GITHUB_ACTOR}"
+            printf '\nTo undo this release — seconds, no rebuild:\n\n'
+            printf '```bash\nAZURE_PAIMON_ENV=%s ./scripts/azure/rollback.sh\n```\n' "${AZURE_PAIMON_ENV}"
+            printf '\nThis environment bills until it is destroyed:\n\n'
+            printf '```bash\nAZURE_PAIMON_ENV=%s ./scripts/azure/destroy.sh\n```\n' "${AZURE_PAIMON_ENV}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,9 +1,11 @@
 # Delivering Paimon
 
 > **Phase 8 is in progress.** What is described here as existing, exists: the federated
-> identity, the application role, the verification workflow, and blue-green releases with
-> their rollback. The gated promotion workflow arrives in the following batch and this guide
-> grows with it. Nothing is described here as working before it works.
+> identity, the application role, the verification workflow, blue-green releases with their
+> rollback, and the gated promotion workflow. What has not happened yet is a run of any of
+> them against Azure — until then this describes a pipeline that compiles and is checked,
+> not one that has delivered anything. Nothing is described here as working before it
+> works.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -168,6 +170,41 @@ for, and a rollback nobody noticed.
 Revisions are named after the commit their image was built from, because "which revision is
 serving" should be answerable rather than guessable. Container Apps would otherwise generate a
 suffix that is unique, meaningless, and impossible to ask for by name.
+
+## Promotion, and the gate in front of it
+
+```
+Actions → Promote → Run workflow → target: prod
+```
+
+`.github/workflows/promote.yml` is the only thing here that leaves an environment running,
+and it is deliberately not triggered by a merge. It provisions, publishes, bootstraps,
+**migrates, and then releases** — in that order, which is the ordering the expand-contract
+rule exists to make safe. Between those last two steps the schema is ahead of the code that
+is serving, which is exactly the window a backward-incompatible migration would break, with
+nothing deployed yet to blame.
+
+`scripts/check.sh` asserts that ordering, along with the other two properties this file must
+have: that it names a GitHub Environment, and that it never runs `destroy.sh`. A promotion
+that tore down what it had just released would be a very expensive copy-and-paste from the
+verification workflow.
+
+### Setting up the gate
+
+The approval is a **GitHub Environment**, and it has to be created once in the repository —
+Settings → Environments → New environment → `production`, with *Required reviewers* set to
+yourself. Until that exists the workflow runs unreviewed, which is the one part of this
+phase a file in the repository cannot enforce.
+
+That name matters twice. It is the gate, and it is also the subject the federated credential
+was created for: `repo:<owner>/<repo>:environment:production`. A run that somehow started
+without the approval could not obtain a token either, because Entra matches the subject
+exactly.
+
+**The GitHub Environment and the Azure environment are different things with confusable
+names.** `production` is the gate; `target` is the Azure environment — the resource group
+suffix — and it defaults to `prod`. One approval mechanism can gate promotions to several
+Azure environments, which is why they are not the same field.
 
 ## The rule about migrations
 

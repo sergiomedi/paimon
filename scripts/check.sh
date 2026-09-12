@@ -128,7 +128,50 @@ assert delivery["concurrency"]["cancel-in-progress"] is False, (
 # Without this GitHub mints no token and azure/login fails on an empty assertion.
 assert delivery["permissions"]["id-token"] == "write", "OIDC needs id-token: write"
 
-print(f"  {len(files)} workflows, {jobs} jobs, and the teardown cannot be skipped")
+# Promotion's invariants, which are the opposite ones: it must be gated, it must
+# migrate before it releases, and it must never destroy anything. A promotion
+# workflow that tore down what it had just released would be a very expensive
+# copy-paste from the file above.
+promote = yaml.safe_load(pathlib.Path(".github/workflows/promote.yml").read_text("utf-8"))
+job = promote["jobs"]["promote"]
+
+assert job.get("environment"), (
+    "promotion must name a GitHub Environment: it is the approval gate, and it is also "
+    "the subject the federated credential was created for"
+)
+# `promote[True]`, and that is not a typo either. YAML 1.1 — which PyYAML
+# implements — reads the bare word `on` as the boolean true, so a workflow's
+# trigger block is under the key True rather than "on". GitHub's parser does not
+# do this, so the two disagree about a file they both read, and a check written
+# the obvious way fails on a file that is perfectly correct.
+triggers = promote.get("on", promote.get(True, {}))
+assert "workflow_dispatch" in triggers, "promotion is a decision, not a consequence of a merge"
+assert "push" not in triggers, "a merge must not spend money"
+
+names = [str(step.get("run", "")) for step in job["steps"]]
+
+
+def invokes(script, run):
+    """Whether a step *runs* a script, rather than mentioning it.
+
+    The distinction is not pedantry: the last step of promotion prints the
+    teardown command into the job summary, so that whoever approved the release
+    knows how to stop paying for it. A check that matched the name anywhere would
+    read that helpful line as the disaster it is warning about.
+    """
+    return any(line.strip().startswith(f"./scripts/azure/{script}") for line in run.splitlines())
+
+
+assert not any(invokes("destroy.sh", step) for step in names), "promotion must not tear down"
+migrate = next(i for i, step in enumerate(names) if invokes("migrate.sh", step))
+release = next(i for i, step in enumerate(names) if invokes("release.sh", step))
+assert migrate < release, (
+    "the schema moves before the traffic does. Reversing these two puts a revision in "
+    "front of users against a schema it does not have yet."
+)
+
+print(f"  {len(files)} workflows, {jobs} jobs; the teardown cannot be skipped and")
+print("  promotion is gated, migrates first, and destroys nothing")
 PYTHON
 
     step "bicep invocation"
