@@ -558,6 +558,29 @@ becomes unavailable the moment the resource group does, and the whole argument
 for provisioning, measuring and destroying is that the measurements outlive the
 environment.
 
+## What a trial subscription will not do
+
+Four of this phase's failures were not bugs, not quota in the ordinary sense, and not
+anything a template can express. They are restrictions Azure applies to subscriptions funded
+by free credit, and they are collected here because each one cost a deployment to find.
+
+| | |
+|---|---|
+| **Model quota is granted per model × deployment type × region**, and most combinations are zero. `GlobalStandard.text-embedding-3-large` is zero in every European region here; `Standard` has 350 thousand tokens per minute. | `scripts/azure/regions.sh` |
+| **Entire regions stop accepting new customers.** West Europe refused every resource in the template, managed identities included, with `RequestDisallowedByAzure`. | `scripts/azure/regions.sh` |
+| **One Azure OpenAI account, total.** `OpenAI.S0.AccountCount` is 1 of 1, and a soft-deleted account still holds it. | `scripts/azure/status.sh` |
+| **ACR Tasks do not run.** `az acr build` returns `TasksOperationsNotAllowed`: Microsoft [suspended task runs funded by free credits](https://learn.microsoft.com/en-us/answers/questions/1684863/acr-tasks-requests-for-the-registry-are-not-permit) in 2024 and the official answer is a pay-as-you-go subscription. `publish.sh` falls back to a local Docker build and push. |
+
+None of these is documented where you would look for it before starting, and none of them
+appears in a price list. The pattern is worth stating plainly: **a trial subscription is not a
+small paid subscription.** It is a different product with restrictions that only surface when
+something is refused, and a deployment designed against the documentation will meet them one
+at a time.
+
+Everything here works on a pay-as-you-go subscription without changes. Nothing in the template
+was changed to accommodate these; what changed is that the scripts now ask Azure first, and
+explain the refusal when it comes.
+
 ## What this deployment will not tell you
 
 Stated here rather than left to be assumed:
