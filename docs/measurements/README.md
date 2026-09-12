@@ -15,14 +15,17 @@ start — image pull, process start, connection pool — and it is *a* cold star
 not a distribution. Nothing here is a performance benchmark, and
 `docs/deployment.md` lists in full what a deployment like this cannot tell you.
 
-Two things in each file are filled in by hand afterwards, because no script can
-read them:
+The hybrid benchmark that accompanies a run lands in `evaluation/reports/` as
+`azure-<date>.json`, and that one file is committed while every other report in
+that directory is ignored. The distinction is reproducibility rather than
+importance: a local run can be repeated on any laptop in ten minutes, and a run
+against Azure needs a deployed environment that existed for an afternoon and has
+since been deleted.
 
-- **actual spend**, from Cost Management, which is the only authority on what a
-  run cost;
-- **the hybrid benchmark** against the real models and search service, which is
-  the number worth quoting because it was measured against what a deployment
-  would actually use.
+One thing in each file is filled in by hand afterwards, because no script can
+read it: **actual spend**, from Cost Management, which is the only authority on
+what a run cost. Azure's own figures lag by hours, so it is written in the day
+after rather than the day of.
 
 Nothing secret goes in these files. They carry endpoints, timings and counts —
 never a token, and never a connection string.

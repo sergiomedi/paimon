@@ -138,16 +138,37 @@ key and Microsoft Entra ID; with Entra the platform stores no secret at all
 ([ADR-0014](docs/adr/0014-azure-adapters-and-authentication.md),
 [setup guide](docs/azure-setup.md)).
 
-**What has and has not been run against Azure.** As of Phase 7, **Azure OpenAI** — both
-embeddings and generation, authenticated with a managed identity and no key — has served
-real requests in a deployed environment, as has **PostgreSQL with pgvector** over a private
-endpoint with a token in place of a password. **Azure AI Search has not.** The deployed
-configuration leaves `retrieval.store` at its default, so the measured run fused rankings
-in-process against pgvector; the search adapter is still verified only against the
-in-process stand-in for the service, and a stand-in written by the author of the adapter can
-find inconsistencies but not wrong assumptions — which is precisely how the Entra adapter
-carried a defect from Phase 1 to its first deployed request. The numbers in
-[Evaluation](#evaluation) come from the local backend.
+**All three Azure adapters have now been run against the services themselves**, which until
+Phase 7 none of them had. Azure OpenAI — embeddings and generation, authenticated with a
+managed identity and no key — and PostgreSQL with pgvector over a private endpoint with a
+token in place of a password served the deployed application; **Azure AI Search** was
+exercised by the hybrid benchmark, which retrieves from the service and answers with Azure
+OpenAI while the database stays local.
+
+It cost two defects to get there, and both had been invisible for five phases for the same
+reason. The Entra adapter passed `str(jwk.key)` to PyJWT — a string describing a key object
+rather than a key — so every real token had been rejected since Phase 1. The search adapter
+created its index with a POST where the service requires a PUT with a `Prefer` header. Both
+were hidden by in-process stand-ins written by the author of the adapter, which agreed with
+the code they were meant to check. Both stand-ins now enforce the service's rules instead,
+and restoring either adapter's old line fails tests.
+
+The numbers in [Evaluation](#evaluation) still come from the local backend. What the hybrid
+run measured, over the same fifteen questions, is this:
+
+| | |
+|---|---|
+| Grounded | 0.93 — fourteen of fifteen |
+| Citation accuracy | 0.93 |
+| Cited sentences | 0.59 |
+| Fully attributed answers | 0.33 |
+
+The fifteenth is the interesting one. Asked what has to happen to a node before a kernel
+upgrade, retrieval returned eight chunks from a postmortem and an ADR about message queues
+— and none from the runbook that answers it. The platform said *"the provided sources do not
+contain information about..."* and cited nothing, which is the behaviour `grounded: false`
+exists for: a retrieval failure surfaced as a refusal rather than as a confident answer
+assembled from whatever came back.
 
 ### Three agents, and why they are workflows
 

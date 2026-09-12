@@ -1,0 +1,1031 @@
+{
+  "dataset": "retrieval-v1",
+  "configuration": "azure openai + ai search",
+  "metrics": {
+    "cases": 15,
+    "grounded_rate": {
+      "mean": 0.9333333333333333,
+      "standard_error": 0.06126243889817876,
+      "n": 15,
+      "clusters": 5
+    },
+    "citation_accuracy": {
+      "mean": 0.9333333333333333,
+      "standard_error": 0.06126243889817876,
+      "n": 15,
+      "clusters": 5
+    },
+    "cited_sentence_rate": {
+      "mean": 0.5944444444444444,
+      "standard_error": 0.0719820317466509,
+      "n": 15,
+      "clusters": 5
+    },
+    "fully_attributed_rate": {
+      "mean": 0.3333333333333333,
+      "standard_error": 0.09296222517045286,
+      "n": 15,
+      "clusters": 5
+    }
+  },
+  "cases": [
+    {
+      "case_id": "q001",
+      "question": "What has to happen to a node before a kernel upgrade?",
+      "text": "The provided sources do not contain information about what has to happen to a node before a kernel upgrade.",
+      "grounded": false,
+      "attribution": {
+        "checks": [],
+        "sentences": 1,
+        "uncited_sentences": [
+          "The provided sources do not contain information about what has to happen to a node before a kernel upgrade."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 3313.63,
+      "total_tokens": 906,
+      "sources": [
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+        "# ADR-0004: Use a message queue for outbound webhooks\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "# Postmortem: INC-2451, checkout latency\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n"
+      ],
+      "judged": {
+        "case_id": "q001",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer does not make a claim about what has to happen to a node before a kernel upgrade, it states that the sources do not cover the question, which is a supported claim.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "no",
+          "reasoning": "The answer explicitly states that the sources do not contain the information, but the passages clearly state that nodes are drained before a kernel upgrade.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer states that the sources do not cover the question, which means it is addressing the question directly.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q002",
+      "question": "Does cordoning a node stop the pods that are already running on it?",
+      "text": "No, cordoning a node does not stop the pods that are already running on it. Cordoning only stops the scheduler from placing new pods on the node, but the pods already running keep running and the node continues serving traffic until those pods are moved by eviction [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "node-maintenance",
+            "attribution": "resolved",
+            "quote": "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n",
+            "found": "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "No, cordoning a node does not stop the pods that are already running on it."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 2038.627,
+      "total_tokens": 936,
+      "sources": [
+        "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n",
+        "## Returning a node to service\n\nUncordon the node once it has rejoined the cluster and reports Ready. Do not\nuncordon a node that is Ready but has not yet pulled its DaemonSet images: it will\naccept pods it cannot run.\n",
+        "## Kernel upgrades\n\nNodes are drained before any kernel upgrade, without exception. An in-place kernel\nupgrade on a node that is still serving traffic has caused two of our three\nlongest outages.\n\nReboot the node after the packages are installed. A kernel that is installed but\nnot booted reports the new version to the package manager and the old version to\nthe running system, which makes every subsequent audit wrong.\n",
+        "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it.",
+        "# Node maintenance\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n"
+      ],
+      "judged": {
+        "case_id": "q002",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer correctly states that cordoning a node does not stop the pods already running on it, as supported by source [1], which explicitly states that 'pods already running keep running' after a node is cordoned.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question and provides a clear explanation of what happens to running pods when a node is cordoned, matching the reference passage.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question by explaining the effect of cordon on existing pods, and provides additional context about the scheduler and eviction.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q003",
+      "question": "Why would an eviction never finish?",
+      "text": "An eviction would never finish if a pod has no disruption budget and its controller will not create a replacement. A common example of this situation is a single-replica StatefulSet. In such cases, eviction stalls indefinitely, and the recommended action is to delete the pod directly after confirming the workload tolerates it [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "node-maintenance",
+            "attribution": "resolved",
+            "quote": "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it.",
+            "found": "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it."
+          }
+        ],
+        "sentences": 3,
+        "uncited_sentences": [
+          "An eviction would never finish if a pod has no disruption budget and its controller will not create a replacement.",
+          "A common example of this situation is a single-replica StatefulSet."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 2637.455,
+      "total_tokens": 928,
+      "sources": [
+        "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it.",
+        "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Kernel upgrades\n\nNodes are drained before any kernel upgrade, without exception. An in-place kernel\nupgrade on a node that is still serving traffic has caused two of our three\nlongest outages.\n\nReboot the node after the packages are installed. A kernel that is installed but\nnot booted reports the new version to the package manager and the old version to\nthe running system, which makes every subsequent audit wrong.\n",
+        "## Declaring an incident\n\nDeclare an incident when customer impact is confirmed or when you need more than\none person. Declaring early costs a channel and a status page entry. Declaring\nlate costs the timeline, because nobody was writing anything down.\n",
+        "## Authentication\n\nEvery request requires a bearer token. Tokens are validated against the tenant's\nkey set; the service stores no credentials and issues no tokens of its own.\n\nA request with no token and a request with an expired token both return 401 with\nthe same body. The reason is deliberate: telling a caller why a token was rejected\nhelps them construct a better one.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "# Postmortem: INC-2451, checkout latency\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n"
+      ],
+      "judged": {
+        "case_id": "q003",
+        "faithfulness": {
+          "verdict": "partial",
+          "reasoning": "The answer accurately summarizes the information from source [1] and provides a clear explanation of the situation where eviction stalls indefinitely. However, it does not consider the other sources, which discuss different scenarios, such as draining a node, kernel upgrades, and authentication.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer explains the condition under which an eviction stalls indefinitely, which is in line with the reference passage. It also provides additional context and a specific example, but the core information is present.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer provides a specific scenario where an eviction would never finish, explaining the underlying cause and a recommended action.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q004",
+      "question": "When is it unsafe to uncordon a node that reports Ready?",
+      "text": "It is unsafe to uncordon a node that reports Ready but has not yet pulled its DaemonSet images, because it will accept pods it cannot run [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "node-maintenance",
+            "attribution": "resolved",
+            "quote": "## Returning a node to service\n\nUncordon the node once it has rejoined the cluster and reports Ready. Do not\nuncordon a node that is Ready but has not yet pulled its DaemonSet images: it will\naccept pods it cannot run.\n",
+            "found": "## Returning a node to service\n\nUncordon the node once it has rejoined the cluster and reports Ready. Do not\nuncordon a node that is Ready but has not yet pulled its DaemonSet images: it will\naccept pods it cannot run.\n"
+          }
+        ],
+        "sentences": 1,
+        "uncited_sentences": [],
+        "invented_markers": []
+      },
+      "latency_ms": 2530.26,
+      "total_tokens": 847,
+      "sources": [
+        "## Returning a node to service\n\nUncordon the node once it has rejoined the cluster and reports Ready. Do not\nuncordon a node that is Ready but has not yet pulled its DaemonSet images: it will\naccept pods it cannot run.\n",
+        "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n",
+        "## Kernel upgrades\n\nNodes are drained before any kernel upgrade, without exception. An in-place kernel\nupgrade on a node that is still serving traffic has caused two of our three\nlongest outages.\n\nReboot the node after the packages are installed. A kernel that is installed but\nnot booted reports the new version to the package manager and the old version to\nthe running system, which makes every subsequent audit wrong.\n",
+        "# Node maintenance\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it.",
+        "## Declaring an incident\n\nDeclare an incident when customer impact is confirmed or when you need more than\none person. Declaring early costs a channel and a status page entry. Declaring\nlate costs the timeline, because nobody was writing anything down.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager."
+      ],
+      "judged": {
+        "case_id": "q004",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer correctly identifies the specific condition under which it is unsafe to uncordon a node that reports Ready, which is supported by source [1].",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly states the condition under which it is unsafe to uncordon a node that reports Ready, which is the same condition mentioned in the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the specific scenario when it is unsafe to uncordon a node that reports Ready, providing a clear reason for this safety concern.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q005",
+      "question": "What caused INC-2451?",
+      "text": "INC-2451 was caused by connection pool exhaustion in the payments service. This exhaustion was triggered by a background reconciliation job that opened one connection per merchant and held it for the duration of its run. The merchant onboarding campaign had increased the merchant count past the pool size for the first time, causing the job's connection usage to cross a threshold that had not been documented. Restarting the service cleared the symptom but not the underlying cause, and if the job had been scheduled to retry, the incident would have recurred within the hour [2][3].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 2,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+            "found": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n"
+          },
+          {
+            "marker": 3,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+            "found": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n"
+          }
+        ],
+        "sentences": 4,
+        "uncited_sentences": [
+          "INC-2451 was caused by connection pool exhaustion in the payments service.",
+          "This exhaustion was triggered by a background reconciliation job that opened one connection per merchant and held it for the duration of its run.",
+          "The merchant onboarding campaign had increased the merchant count past the pool size for the first time, causing the job's connection usage to cross a threshold that had not been documented."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 2367.903,
+      "total_tokens": 980,
+      "sources": [
+        "# Postmortem: INC-2451, checkout latency\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager.",
+        "## Kernel upgrades\n\nNodes are drained before any kernel upgrade, without exception. An in-place kernel\nupgrade on a node that is still serving traffic has caused two of our three\nlongest outages.\n\nReboot the node after the packages are installed. A kernel that is installed but\nnot booted reports the new version to the package manager and the old version to\nthe running system, which makes every subsequent audit wrong.\n"
+      ],
+      "judged": {
+        "case_id": "q005",
+        "faithfulness": {
+          "verdict": "partial",
+          "reasoning": "The answer accurately describes the cause of INC-2451 as connection pool exhaustion in the payments service, which was triggered by the background reconciliation job and the increased merchant count. The answer also correctly cites sources [2] and [3] to support this claim, but incorrectly cites [1] as it is not relevant to the cause of INC-2451.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer provides a detailed explanation of the cause of INC-2451, including the specific mechanism and the underlying factors that led to the incident.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer provides a detailed explanation of the cause of INC-2451, including the specific mechanisms and factors involved.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q006",
+      "question": "Why did a job that had run for months suddenly cause an outage?",
+      "text": "The job had run nightly for eight months without incident, but a merchant onboarding campaign had raised the merchant count past the pool size for the first time. This caused the job's connection usage to cross a threshold that nobody had documented. As a result, the connection pool was exhausted, leading to increased checkout latency and an outage [1][2].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+            "found": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n"
+          },
+          {
+            "marker": 2,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+            "found": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n"
+          }
+        ],
+        "sentences": 3,
+        "uncited_sentences": [
+          "The job had run nightly for eight months without incident, but a merchant onboarding campaign had raised the merchant count past the pool size for the first time.",
+          "This caused the job's connection usage to cross a threshold that nobody had documented."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 2126.617,
+      "total_tokens": 951,
+      "sources": [
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Known issues\n\nEviction stalls indefinitely when a pod has no disruption budget and its\ncontroller will not create a replacement \u2014 a single-replica StatefulSet is the\nusual cause. Delete the pod directly after confirming the workload tolerates it.",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "# Postmortem: INC-2451, checkout latency\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n"
+      ],
+      "judged": {
+        "case_id": "q006",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer accurately summarizes the information from sources [1] and [2], but does not provide any new information or analysis beyond what is supported by the sources. The claim about the connection pool being exhausted is supported by source [2], and the claim about the job's connection usage crossing a threshold is supported by source [1].",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer explains the cause of the outage by describing the event that triggered it, which is the merchant count exceeding the pool size, and also mentions the consequence of this event, which is the connection pool being exhausted.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer explains the specific reason for the outage, citing a specific threshold being crossed and its consequences.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q007",
+      "question": "What did restarting the payments service actually fix?",
+      "text": "Restarting the payments service cleared the symptom of connection pool exhaustion, which immediately restored latency by clearing the pool, but it did not fix the underlying cause of the problem [1][2][3].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+            "found": "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n"
+          },
+          {
+            "marker": 2,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n",
+            "found": "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n"
+          },
+          {
+            "marker": 3,
+            "document_id": "incident-2451-postmortem",
+            "attribution": "resolved",
+            "quote": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+            "found": "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n"
+          }
+        ],
+        "sentences": 1,
+        "uncited_sentences": [],
+        "invented_markers": []
+      },
+      "latency_ms": 2132.754,
+      "total_tokens": 982,
+      "sources": [
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager."
+      ],
+      "judged": {
+        "case_id": "q007",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer correctly identifies that restarting the service cleared the symptom of connection pool exhaustion, but notes that it did not address the underlying cause. The sources support this claim, as [1] states that restarting the service 'cleared the symptom but not the cause' and [3] explains that the cause was connection pool exhaustion.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer explains that restarting the service cleared the symptom but not the cause, which matches the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer explains the immediate effect of restarting the payments service, but also mentions that it did not address the root cause of the problem, which is a nuanced answer to the question.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q008",
+      "question": "How long do I have to acknowledge a page, and what happens if I do not?",
+      "text": "You have to acknowledge a page within five minutes. If a page is still unacknowledged after ten minutes, it escalates to the secondary, and after twenty minutes it escalates to the engineering manager [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "oncall-handbook",
+            "attribution": "resolved",
+            "quote": "## Acknowledging a page\n\nAcknowledge within five minutes. Acknowledging is not the same as fixing, and it\nis not a commitment to fix alone \u2014 it means someone has eyes on the alert.\n\nIf a page is still unacknowledged after ten minutes it escalates to the secondary,\nand after twenty to the engineering manager.\n",
+            "found": "## Acknowledging a page\n\nAcknowledge within five minutes. Acknowledging is not the same as fixing, and it\nis not a commitment to fix alone \u2014 it means someone has eyes on the alert.\n\nIf a page is still unacknowledged after ten minutes it escalates to the secondary,\nand after twenty to the engineering manager.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "You have to acknowledge a page within five minutes."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 1837.205,
+      "total_tokens": 918,
+      "sources": [
+        "## Acknowledging a page\n\nAcknowledge within five minutes. Acknowledging is not the same as fixing, and it\nis not a commitment to fix alone \u2014 it means someone has eyes on the alert.\n\nIf a page is still unacknowledged after ten minutes it escalates to the secondary,\nand after twenty to the engineering manager.\n",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager.",
+        "## Rotation\n\nThe primary on-call engineer holds the pager for one week, starting Wednesday at\n10:00 local time. Handover happens live, not over chat: the outgoing engineer\nwalks the incoming one through anything still open.\n",
+        "## Declaring an incident\n\nDeclare an incident when customer impact is confirmed or when you need more than\none person. Declaring early costs a channel and a status page entry. Declaring\nlate costs the timeline, because nobody was writing anything down.\n",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n"
+      ],
+      "judged": {
+        "case_id": "q008",
+        "faithfulness": {
+          "verdict": "partial",
+          "reasoning": "The answer accurately states the time limits for acknowledging a page, as specified in source [1]. However, it incorrectly states that a page escalates to the engineering manager after 20 minutes, whereas source [1] actually states that it escalates to the secondary after 10 minutes, and then to the engineering manager after 20 minutes.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "partial",
+          "reasoning": "The answer correctly conveys the time limit for acknowledging a page and the consequence of not doing so, but adds an additional consequence not mentioned in the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer provides specific timeframes for acknowledging a page and the consequences of not doing so, directly addressing the question.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q009",
+      "question": "Is a failover that nobody noticed a severity one?",
+      "text": "No, a failover that nobody noticed is not a severity one. Severity is set by impact, not by cause, and a database failover that nobody noticed is explicitly given as an example of something that is not severity one [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "oncall-handbook",
+            "attribution": "resolved",
+            "quote": "## Severity\n\nSeverity one means the product is unusable for a substantial share of customers,\nor data is at risk. Severity two means a major feature is degraded with a\nworkaround. Everything else is severity three and waits for business hours.\n\nSeverity is set by impact, not by cause. A database failover that nobody noticed\nis not a severity one.\n",
+            "found": "## Severity\n\nSeverity one means the product is unusable for a substantial share of customers,\nor data is at risk. Severity two means a major feature is degraded with a\nworkaround. Everything else is severity three and waits for business hours.\n\nSeverity is set by impact, not by cause. A database failover that nobody noticed\nis not a severity one.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "No, a failover that nobody noticed is not a severity one."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 1815.226,
+      "total_tokens": 925,
+      "sources": [
+        "## Severity\n\nSeverity one means the product is unusable for a substantial share of customers,\nor data is at risk. Severity two means a major feature is degraded with a\nworkaround. Everything else is severity three and waits for business hours.\n\nSeverity is set by impact, not by cause. A database failover that nobody noticed\nis not a severity one.\n",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager.",
+        "## Declaring an incident\n\nDeclare an incident when customer impact is confirmed or when you need more than\none person. Declaring early costs a channel and a status page entry. Declaring\nlate costs the timeline, because nobody was writing anything down.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "## Draining a node\n\nCordon the node first so the scheduler stops placing new pods on it. Cordoning is\nnot eviction: pods already running keep running, and the node keeps serving\ntraffic until they are moved.\n\nOnce the node is cordoned, evict the running pods and wait for them to reschedule\nelsewhere. Eviction respects pod disruption budgets, so a workload that declares\none will be moved a replica at a time.\n"
+      ],
+      "judged": {
+        "case_id": "q009",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer correctly cites source [1] to support the claim that severity is set by impact, not cause, and that a database failover that nobody noticed is not a severity one. This directly addresses the question and is supported by the provided sources.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer correctly conveys the reference passage's definition of severity and applies it to the specific scenario of a failover that nobody noticed, showing that it is not severity one.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question by providing a clear explanation of what determines severity and referencing an example that supports the claim.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q010",
+      "question": "Why are webhooks no longer delivered inside the request?",
+      "text": "Webhooks are no longer delivered inside the request because delivering them inline caused a slow customer endpoint to hold one of the request workers for the entire timeout, and a customer whose endpoint was down could consume a meaningful share of capacity by doing nothing at all. Additionally, retries were attempted in the same request, meaning a delivery either succeeded within one request's lifetime or was lost [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "adr-0004-message-queue",
+            "attribution": "resolved",
+            "quote": "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+            "found": "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "Webhooks are no longer delivered inside the request because delivering them inline caused a slow customer endpoint to hold one of the request workers for the entire timeout, and a customer whose endpoint was down could consume a meaningful share of capacity by doing nothing at all."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 1976.77,
+      "total_tokens": 1008,
+      "sources": [
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Authentication\n\nEvery request requires a bearer token. Tokens are validated against the tenant's\nkey set; the service stores no credentials and issues no tokens of its own.\n\nA request with no token and a request with an expired token both return 401 with\nthe same body. The reason is deliberate: telling a caller why a token was rejected\nhelps them construct a better one.\n",
+        "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+        "# ADR-0004: Use a message queue for outbound webhooks\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n"
+      ],
+      "judged": {
+        "case_id": "q010",
+        "faithfulness": {
+          "verdict": "partial",
+          "reasoning": "The answer correctly cites source [1] to support the claim that delivering webhooks inline caused issues with slow customer endpoints and idle capacity. However, it also adds an additional claim about retries being attempted in the same request, which is supported by source [1] but not explicitly stated as the reason for switching to asynchronous delivery.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer explains the reason for the change in delivery method, citing the impact on request workers and capacity, which matches the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer provides specific reasons why webhooks are no longer delivered inside the request, addressing the question directly.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q011",
+      "question": "What happens to a webhook that cannot be delivered for a day?",
+      "text": "A webhook delivery that cannot be delivered for a day is retried using exponential backoff with jitter, capped at twenty-four hours. After this period, the delivery is moved to a dead letter queue and the customer is notified by email [2].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 2,
+            "document_id": "adr-0004-message-queue",
+            "attribution": "resolved",
+            "quote": "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+            "found": "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "A webhook delivery that cannot be delivered for a day is retried using exponential backoff with jitter, capped at twenty-four hours."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 1994.839,
+      "total_tokens": 953,
+      "sources": [
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Decision\n\nWebhook deliveries are enqueued and delivered by a separate worker pool.\n\nThe queue is durable, so a delivery survives a deploy. Retries use exponential\nbackoff with jitter, capped at twenty-four hours, after which the delivery is\nmoved to a dead letter queue and the customer is notified by email.\n",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "# ADR-0004: Use a message queue for outbound webhooks\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Writing the postmortem\n\nEvery severity one and two gets a written postmortem within five working days.\nPostmortems are blameless: they describe what the system allowed to happen, not\nwho was unlucky enough to be holding the pager.",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## Returning a node to service\n\nUncordon the node once it has rejoined the cluster and reports Ready. Do not\nuncordon a node that is Ready but has not yet pulled its DaemonSet images: it will\naccept pods it cannot run.\n"
+      ],
+      "judged": {
+        "case_id": "q011",
+        "faithfulness": {
+          "verdict": "partial",
+          "reasoning": "The answer accurately describes the process for retrying a webhook delivery that cannot be delivered for a day, citing source [2] for the specific details of the retry process. However, the answer does not address what happens to the delivery after it is moved to the dead letter queue, which is not explicitly stated in the provided sources.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer describes the process for a webhook that cannot be delivered for a day, including the retry mechanism and the eventual move to a dead letter queue, which matches the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer describes the process for a webhook that cannot be delivered for a day, including retry attempts and notification to the customer.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q012",
+      "question": "How many search requests can one tenant make per minute?",
+      "text": "One tenant may make sixty search requests per minute [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "search-api",
+            "attribution": "resolved",
+            "quote": "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n",
+            "found": "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n"
+          }
+        ],
+        "sentences": 1,
+        "uncited_sentences": [],
+        "invented_markers": []
+      },
+      "latency_ms": 1822.066,
+      "total_tokens": 816,
+      "sources": [
+        "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n",
+        "## Authentication\n\nEvery request requires a bearer token. Tokens are validated against the tenant's\nkey set; the service stores no credentials and issues no tokens of its own.\n\nA request with no token and a request with an expired token both return 401 with\nthe same body. The reason is deliberate: telling a caller why a token was rejected\nhelps them construct a better one.\n",
+        "## Pagination\n\nResults are paginated with an opaque cursor. Do not construct a cursor by hand and\ndo not assume it encodes an offset \u2014 it encodes a sort position, and offsets go\nwrong the moment a document is inserted between two pages.\n\nThe default page size is twenty and the maximum is one hundred. Requests above the\nmaximum are clamped rather than rejected.\n",
+        "# Search API\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Errors\n\nA 503 from this endpoint means a dependency is unavailable and the request may\nsucceed if retried. A 500 means the request will not succeed as sent. Clients\nshould retry the former with backoff and log the latter.",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n"
+      ],
+      "judged": {
+        "case_id": "q012",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly cites source [1] which explicitly states that each tenant may make sixty search requests per minute.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly states the number of search requests a tenant can make per minute, which matches the reference passage.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question of the number of search requests a tenant can make per minute.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q013",
+      "question": "Can I get more search capacity by creating extra API tokens?",
+      "text": "No, creating extra API tokens does not increase search capacity. The rate limit of sixty search requests per minute is applied per tenant, not per token, so issuing more tokens does not buy more capacity [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "search-api",
+            "attribution": "resolved",
+            "quote": "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n",
+            "found": "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n"
+          }
+        ],
+        "sentences": 2,
+        "uncited_sentences": [
+          "No, creating extra API tokens does not increase search capacity."
+        ],
+        "invented_markers": []
+      },
+      "latency_ms": 2376.687,
+      "total_tokens": 872,
+      "sources": [
+        "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n",
+        "## Authentication\n\nEvery request requires a bearer token. Tokens are validated against the tenant's\nkey set; the service stores no credentials and issues no tokens of its own.\n\nA request with no token and a request with an expired token both return 401 with\nthe same body. The reason is deliberate: telling a caller why a token was rejected\nhelps them construct a better one.\n",
+        "# Search API\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Pagination\n\nResults are paginated with an opaque cursor. Do not construct a cursor by hand and\ndo not assume it encodes an offset \u2014 it encodes a sort position, and offsets go\nwrong the moment a document is inserted between two pages.\n\nThe default page size is twenty and the maximum is one hundred. Requests above the\nmaximum are clamped rather than rejected.\n",
+        "## Errors\n\nA 503 from this endpoint means a dependency is unavailable and the request may\nsucceed if retried. A 500 means the request will not succeed as sent. Clients\nshould retry the former with backoff and log the latter.",
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review."
+      ],
+      "judged": {
+        "case_id": "q013",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly cites source [1] to support its claim that the rate limit is per tenant, not per token, which is the only relevant information to the question.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly states that creating extra API tokens does not increase search capacity, and provides a clear explanation of why this is the case, which matches the reference passages.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question by stating that creating extra API tokens does not increase search capacity, and provides a reason for this.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q014",
+      "question": "Should a client retry after a 503 from search?",
+      "text": "Yes, a client should retry after a 503 from the search endpoint with backoff, because a 503 means a dependency is unavailable and the request may succeed if retried [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "search-api",
+            "attribution": "resolved",
+            "quote": "## Errors\n\nA 503 from this endpoint means a dependency is unavailable and the request may\nsucceed if retried. A 500 means the request will not succeed as sent. Clients\nshould retry the former with backoff and log the latter.",
+            "found": "## Errors\n\nA 503 from this endpoint means a dependency is unavailable and the request may\nsucceed if retried. A 500 means the request will not succeed as sent. Clients\nshould retry the former with backoff and log the latter."
+          }
+        ],
+        "sentences": 1,
+        "uncited_sentences": [],
+        "invented_markers": []
+      },
+      "latency_ms": 1850.859,
+      "total_tokens": 841,
+      "sources": [
+        "## Errors\n\nA 503 from this endpoint means a dependency is unavailable and the request may\nsucceed if retried. A 500 means the request will not succeed as sent. Clients\nshould retry the former with backoff and log the latter.",
+        "## Rate limits\n\nEach tenant may make sixty search requests per minute. Exceeding the limit returns\n429 with a Retry-After header in seconds. The limit is per tenant, not per token,\nso issuing more tokens does not buy more capacity.\n",
+        "# Search API\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n",
+        "## Pagination\n\nResults are paginated with an opaque cursor. Do not construct a cursor by hand and\ndo not assume it encodes an offset \u2014 it encodes a sort position, and offsets go\nwrong the moment a document is inserted between two pages.\n\nThe default page size is twenty and the maximum is one hundred. Requests above the\nmaximum are clamped rather than rejected.\n",
+        "## Authentication\n\nEvery request requires a bearer token. Tokens are validated against the tenant's\nkey set; the service stores no credentials and issues no tokens of its own.\n\nA request with no token and a request with an expired token both return 401 with\nthe same body. The reason is deliberate: telling a caller why a token was rejected\nhelps them construct a better one.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review."
+      ],
+      "judged": {
+        "case_id": "q014",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly cites source [1] to support its claim that a 503 from the search endpoint means a dependency is unavailable and the request may succeed if retried, which is the only claim made.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer accurately conveys the information from the reference passages, including the specific endpoint (search) and the recommendation to retry with backoff.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question of whether a client should retry after a 503 from search, and provides a reason for this behavior.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    },
+    {
+      "case_id": "q015",
+      "question": "Which pool does a slow customer endpoint consume now?",
+      "text": "A slow customer endpoint now consumes a worker from the delivery pool rather than from the request pool [1].",
+      "grounded": true,
+      "attribution": {
+        "checks": [
+          {
+            "marker": 1,
+            "document_id": "adr-0004-message-queue",
+            "attribution": "resolved",
+            "quote": "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+            "found": "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one."
+          }
+        ],
+        "sentences": 1,
+        "uncited_sentences": [],
+        "invented_markers": []
+      },
+      "latency_ms": 1666.151,
+      "total_tokens": 948,
+      "sources": [
+        "## Consequences\n\nDelivery is now asynchronous, so the API can no longer report whether a webhook\narrived. Customers who relied on that behaviour must poll the deliveries endpoint\ninstead.\n\nA slow customer endpoint now consumes a worker from the delivery pool rather than\nfrom the request pool, so it degrades webhook delivery for everyone but leaves the\nAPI unaffected. That is a better failure mode, not an absent one.",
+        "## Actions\n\nThe reconciliation job now uses a dedicated connection pool sized independently of\nthe request pool, which is the same separation the platform applies to agent\nworkloads. Pool saturation is now alerted at 80 per cent, and merchant count is\npart of the capacity review.",
+        "## Context\n\nOutbound webhooks were delivered inline, inside the request that produced the\nevent. A slow customer endpoint therefore held one of our request workers for its\nentire timeout, and a customer whose endpoint was down could consume a meaningful\nshare of our capacity by doing nothing at all.\n\nRetries were attempted in the same request, which meant a delivery either\nsucceeded within one request's lifetime or was lost.\n",
+        "## Timeline\n\nThe reconciliation job started at 02:00 UTC on its usual schedule. Latency alerts\nfired at 02:14 once the pool was fully consumed. The on-call engineer restarted\nthe payments service at 02:41, which cleared the pool and restored latency\nimmediately. The job was disabled at 02:47 and the incident closed at 03:01.\n",
+        "## Summary\n\nCheckout p99 latency rose from 240 ms to 9 s for 47 minutes. No requests were\nlost. The cause was connection pool exhaustion in the payments service, triggered\nby a background reconciliation job that opened one connection per merchant and\nheld it for the duration of its run.\n",
+        "## What went right\n\nThe alert fired on user-visible latency rather than on pool utilization, so it\ndescribed the impact rather than a proxy for it. The on-call engineer found the\ncorrect runbook in under three minutes.\n",
+        "## What went wrong\n\nThe reconciliation job had run nightly for eight months without incident. A\nmerchant onboarding campaign had raised the merchant count past the pool size for\nthe first time, so the job's connection usage crossed a threshold nobody had\nwritten down.\n\nRestarting the service cleared the symptom but not the cause. Had the job been\nscheduled to retry, the incident would have recurred within the hour.\n",
+        "# Postmortem: INC-2451, checkout latency\n\nSample material written for this repository's benchmark. Not a description of any\nreal system.\n"
+      ],
+      "judged": {
+        "case_id": "q015",
+        "faithfulness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly quotes source [1], which states that a slow customer endpoint now consumes a worker from the delivery pool rather than from the request pool.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "completeness": {
+          "verdict": "yes",
+          "reasoning": "The answer directly states the information from the reference passage, without adding or omitting any details.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        },
+        "relevance": {
+          "verdict": "yes",
+          "reasoning": "The answer directly addresses the question by specifying which pool a slow customer endpoint consumes from now.",
+          "model_id": "llama3.1:8b",
+          "unanimous": true,
+          "samples": 1
+        }
+      }
+    }
+  ],
+  "scores": {
+    "grounded_rate": [
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "citation_accuracy": [
+      0.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      1.0
+    ],
+    "cited_sentence_rate": [
+      0.0,
+      0.5,
+      0.3333333333333333,
+      1.0,
+      0.25,
+      0.3333333333333333,
+      1.0,
+      0.5,
+      0.5,
+      0.5,
+      0.5,
+      1.0,
+      0.5,
+      1.0,
+      1.0
+    ],
+    "fully_attributed_rate": [
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      1.0,
+      1.0
+    ]
+  },
+  "clusters": [
+    "node-maintenance",
+    "node-maintenance",
+    "node-maintenance",
+    "node-maintenance",
+    "incident-2451-postmortem",
+    "incident-2451-postmortem",
+    "incident-2451-postmortem",
+    "oncall-handbook",
+    "oncall-handbook",
+    "adr-0004-message-queue",
+    "adr-0004-message-queue",
+    "search-api",
+    "search-api",
+    "search-api",
+    "adr-0004-message-queue"
+  ],
+  "judged": {
+    "judge_model": "llama3.1:8b",
+    "samples": 1,
+    "judged": 15,
+    "undecided": 0,
+    "disagreements": 0,
+    "faithfulness": {
+      "mean": 0.8333333333333334,
+      "standard_error": 0.06299407883487121,
+      "n": 15,
+      "clusters": null
+    },
+    "completeness": {
+      "mean": 0.9,
+      "standard_error": 0.0723746864455746,
+      "n": 15,
+      "clusters": null
+    },
+    "relevance": {
+      "mean": 1.0,
+      "standard_error": 0.0,
+      "n": 15,
+      "clusters": null
+    },
+    "self_judged": false,
+    "calibration": null
+  }
+}

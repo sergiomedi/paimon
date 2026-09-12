@@ -39,8 +39,18 @@ CLAUDE.local.md
 _changes.patch
 _commit_msg.txt
 
-# Benchmark output. Runs are cheap; results are not a source of truth.
-evaluation/reports/
+# Benchmark output. Runs against the local stack are cheap and repeatable, so the
+# report is not a source of truth and is not kept.
+#
+# The contents rather than the directory: git cannot re-include a file whose
+# parent directory is excluded, so ignoring `evaluation/reports/` would make the
+# exception below a line that looks like it works and does not.
+evaluation/reports/*
+# A run against Azure is neither. It needs a deployed environment that exists for
+# an afternoon and costs money, and the environment it measured is destroyed
+# within the hour — so this one cannot be reproduced by running it again, and is
+# committed for the same reason docs/measurements is.
+!evaluation/reports/azure-*.json
 
 # Personal development journal, not part of the repository
 NOTAS_DE_DESARROLLO.md
