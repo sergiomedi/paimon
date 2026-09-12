@@ -28,16 +28,39 @@ param privateEndpointSubnetId string
 param virtualNetworkId string
 
 @description('''
-Object id of the Microsoft Entra principal that administers the database.
+Object id of a person to register as a Microsoft Entra administrator.
 
-Required, and it is a person rather than the workload: somebody has to be able to
-create the workload's role, and the thing that role is for should not be able to
-create it.
+Only used when registerOperatorAsAdministrator is on. The administrator that does
+the work is the management identity below; this one is for a human who wants to
+connect from inside the network with their own account.
 ''')
 param administratorPrincipalId string
 
-@description('Display name of that principal, which Azure stores alongside the object id.')
+@description('Sign-in name of that person, which Azure stores alongside the object id and which becomes a PostgreSQL role name.')
 param administratorPrincipalName string
+
+@description('''
+Whether to register the person running the deployment as a database administrator.
+
+**Off**, and the reason is a hard limit rather than a preference. A PostgreSQL
+role name cannot exceed 63 characters, and Azure registers an Entra administrator
+under its sign-in name — so a guest account's UPN, which looks like
+`someone_gmail.com#EXT#@tenantname.onmicrosoft.com` and runs to 67 characters
+here, is silently truncated to 63 when the role is created and then fails
+`42710: role already exists` on the next deployment, because the name Azure asks
+for and the name PostgreSQL stored are no longer the same string. There is no
+version of that which eventually works.
+
+It is also unnecessary. Since ADR-0042 the administrator that matters is the
+management identity, whose name is short and generated; and since ADR-0038 the
+server has no public address, so a person's account cannot reach it from a laptop
+whether or not it is registered. This was a decorative administrator that did not
+fit.
+
+Turn it on for a sign-in name comfortably under 63 characters, on a deployment
+where somebody works from inside the network.
+''')
+param registerOperatorAsAdministrator bool = false
 
 @description('Principal id of the administration identity, registered as a second Entra administrator so that the bootstrap job can create the workload role without a person at a terminal.')
 param administrationIdentityPrincipalId string
@@ -215,18 +238,19 @@ resource dnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2
 // It does not make it impossible. The mitigation for the remainder is that this
 // deployment is idempotent: running it again completes, and deploy.sh says so
 // when it recognises the error.
-resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
-  parent: server
-  name: administratorPrincipalId
-  properties: {
-    principalType: 'User'
-    principalName: administratorPrincipalName
-    tenantId: subscription().tenantId
+resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' =
+  if (registerOperatorAsAdministrator && !empty(administratorPrincipalId)) {
+    parent: server
+    name: administratorPrincipalId
+    properties: {
+      principalType: 'User'
+      principalName: administratorPrincipalName
+      tenantId: subscription().tenantId
+    }
+    dependsOn: [
+      dnsZoneGroup
+    ]
   }
-  dependsOn: [
-    dnsZoneGroup
-  ]
-}
 
 // The identity the bootstrap job runs as (ADR-0042). principalType is
 // 'ServicePrincipal' rather than 'User': a managed identity is one, and getting
@@ -241,8 +265,11 @@ resource administrationPrincipal 'Microsoft.DBforPostgreSQL/flexibleServers/admi
     tenantId: subscription().tenantId
   }
   dependsOn: [
-    // Azure applies these one at a time and rejects the second while the first
-    // is still being applied.
+    // The route, for the reason above. Not the other administrator, which may
+    // not exist: Azure applies these one at a time and rejects a second while the
+    // first is still being applied, so when both are on the conditional one is
+    // ordered first by being the one that waits on the endpoint.
+    dnsZoneGroup
     administrator
   ]
 }

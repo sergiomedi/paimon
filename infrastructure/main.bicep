@@ -108,8 +108,19 @@ ranker, and costs about 0.10 EUR an hour whether or not anything queries it.
 @allowed(['free', 'basic', 'standard'])
 param searchSku string = 'free'
 
-@description('Display name of the database administrator, normally your sign-in address. Azure stores it beside the object id and rejects a mismatch.')
+@description('Sign-in name of the person to register as a database administrator, if registerOperatorAsAdministrator is on. Azure stores it beside the object id and rejects a mismatch.')
 param administratorPrincipalName string = ''
+
+@description('''
+Register the person running the deployment as a database administrator.
+
+Off, and see the note on the same parameter in modules/data.bicep: a PostgreSQL
+role name stops at 63 characters, a guest account's UPN is routinely longer, and
+the result is a role created truncated and a redeployment that fails on a name
+mismatch it cannot resolve. The administrator that does the work is the
+management identity, which is short by construction.
+''')
+param registerOperatorAsAdministrator bool = false
 
 @description('Database compute tier. Burstable is cheaper and Microsoft is explicit that it is not for production: it has no high availability, no connection pooler, and vector search is the workload that exhausts its CPU credits.')
 param databaseSku string = 'Standard_D2ds_v5'
@@ -266,6 +277,7 @@ module data 'modules/data.bicep' = {
     virtualNetworkId: platform.outputs.virtualNetworkId
     administratorPrincipalId: operatorPrincipalId
     administratorPrincipalName: administratorPrincipalName
+    registerOperatorAsAdministrator: registerOperatorAsAdministrator
     administrationIdentityPrincipalId: platform.outputs.administrationIdentityPrincipalId
     administrationIdentityName: platform.outputs.administrationIdentityName
     databaseSku: databaseSku

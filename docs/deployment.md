@@ -274,6 +274,21 @@ endpoint and its DNS zone group, which is both the honest dependency — an admi
 be added to a server nothing can reach — and several minutes of settling time. That makes the
 race unlikely rather than impossible.
 
+**`AadAuthPrincipalCreationFailed ... 42710: role already exists`.** A PostgreSQL role name
+stops at **63 characters**, and Azure registers a Microsoft Entra administrator under its
+sign-in name. A guest account's UPN —
+`someone_gmail.com#EXT#@tenantname.onmicrosoft.com` — runs well past that, so the role is
+created truncated and every later deployment asks for a name PostgreSQL does not have while
+the truncated one blocks creating it. Reruns do not help; nothing about it converges.
+
+`registerOperatorAsAdministrator` is **off** because of this, and turning it off is the fix.
+Nothing is lost: since [ADR-0042](adr/0042-a-second-identity-that-exists-to-grant-one-privilege.md)
+the administrator that does the work is the management identity, whose name is short by
+construction, and since [ADR-0038](adr/0038-a-database-with-no-password-and-no-public-address.md)
+the server has no public address, so a person's account could not reach it from a laptop
+whether or not it were registered. Turn it on only for a sign-in name comfortably under 63
+characters, on a deployment where somebody works from inside the network.
+
 **`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
 Purge it rather than restoring it, and note that on a trial subscription it is also holding the
 only account you are allowed to have:

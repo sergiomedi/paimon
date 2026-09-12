@@ -156,6 +156,16 @@ explain() {
             warn "    az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
             warn "      --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
             ;;
+        *AadAuthPrincipalCreationFailed*42710*)
+            warn "  PostgreSQL already has a role under a name that no longer matches the one"
+            warn "  Azure is asking for. A role name stops at 63 characters, and Azure registers"
+            warn "  an Entra administrator under its sign-in name — so a guest UPN longer than"
+            warn "  that is created truncated and never matches again."
+            warn ""
+            warn "  registerOperatorAsAdministrator is off by default for exactly this reason."
+            warn "  If it was turned on, turn it off: the administrator that does the work is the"
+            warn "  management identity, and it is short by construction."
+            ;;
         *AadAuthOperationCannotBePerformedWhenServerIsNotAccessible*)
             warn "  The database was created but was not ready for a Microsoft Entra"
             warn "  administrator yet. This is a race Azure has had open since 2023: the server"
