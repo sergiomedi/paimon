@@ -9,6 +9,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INFRA="$ROOT/infrastructure"
+# This directory, so that the helpers here can reach the Python beside them
+# whichever script sourced this and from wherever it was run.
+SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # bicep_cli and have_bicep, defined once for this script and for check.sh.
 source "$ROOT/scripts/_bicep.sh"
@@ -348,4 +351,118 @@ run_job() {
     printf '\n'
     JOB_STATUS="$status"
     JOB_EXECUTION="$execution"
+}
+
+# The deployment's own outputs, as written by deploy.sh.
+#
+# Sourced rather than re-queried: the file is regenerated on every deployment and
+# reading it is instant, where `az deployment sub show` is a round trip for
+# values that are already on disk. A script that needs it and cannot find it has
+# nothing to work with, so it says which command produces it.
+load_outputs() {
+    local outputs="$INFRA/.env.${ENVIRONMENT}"
+    [[ -f "$outputs" ]] || die "$(printf '%s\n' \
+        "no deployment outputs at $outputs." \
+        "" \
+        "They are written by a successful deployment:" \
+        "  ./scripts/azure/deploy.sh")"
+    set -a
+    # shellcheck disable=SC1090
+    source "$outputs"
+    set +a
+}
+
+# The app registration this deployment issues tokens against.
+#
+# Taken from the audience rather than looked up by display name: the audience is
+# what the running container checks, so anything else would be a second source of
+# truth for the same fact — and the failure that produces is a token that is
+# perfectly valid for an application this API has never heard of.
+api_app_id() {
+    local audience="${AZURE_PAIMON_API_AUDIENCE:-}"
+    [[ -n "$audience" ]] || die "$(printf '%s\n' \
+        "AZURE_PAIMON_API_AUDIENCE is not set, and it is what identifies the app" \
+        "registration to ask for a token." \
+        "" \
+        "  APP_ID=\"\$(az ad app list --display-name paimon-api --query '[0].appId' -o tsv)\"" \
+        "  export AZURE_PAIMON_API_AUDIENCE=\"api://\$APP_ID\"")"
+    printf '%s' "${audience#api://}"
+}
+
+# Make the app registration able to issue tokens for the Azure CLI, if it is not
+# already. Idempotent, and silent when there is nothing to do.
+#
+# What it changes and why is in scripts/azure/app_registration.py. The short
+# version: a resource with no delegated scope cannot be asked for a delegated
+# token, consent for the Azure CLI has no owner to grant it, and a v1.0 token
+# fails this API's issuer check.
+ensure_app_registration() {
+    local app_id="$1" object_id application patch
+    object_id="$(az ad app show --id "$app_id" --query id -o tsv 2>/dev/null || printf '')"
+    [[ -n "$object_id" ]] || die "$(printf '%s\n' \
+        "no app registration with id ${app_id} in this tenant." \
+        "" \
+        "AZURE_PAIMON_API_AUDIENCE names one that does not exist here, which usually" \
+        "means az login signed into a different directory than the one it was created in.")"
+
+    # A service principal is the application's presence *in this tenant*. Without
+    # one the registration exists and nothing can be issued against it, and the
+    # error says the principal was not found in the directory — which reads as a
+    # sign-in problem rather than as a missing object.
+    az ad sp show --id "$app_id" -o none 2>/dev/null ||
+        az ad sp create --id "$app_id" -o none
+
+    application="$(az ad app show --id "$app_id" -o json)"
+    patch="$(printf '%s' "$application" | python3 "$SCRIPTS/app_registration.py")"
+    [[ -n "$patch" ]] || return 0
+
+    bold "▸ preparing the app registration"
+    az rest --method PATCH \
+        --url "https://graph.microsoft.com/v1.0/applications/${object_id}" \
+        --headers 'Content-Type=application/json' \
+        --body "$patch" -o none
+    printf '  a delegated scope, the Azure CLI pre-authorised, and v2.0 tokens\n\n'
+    # Graph is eventually consistent about this and a token asked for straight
+    # afterwards can still be refused for want of consent.
+    sleep 10
+}
+
+# A token for the deployed API, printed on standard output and nowhere else.
+#
+# Callers capture it. Nothing in this repository prints a token to a terminal:
+# these scripts' output is pasted into chats and issues routinely, and a bearer
+# token that lands in one is a credential to rotate.
+api_token() {
+    local app_id="$1" token
+    token="$(az account get-access-token --scope "api://${app_id}/.default" \
+        --query accessToken -o tsv 2>&1)" || {
+        printf '%s\n' "$token" >&2
+        explain_token "$token"
+        return 1
+    }
+    printf '%s' "$token"
+}
+
+# Turn a token acquisition failure into the sentence behind it.
+explain_token() {
+    local output="$1"
+    case "$output" in
+        *AADSTS65001*)
+            warn "  Nobody has consented for the Azure CLI to call this API. That is what"
+            warn "  pre-authorisation is for, and ensure_app_registration does it — but Graph"
+            warn "  takes a minute to publish the change. Try again shortly."
+            ;;
+        *AADSTS500011*)
+            warn "  The tenant has no service principal for this application. The registration"
+            warn "  existing is not enough:  az ad sp create --id <app id>"
+            ;;
+        *AADSTS50105*|*AADSTS50020*)
+            warn "  The signed-in account cannot be issued a token for this application. Check"
+            warn "  which directory az login used, and that the account lives in it."
+            ;;
+        *AADSTS70011*|*invalid_scope*)
+            warn "  The scope was refused. A resource with no delegated scope cannot be asked"
+            warn "  for a delegated token at all — scripts/azure/token.sh adds one."
+            ;;
+    esac
 }

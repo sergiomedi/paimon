@@ -53,6 +53,7 @@ reasoning trail, and rewriting history destroys it.
 | [0040](0040-migrations-run-from-inside-the-network.md) | Migrations run from inside the network, as a job | Accepted |
 | [0041](0041-telemetry-leaves-through-a-collector-we-control.md) | Telemetry leaves through a collector we control | Accepted |
 | [0042](0042-a-second-identity-that-exists-to-grant-one-privilege.md) | A second identity, which exists to grant one privilege | Accepted |
+| [0043](0043-a-person-gets-a-token-the-same-way-a-workload-does.md) | A person gets a token the same way a workload does | Accepted |
 
 ## Writing a new ADR
 

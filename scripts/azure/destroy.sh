@@ -37,6 +37,18 @@ else
     az resource list --resource-group "$GROUP" \
         --query "[].{name:name, type:type}" -o table
 
+    # Asked before the confirmation, because the answer changes whether the
+    # confirmation should be given at all. An environment destroyed without
+    # having been measured cost money and produced nothing: everything it could
+    # have told you goes with the resource group, and the only way back is
+    # another deployment and another hour.
+    if ! compgen -G "$ROOT/docs/measurements/${ENVIRONMENT}-*.md" >/dev/null; then
+        printf '\n'
+        warn "Nothing in docs/measurements was recorded from a '${ENVIRONMENT}' environment."
+        warn "This environment exists to be measured. ./scripts/azure/measure.sh takes a few"
+        warn "minutes and writes the numbers down; after this they are unobtainable."
+    fi
+
     if [[ "$CONFIRM" == true ]]; then
         printf '\n'
         warn "This deletes the resource group and everything in it, permanently."

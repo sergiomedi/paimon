@@ -21,6 +21,11 @@ run_job "cj-paimon-migrate-${ENVIRONMENT}" migrate
 case "$JOB_STATUS" in
     Succeeded)
         bold "▸ schema is up to date"
+        printf '\n'
+        printf 'The environment is complete. It bills for as long as it exists, so the next\n'
+        printf 'two commands are the ones it was created for:\n'
+        printf '  ./scripts/azure/token.sh      a token this deployment will accept\n'
+        printf '  ./scripts/azure/measure.sh    the measured run, written to docs/measurements\n\n'
         ;;
     Failed)
         printf '\n'

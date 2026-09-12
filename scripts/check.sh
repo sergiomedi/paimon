@@ -183,6 +183,55 @@ PYTHON
     python3 -m py_compile scripts/azure/collector_config.py
     python3 scripts/azure/collector_config.py
 
+    step "access tokens"
+    python3 -m py_compile scripts/azure/claims.py scripts/azure/app_registration.py \
+        scripts/azure/measurement.py
+    python3 - <<'PYTHON'
+import json
+import sys
+
+sys.path.insert(0, "scripts/azure")
+from app_registration import body  # noqa: E402
+from claims import audience_matches, issuer_version  # noqa: E402
+
+# One API, two spellings. The app registration decides which arrives and the
+# caller cannot influence it, so a check that insisted on either would report a
+# working token as wrong.
+assert audience_matches("2858bfe0", "api://2858bfe0"), "a v2.0 token names the bare id"
+assert audience_matches("api://2858bfe0", "2858bfe0"), "and a v1.0 token the URI"
+assert not audience_matches("api://something-else", "api://2858bfe0")
+assert issuer_version("https://sts.windows.net/t/") == "v1.0", "which this API refuses"
+
+# Idempotent, and Graph is fed its own output on the second run: it returns keys
+# the patch does not set, and an equality check against the whole object would
+# rewrite the registration — and with it the scope id that consent refers to —
+# on every single run.
+first = body({"id": "obj", "api": {}})
+assert first is not None, "a fresh registration needs the scope, the client and v2.0"
+returned = json.loads(json.dumps(first["api"]))
+returned["oauth2PermissionScopes"][0]["origin"] = "Application"
+assert body({"id": "obj", "api": returned}) is None, "the second pass must change nothing"
+print("  the token helpers agree on both spellings and change nothing twice")
+PYTHON
+
+    # A bearer token printed to a terminal is a credential to rotate: this
+    # output is pasted into issues and chat windows as a matter of course, and
+    # one shown by accident is indistinguishable from one shown on purpose. The
+    # scripts capture tokens and never display them, and this is what keeps that
+    # true.
+    # Writing one *into* another program is how it is used at all, so the rule is
+    # narrower than "never printf a token": a line that renders it has to pipe it
+    # onwards on the same line, and may not tee it — the report these scripts
+    # write is a file that gets committed.
+    step "no script prints a token"
+    if leaking=$(grep -nE '^[^#]*(printf|echo)[^|]*\$\{?TOKEN[^|]*$' scripts/azure/*.sh; \
+                 grep -nE '(printf|echo).*\$\{?TOKEN.*\|.*tee' scripts/azure/*.sh); then
+        printf '%s\n' "$leaking" | sed 's/^/  /'
+        printf '  a token must be piped onwards, never shown or written to a file\n'
+        exit 1
+    fi
+    printf '  tokens are captured and piped, never displayed\n'
+
     # Either the standalone CLI or the one the Azure CLI manages. Compiling is
     # the gate: the linter runs inside it, and infrastructure/bicepconfig.json
     # raises the rules that matter here to errors, so a template that builds is a

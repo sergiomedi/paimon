@@ -98,6 +98,31 @@ container's configuration rather than read at runtime, so a deployment made with
 produces an API that refuses every token, and fixing it is another deployment.
 ```
 
+### A token to call it with
+
+A registration created by the two commands above cannot be asked for a token. Nothing says
+so: every call comes back 401, which is the right answer to a request with no acceptable
+token and tells you nothing about which of four reasons produced it. One command fixes all
+four and reports what it did:
+
+```bash
+./scripts/azure/token.sh
+```
+
+It adds a delegated scope to the registration (a resource with none cannot be asked for a
+delegated token at all), pre-authorises the **Azure CLI** for it (consent is per client
+application, and nobody owns the CLI's registration, so there is no prompt anybody could
+answer), sets `requestedAccessTokenVersion` to 2 (a v1.0 token is issued by
+`sts.windows.net` and fails this API's issuer check), then acquires a token and prints its
+claims. It is idempotent and it leaves any other client's authorisation alone.
+
+It **does not print the token**, and nothing in this repository does — a bearer token that
+reaches a terminal, an issue or a chat window is a credential to rotate, and
+`scripts/check.sh` has a gate that keeps it that way.
+
+The reasoning, and why the API now accepts the audience in both of the spellings Entra
+uses for it, is [ADR-0043](adr/0043-a-person-gets-a-token-the-same-way-a-workload-does.md).
+
 The scripts print the subscription name and id before doing anything. Read that line —
 "which subscription am I in" is the question behind most of the expensive mistakes
 available here.
@@ -561,20 +586,42 @@ Between the second `deploy.sh` and `bootstrap.sh`, give role assignments a few
 minutes. A bootstrap that fails on propagation is safe to retry and usually needs
 nothing else.
 
-**Then, in order, with what to record beside each:**
+**Then:**
 
-| | Record |
+```bash
+./scripts/azure/status.sh                  what exists and what it bills per hour
+./scripts/azure/token.sh                   a token this deployment will accept
+./scripts/azure/measure.sh                 the run itself
+```
+
+`measure.sh` times the first request — a cold start, because the application scales to
+zero: image pull, process start, pool open, the number nobody publishes and everybody
+meets — then five warm ones, checks that an unauthenticated call is refused and an
+authenticated one is not, ingests a document and asks a question about it twice, and asks
+Application Insights whether the traces arrived. It writes every figure to
+`docs/measurements/<env>-<date>.md` as it goes.
+
+It reports whether the first request was *actually* cold, because that is only true when no
+replica was running: if one still is, leave the environment idle for the scale-to-zero
+cooldown — about five minutes — and run it again.
+
+Two things it cannot read, to be added to that file by hand:
+
+| | |
 |---|---|
-| `./scripts/azure/status.sh` | What exists, and what it bills per hour. |
-| Ingest a document and ask a question through the API | The wall-clock time of the **first** request, which is a cold start: image pull, process start, pool open. It is the number nobody publishes and everybody meets. |
-| Ask the same question again | The warm number. The gap between the two is the interesting figure, not either one alone. |
-| Open Application Insights | That traces arrived at all, and what one request's span tree looks like end to end. If it is empty, read the collector's logs before anything else. |
 | The hybrid benchmark, below | Retrieval and answer quality against the real services rather than against Ollama. This is the number worth quoting, because it was measured against what a deployment would actually use. |
 | Cost Management in the portal | Actual spend for the session, per service. Not the estimate — the invoice. |
+
+And one worth a screenshot: a single request's span tree in Application Insights'
+transaction view, which is the clearest picture of what the platform does per question.
 
 Then `./scripts/azure/destroy.sh`, and `./scripts/azure/status.sh` once more to
 prove the table is empty. The second one matters: it is what turns "I destroyed
 it" into something checked rather than assumed.
+
+**Commit the measurement file.** `docs/measurements/README.md` says why, and it is the same
+argument as this whole section: the environment is temporary and the numbers are not
+supposed to be.
 
 **Write the numbers down before the environment goes away.** Every figure above
 becomes unavailable the moment the resource group does, and the whole argument

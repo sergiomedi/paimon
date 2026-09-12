@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 
 from paimon.domain.errors import IdentityProviderUnavailableError, InvalidTokenError
 from paimon.infrastructure.identity import EntraIdentityProvider
+from paimon.infrastructure.identity.entra import accepted_audiences
 
 TENANT = "tenant-abc"
 AUDIENCE = "api://paimon"
@@ -42,13 +43,12 @@ def key_pair() -> tuple[str, str]:
     return private_pem, public_pem
 
 
-@pytest.fixture
-def provider(monkeypatch: pytest.MonkeyPatch, key_pair: tuple[str, str]) -> EntraIdentityProvider:
-    _, public_pem = key_pair
+def build(monkeypatch: pytest.MonkeyPatch, public_pem: str, audience: str) -> EntraIdentityProvider:
+    """An adapter whose key set is the locally generated pair."""
     adapter = EntraIdentityProvider(
         jwks_uri="https://login.microsoftonline.com/tenant-abc/discovery/v2.0/keys",
         tenant_id=TENANT,
-        audience=AUDIENCE,
+        audience=audience,
     )
 
     class StubKey:
@@ -60,6 +60,11 @@ def provider(monkeypatch: pytest.MonkeyPatch, key_pair: tuple[str, str]) -> Entr
         lambda _token: StubKey(),
     )
     return adapter
+
+
+@pytest.fixture
+def provider(monkeypatch: pytest.MonkeyPatch, key_pair: tuple[str, str]) -> EntraIdentityProvider:
+    return build(monkeypatch, key_pair[1], AUDIENCE)
 
 
 def sign(private_pem: str, **overrides: Any) -> str:
@@ -122,6 +127,37 @@ class TestRejection:
         token = jwt.encode({"oid": "user-1", "tid": TENANT}, key_pair[0], algorithm="RS256")
         with pytest.raises(InvalidTokenError):
             await provider.authenticate(token)
+
+
+class TestAudienceSpelling:
+    """One API, two spellings, and the caller does not choose between them.
+
+    A v1.0 access token names this API by its application ID URI and a v2.0 token
+    names it by the bare application id. Which arrives depends on the app
+    registration's ``requestedAccessTokenVersion``, so an API that accepts only
+    the spelling somebody configured rejects every token the day that property
+    changes — and the audience is fixed at deployment time, so the discovery is a
+    redeployment away from the fix.
+    """
+
+    def test_the_pair_is_one_identifier_in_both_spellings(self) -> None:
+        assert accepted_audiences("api://abc") == ["api://abc", "abc"]
+        assert accepted_audiences("abc") == ["abc", "api://abc"]
+
+    async def test_the_bare_application_id_is_accepted(
+        self, provider: EntraIdentityProvider, key_pair: tuple[str, str]
+    ) -> None:
+        """Configured as api://paimon, and a v2.0 token says paimon."""
+        principal = await provider.authenticate(sign(key_pair[0], aud="paimon"))
+        assert principal.subject == "user-1"
+
+    async def test_the_uri_form_is_accepted_when_the_bare_id_is_configured(
+        self, monkeypatch: pytest.MonkeyPatch, key_pair: tuple[str, str]
+    ) -> None:
+        """And the same holds the other way round, which is the point of a pair."""
+        adapter = build(monkeypatch, key_pair[1], "paimon")
+        principal = await adapter.authenticate(sign(key_pair[0], aud="api://paimon"))
+        assert principal.subject == "user-1"
 
 
 class TestProviderAvailability:
