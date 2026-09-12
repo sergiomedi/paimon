@@ -257,6 +257,37 @@ it cannot resolve `reference()` expressions and reports them as changes, and Azu
 post-submission defaults appear as deletions of properties nobody set. Both are noise;
 neither makes the preview useless, and a genuine `Delete` line is worth stopping for.
 
+### Two failures worth recognising
+
+Both were hit on the first real deployment of this template. `deploy.sh` explains each one now
+rather than printing the JSON, but they are worth knowing.
+
+**`AadAuthOperationCannotBePerformedWhenServerIsNotAccessible`.** The database was created and
+was not yet ready to accept a Microsoft Entra administrator. This is a race
+[Azure has had open since 2023](https://github.com/Azure/azure-postgresql/issues/127): a
+flexible server reports `Succeeded` before it can take principal operations, and `dependsOn` is
+satisfied by that `Succeeded`. Nothing is broken and the template is not wrong.
+
+**Run the same command again.** The deployment is idempotent, the server already exists, and
+the second pass finds it ready. The template also orders the administrators behind the private
+endpoint and its DNS zone group, which is both the honest dependency — an administrator cannot
+be added to a server nothing can reach — and several minutes of settling time. That makes the
+race unlikely rather than impossible.
+
+**`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
+Purge it rather than restoring it, and note that on a trial subscription it is also holding the
+only account you are allowed to have:
+
+```bash
+az cognitiveservices account list-deleted -o table
+az resource delete --ids "$(az cognitiveservices account list-deleted \
+  --query "[?starts_with(name, 'oai-paimon')].id" -o tsv)"
+```
+
+`az cognitiveservices account purge` needs the name, the resource group **and** the region to
+all be right, and says nothing at all when any of them is not — which is how one survived a
+purge that appeared to work. `status.sh` lists them, and the list is the only proof.
+
 ## Destroying it
 
 ```bash

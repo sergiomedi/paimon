@@ -113,38 +113,7 @@ resource database 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-0
 
 // Without this there is no way in at all: Entra-only authentication with no Entra
 // administrator is a server nobody can connect to, including to fix it.
-resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
-  parent: server
-  name: administratorPrincipalId
-  properties: {
-    principalType: 'User'
-    principalName: administratorPrincipalName
-    tenantId: subscription().tenantId
-  }
-}
 
-// A second administrator, and not a person. Entra-only authentication means the
-// workload's role has to be created by an administrator connected from inside
-// the network, which on a private database is nobody with a laptop. This is the
-// identity the bootstrap job runs as (ADR-0042).
-//
-// principalType is 'ServicePrincipal' rather than 'User': a managed identity is
-// one, and getting this wrong produces a server that accepts the registration
-// and then refuses the sign-in.
-resource administrationPrincipal 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
-  parent: server
-  name: administrationIdentityPrincipalId
-  properties: {
-    principalType: 'ServicePrincipal'
-    principalName: administrationIdentityName
-    tenantId: subscription().tenantId
-  }
-  dependsOn: [
-    // Azure applies these one at a time and rejects the second while the first
-    // is still being applied.
-    administrator
-  ]
-}
 
 // Without this, `CREATE EXTENSION vector` fails on a server that is otherwise
 // perfectly configured — Azure refuses to create an extension that is not on the
@@ -221,6 +190,61 @@ resource dnsZoneGroup 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups@2
       }
     ]
   }
+}
+
+// ---------------------------------------------------------------------------
+// The administrators, last
+// ---------------------------------------------------------------------------
+
+// Deliberately after the private endpoint and its DNS zone group, rather than
+// beside the server where they read more naturally.
+//
+// `AadAuthOperationCannotBePerformedWhenServerIsNotAccessible` is a race Azure
+// has had open since 2023 and has not fixed: a flexible server reports
+// `Succeeded` before it is ready for Microsoft Entra principal operations, and
+// `dependsOn` is satisfied by that `Succeeded`. The first real deployment of this
+// template hit it on the first administrator.
+//
+// This template made it worse by creating the private endpoint *in parallel*
+// with the administrators, so at the moment of the call a server with no public
+// address also had no private one. Ordering them behind the route is both the
+// honest dependency — there is no sense in which an administrator can be added to
+// a server nothing can reach — and several minutes of settling time, which is
+// what actually makes the race unlikely.
+//
+// It does not make it impossible. The mitigation for the remainder is that this
+// deployment is idempotent: running it again completes, and deploy.sh says so
+// when it recognises the error.
+resource administrator 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
+  parent: server
+  name: administratorPrincipalId
+  properties: {
+    principalType: 'User'
+    principalName: administratorPrincipalName
+    tenantId: subscription().tenantId
+  }
+  dependsOn: [
+    dnsZoneGroup
+  ]
+}
+
+// The identity the bootstrap job runs as (ADR-0042). principalType is
+// 'ServicePrincipal' rather than 'User': a managed identity is one, and getting
+// this wrong produces a server that accepts the registration and then refuses the
+// sign-in.
+resource administrationPrincipal 'Microsoft.DBforPostgreSQL/flexibleServers/administrators@2024-08-01' = {
+  parent: server
+  name: administrationIdentityPrincipalId
+  properties: {
+    principalType: 'ServicePrincipal'
+    principalName: administrationIdentityName
+    tenantId: subscription().tenantId
+  }
+  dependsOn: [
+    // Azure applies these one at a time and rejects the second while the first
+    // is still being applied.
+    administrator
+  ]
 }
 
 @description('Hostname to connect to. Resolves to a private address from inside the virtual network and to nothing useful from outside it.')

@@ -51,12 +51,26 @@ fi
 DEPLOYMENT="paimon-${ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
 
 bold "▸ deploying ${DEPLOYMENT}"
-az deployment sub create \
+# Captured rather than streamed, so that a failure can be explained instead of
+# being handed over as one line of JSON. A deployment fails for the same reasons a
+# validation does, and the first real run of this template proved it by failing on
+# two errors that validate() already knew how to describe.
+if ! OUTPUT=$(az deployment sub create \
     --name "$DEPLOYMENT" \
     --location "$LOCATION" \
     --template-file "$INFRA/main.bicep" \
     --parameters "$INFRA/main.bicepparam" \
-    --output none
+    --output none 2>&1); then
+    printf '\n'
+    printf '%s\n' "$OUTPUT" | tr ',' '\n' | grep -E '"(code|message)"' | sed 's/^ */  /' | head -20 || true
+    printf '\n'
+    explain "$OUTPUT"
+    printf '\n'
+    warn "Deployment history keeps the detail:"
+    warn "  az deployment operation sub list --name $DEPLOYMENT \\"
+    warn "    --query \"[?properties.provisioningState=='Failed']\" -o json"
+    die "deployment failed."
+fi
 
 OUTPUTS="$INFRA/.env.${ENVIRONMENT}"
 bold "▸ writing $OUTPUTS"

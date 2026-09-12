@@ -118,6 +118,18 @@ validate() {
         printf '%s\n' "$output" | sed 's/^/  /'
     fi
     printf '\n'
+    explain "$output"
+    die "nothing deployed."
+}
+
+# Turn an Azure error into the sentence somebody can act on.
+#
+# Shared by validate() and by deploy.sh, because a deployment fails for the same
+# reasons a validation does — and the first real deployment of this template
+# failed on two errors that validate() would have explained and `az deployment
+# create` printed as one line of JSON.
+explain() {
+    local output="$1"
     case "$output" in
         *RequestDisallowedByAzure*|*locationineligible*)
             warn "  Azure is not accepting new customers in $LOCATION. This is not quota and"
@@ -135,8 +147,25 @@ validate() {
             warn "  A resource provider is not registered. The message above names it:"
             warn "  az provider register --namespace <the one it named>"
             ;;
+        *FlagMustBeSetForRestore*)
+            warn "  A soft-deleted account still holds one of these names, and on a trial"
+            warn "  subscription OpenAI.S0.AccountCount is often 1 of 1 — so it also holds the"
+            warn "  only account you are allowed. Purging it is the fix, not restoring it:"
+            warn ""
+            warn "    az cognitiveservices account list-deleted -o table"
+            warn "    az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
+            warn "      --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
+            ;;
+        *AadAuthOperationCannotBePerformedWhenServerIsNotAccessible*)
+            warn "  The database was created but was not ready for a Microsoft Entra"
+            warn "  administrator yet. This is a race Azure has had open since 2023: the server"
+            warn "  reports Succeeded before it can accept principal operations, so dependsOn is"
+            warn "  satisfied too early. It is not a template error and nothing is broken."
+            warn ""
+            warn "  Run the same command again. This deployment is idempotent, the server"
+            warn "  already exists, and the second pass finds it ready."
+            ;;
     esac
-    die "nothing deployed."
 }
 
 # Name of this environment's container registry. Empty when the environment does
