@@ -28,7 +28,7 @@ az group list --query "[?starts_with(name, 'rg-paimon')].{name:name, location:lo
 
 printf '\n'
 bold "▸ soft-deleted key vaults holding a name"
-az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].{name:name, deleted:properties.deletionDate, purgeAfter:properties.scheduledPurgeDate}" -o table 2>/dev/null || true
+az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].{name:name, deleted:properties.deletionDate, purgeAfter:properties.scheduledPurgeDate}" -o table || true
 
 printf '\n'
 # This one is not a curiosity. Quota for Azure OpenAI includes a row named
@@ -39,7 +39,7 @@ printf '\n'
 bold "▸ soft-deleted Azure OpenAI accounts still holding the account quota"
 az cognitiveservices account list-deleted \
     --query "[?starts_with(name, 'oai-paimon')].{name:name, location:location, group:resourceGroup}" \
-    -o table 2>/dev/null || true
+    -o table || true
 
 printf '\n'
 bold "▸ what bills by the hour while it exists"

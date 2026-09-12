@@ -181,23 +181,30 @@ for entry in "${CREDENTIALS[@]}"; do
     fi
 
     # The name is taken by a different subject — which is what an earlier run of
-    # this script leaves behind. Removed rather than worked around: these names
-    # are this script's own, a federated credential holds no state worth keeping,
-    # and leaving a credential whose name says one thing and whose subject says
-    # another is how the next reader is misled exactly as this script was.
-    if name_exists "$name"; then
-        az ad app federated-credential delete --id "$APP_ID" \
-            --federated-credential-id "$name" --yes -o none 2>/dev/null || true
-        printf '  %-26s replacing (name held a different subject)\n' "$name"
-    fi
-
-    az ad app federated-credential create --id "$APP_ID" --parameters "$(printf '%s' "{
-        \"name\": \"${name}\",
+    # this script leaves behind. **Updated** rather than deleted and recreated:
+    # the subject can be changed in place, the name cannot, and there is no moment
+    # in between when the application trusts nothing.
+    #
+    # The first version of this deleted instead, with `2>/dev/null || true` on the
+    # delete. The delete failed — that command takes no --yes — the error went
+    # nowhere, and the create then collided with the subject the credential it was
+    # supposed to have removed was still holding. Third time in this project that
+    # a hidden error has cost a debugging session.
+    body="{
         \"issuer\": \"https://token.actions.githubusercontent.com\",
         \"subject\": \"${subject}\",
         \"audiences\": [\"api://AzureADTokenExchange\"]
-    }")" -o none
-    printf '  %-26s created\n' "$name"
+    }"
+
+    if name_exists "$name"; then
+        az ad app federated-credential update --id "$APP_ID" \
+            --federated-credential-id "$name" --parameters "$body" -o none
+        printf '  %-26s updated (it held a different subject)\n' "$name"
+    else
+        az ad app federated-credential create --id "$APP_ID" \
+            --parameters "{\"name\": \"${name}\", ${body#\{}" -o none
+        printf '  %-26s created\n' "$name"
+    fi
     printf '    %s\n' "$subject"
 done
 printf '\n'

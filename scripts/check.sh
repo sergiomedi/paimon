@@ -367,6 +367,26 @@ assert body({"id": "obj", "appId": "an-app-id", "api": {}}) == first, "the scope
 print("  the token helpers agree on both spellings and settle in three passes")
 PYTHON
 
+    # You may ignore a failure, or you may hide its message. Not both.
+    #
+    # `2>/dev/null || true` says "I do not want to see the error and I do not care
+    # whether it happened", and this project has paid for that sentence three
+    # times: a CLI prompt nobody could see hung the first bootstrap; a purge that
+    # silently did nothing left a soft-deleted account holding the subscription's
+    # only OpenAI quota; and a federated-credential delete that rejected a flag it
+    # does not take let the create after it collide.
+    #
+    # Either half alone is defensible. Hiding stderr while *using* the exit code
+    # is how an expected absence is handled; tolerating a failure while letting it
+    # print is how an optional step stays optional and still explains itself.
+    step "no failure is both hidden and ignored"
+    if muffled=$(grep -rn '2>/dev/null[^|]*|| *true' scripts/ --include='*.sh' | grep -v '^\S*: *#'); then
+        printf '%s\n' "$muffled" | sed 's/^/  /'
+        printf '  hide the message or ignore the failure — not both\n'
+        exit 1
+    fi
+    printf '  every failure is either visible or acted on\n'
+
     # A bearer token printed to a terminal is a credential to rotate: this
     # output is pasted into issues and chat windows as a matter of course, and
     # one shown by accident is indistinguishable from one shown on purpose. The

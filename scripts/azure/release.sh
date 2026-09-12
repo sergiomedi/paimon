@@ -65,7 +65,7 @@ AZURE_PAIMON_API_IMAGE="$IMAGE" \
 bold "▸ labelling"
 if [[ -n "$BLUE" ]]; then
     az containerapp revision label add --name "$APP" --resource-group "$GROUP" \
-        --label blue --revision "${APP}--${BLUE}" -o none 2>/dev/null || true
+        --label blue --revision "${APP}--${BLUE}" -o none || true
 fi
 az containerapp revision label add --name "$APP" --resource-group "$GROUP" \
     --label green --revision "${APP}--${GREEN}" -o none

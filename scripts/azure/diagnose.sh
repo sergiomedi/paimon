@@ -64,7 +64,7 @@ az containerapp revision list --name "$APP" --resource-group "$GROUP" --query '[
     health: properties.healthState,
     replicas: properties.replicas,
     created: properties.createdTime
-}' -o table 2>/dev/null || true
+}' -o table || true
 printf '\n'
 
 bold "▸ replicas, and the containers inside them"
@@ -76,7 +76,7 @@ az containerapp replica list --name "$APP" --resource-group "$GROUP" --query '[]
     replica: name,
     state: properties.runningState,
     containers: properties.containers[].{name: name, ready: ready, started: started, restarts: restartCount, state: runningStateDetails}
-}' -o json 2>/dev/null || true
+}' -o json || true
 printf '\n'
 
 bold "▸ what the application printed"
@@ -93,7 +93,7 @@ timeout 60 az containerapp logs show --name "$APP" --resource-group "$GROUP" \
     warn "  no system logs through the CLI."
 printf '\n'
 
-[[ -n "$WAKE" ]] && wait "$WAKE" 2>/dev/null || true
+[[ -n "$WAKE" ]] && wait "$WAKE" || true
 
 bold "▸ how to read this"
 printf '%s\n' \

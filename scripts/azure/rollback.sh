@@ -55,7 +55,7 @@ az containerapp ingress traffic set --name "$APP" --resource-group "$GROUP" \
 # rather than "what was serving the last time somebody released". A label that
 # lies is worse than no label: the next release would check the wrong hostname.
 az containerapp revision label add --name "$APP" --resource-group "$GROUP" \
-    --label blue --revision "${APP}--${TARGET}" -o none 2>/dev/null || true
+    --label blue --revision "${APP}--${TARGET}" -o none || true
 
 bold "▸ rolled back"
 printf 'Serving %s\n\n' "$TARGET"
