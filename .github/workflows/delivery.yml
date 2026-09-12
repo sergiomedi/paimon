@@ -99,6 +99,7 @@ jobs:
           AZURE_PAIMON_API_AUDIENCE: ${{ vars.AZURE_PAIMON_API_AUDIENCE }}
 
       - name: Sign in to Azure
+        id: login
         uses: azure/login@v3.0.0
         with:
           # Identifiers, not secrets: an application id, a tenant id and a
@@ -155,5 +156,10 @@ jobs:
         # This is the most important line in the file: without it a failed run
         # leaves a database billing until somebody notices, and the runs that
         # fail are exactly the ones nobody is watching.
-        if: always()
+        #
+        # And only when the sign-in worked, because otherwise there is nothing to
+        # destroy and destroy.sh correctly refuses to run — which added a second,
+        # louder error on top of the real one and sent the first reader of this
+        # pipeline's logs to the wrong end of the job.
+        if: always() && steps.login.outcome == 'success'
         run: ./scripts/azure/destroy.sh --yes

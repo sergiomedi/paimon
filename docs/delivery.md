@@ -115,6 +115,34 @@ derived from it, and the tight Azure limits are unforgiving — a PostgreSQL rol
 What `measure.sh` records is uploaded as an artifact before the teardown, because the
 environment stops existing a step later.
 
+### The subject GitHub actually presents
+
+The first three runs of this pipeline failed on an invented action version, and the fourth
+failed on something worth keeping:
+
+```
+AADSTS700213: No matching federated identity record found for presented assertion subject
+'repo:sergiomedi@100800516/paimon@1353634150:ref:refs/heads/main'
+```
+
+That is not the subject anybody writes down. Since **15 July 2026** every new repository — and
+every repository renamed or transferred after that date — presents an **immutable** subject
+claim, with the numeric ids of the owner and the repository embedded in it, rather than
+`repo:<owner>/<repo>:ref:refs/heads/main`.
+
+The reason is worth understanding rather than working around: a name can be given up and taken
+by somebody else, and a credential that trusted a name would follow it to its new owner. An id
+cannot be re-registered.
+
+`federate.sh` therefore reads the ids from the GitHub API rather than constructing the subject
+from the names it was given, and federates both spellings — a repository older than that date
+and not opted in still presents the legacy one, and nothing outside the repository can tell
+which without guessing at a date. The script then prints how to delete the pair that went
+unused, because the legacy subject trusts a name and the immutable one does not.
+
+**The error message is the only place the presented subject appears.** If this ever fails
+again, read the subject out of the Azure login step's log and federate exactly that string.
+
 ### A token for something that is not a person
 
 The pipeline signs in as a service principal, and that needs one more thing than a person

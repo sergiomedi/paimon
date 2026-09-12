@@ -42,6 +42,59 @@ APPLICATION_NAME="${AZURE_PAIMON_PIPELINE_APP:-paimon-pipeline}"
 SUBSCRIPTION="$(az account show --query id -o tsv)"
 TENANT="$(az account show --query tenantId -o tsv)"
 
+# ── Which subject this repository will actually present ─────────────────────
+#
+# Not the one you would write down. Since 15 July 2026 every new repository —
+# and every repository renamed or transferred after that date — presents an
+# **immutable** subject claim with the numeric ids of the owner and the
+# repository embedded in it:
+#
+#   repo:sergiomedi@100800516/paimon@1353634150:ref:refs/heads/main
+#
+# rather than the familiar `repo:sergiomedi/paimon:ref:refs/heads/main`. Entra
+# matches the subject exactly, so a credential written the old way matches
+# nothing and the run fails with AADSTS700213 — which prints the subject it was
+# presented, and is the only place that string appears.
+#
+# The reason for the change is worth knowing rather than working around: a name
+# can be given up and taken by somebody else, and a credential trusting a name
+# would follow it. An id cannot be re-registered.
+#
+# So the ids are read from GitHub rather than guessed.
+OWNER="${REPOSITORY%%/*}"
+NAME="${REPOSITORY##*/}"
+
+bold "▸ resolving the repository"
+METADATA="$(curl --silent --show-error --max-time 30 \
+    "https://api.github.com/repos/${REPOSITORY}" || printf '')"
+IDS="$(printf '%s' "$METADATA" | python3 -c '
+import json
+import sys
+
+try:
+    data = json.load(sys.stdin)
+except json.JSONDecodeError:
+    sys.exit(1)
+if "id" not in data or "owner" not in data:
+    sys.exit(1)
+print(data["owner"]["id"], data["id"], data.get("created_at", ""))
+' || printf '')"
+
+[[ -n "$IDS" ]] || die "$(printf '%s\n' \
+    "could not read https://api.github.com/repos/${REPOSITORY}." \
+    "" \
+    "The numeric ids of the owner and the repository are part of the subject Entra" \
+    "has to trust, and guessing them is not an option. If the repository is private," \
+    "fetch them with an authenticated call and set them by hand:" \
+    "" \
+    "  gh api repos/${REPOSITORY} --jq '.owner.id, .id'")"
+
+read -r OWNER_ID REPOSITORY_ID CREATED <<<"$IDS"
+printf '  owner %s (%s), repository %s (%s)\n' "$OWNER" "$OWNER_ID" "$NAME" "$REPOSITORY_ID"
+printf '  created %s\n\n' "${CREATED:-unknown}"
+
+IMMUTABLE="${OWNER}@${OWNER_ID}/${NAME}@${REPOSITORY_ID}"
+
 #: The trigger this credential is for, and the subject GitHub will present.
 #:
 #: One per line, name and subject, because Entra matches the subject exactly and
@@ -49,9 +102,19 @@ TENANT="$(az account show --query tenantId -o tsv)"
 #: security property: `pull_request` is deliberately absent, so a fork's pull
 #: request cannot deploy anything, and `environment:production` is separate so
 #: that promotion needs the approval GitHub attaches to that environment.
+#:
+#: Both spellings are federated. The immutable one is what a repository created
+#: after July 2026 presents; the legacy one is what an older repository that has
+#: not adopted the format still presents, and this script cannot tell which from
+#: outside without guessing at a date. Two credentials naming one repository is
+#: not a widening of who may deploy — but the legacy one does trust a *name*, so
+#: the report at the end says how to remove it once a run has proved which is in
+#: use.
 CREDENTIALS=(
-    "paimon-main:repo:${REPOSITORY}:ref:refs/heads/main"
-    "paimon-production:repo:${REPOSITORY}:environment:production"
+    "paimon-main:repo:${IMMUTABLE}:ref:refs/heads/main"
+    "paimon-production:repo:${IMMUTABLE}:environment:production"
+    "paimon-main-legacy:repo:${REPOSITORY}:ref:refs/heads/main"
+    "paimon-production-legacy:repo:${REPOSITORY}:environment:production"
 )
 
 bold "environment   pipeline identity"
@@ -171,6 +234,17 @@ else
         printf '  Deployment.Verify assigned\n\n'
     fi
 fi
+
+bold "▸ one credential you can probably delete"
+printf 'Four were federated: two for the immutable subject and two for the legacy one.\n'
+printf 'A run only ever presents one of the two, and its log says which — look for\n'
+printf '"subject claim" in the "Sign in to Azure" step. Delete the pair that was not\n'
+printf 'used, because the legacy subject trusts a repository *name*, and a name can be\n'
+printf 'given up and taken by somebody else:\n\n'
+printf '  az ad app federated-credential delete --id %s \\\n' "$APP_ID"
+printf '    --federated-credential-id paimon-main-legacy\n'
+printf '  az ad app federated-credential delete --id %s \\\n' "$APP_ID"
+printf '    --federated-credential-id paimon-production-legacy\n\n'
 
 bold "▸ put these in the repository, as variables rather than secrets"
 printf 'None of them is a credential: an application id, a tenant id and a subscription id\n'

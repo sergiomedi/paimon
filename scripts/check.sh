@@ -115,8 +115,13 @@ delivery = yaml.safe_load(pathlib.Path(".github/workflows/delivery.yml").read_te
 steps = delivery["jobs"]["verify"]["steps"]
 teardown = [step for step in steps if "destroy.sh" in str(step.get("run", ""))]
 assert len(teardown) == 1, "the verification job must tear down exactly once"
-assert teardown[0].get("if") == "always()", (
-    "the teardown must be if: always() — success() leaves a failed run's database billing"
+# `always()` has to appear, and may be qualified — the real condition is
+# `always() && steps.login.outcome == 'success'`, because a teardown with no
+# session to use adds a second error on top of the real one. What must never
+# happen is a condition without always() in it at all: success() alone leaves a
+# failed run's database billing.
+assert "always()" in str(teardown[0].get("if", "")), (
+    "the teardown must run on failure too — success() leaves a failed run's database billing"
 )
 assert steps.index(teardown[0]) == len(steps) - 1, "and it must be the last step"
 
