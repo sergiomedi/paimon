@@ -31,6 +31,20 @@ fi
 
 resolve_api_image
 
+# Whatever is serving keeps serving. A deployment is not a release: a release is
+# release.sh, which puts a revision in with no traffic, checks it, and shifts
+# weight deliberately. Without this line an ordinary deployment — a setting, a
+# scale limit, anything — would hand the traffic to the newest revision as a side
+# effect, which is a release nobody asked for and a rollback nobody noticed.
+#
+# Empty on a new environment, where "the newest" is the only revision there is.
+if [[ -z "${AZURE_PAIMON_API_TRAFFIC_REVISION:-}" ]]; then
+    AZURE_PAIMON_API_TRAFFIC_REVISION="$(live_revision)"
+    export AZURE_PAIMON_API_TRAFFIC_REVISION
+fi
+[[ -n "$AZURE_PAIMON_API_TRAFFIC_REVISION" ]] &&
+    printf 'traffic       stays on %s\n\n' "$AZURE_PAIMON_API_TRAFFIC_REVISION"
+
 validate
 
 if [[ "$CONFIRM" == true ]]; then

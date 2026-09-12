@@ -158,6 +158,16 @@ param apiImage string
 param apiTenantId string = ''
 
 @description('''
+Revision suffix that keeps the traffic, or empty for the newest revision.
+
+Empty is correct for a new environment and wrong for an existing one: a release
+puts a revision in with no traffic and shifts it deliberately, and a later
+deployment that claimed the newest revision would undo that release as a side
+effect of an unrelated change. deploy.sh reads what is live and passes it back.
+''')
+param apiTrafficRevision string = ''
+
+@description('''
 Application id URI of the app registration the API validates tokens for — the
 expected `aud` claim.
 
@@ -339,6 +349,7 @@ module api 'modules/api.bicep' = if (deployApi) {
     administrationIdentityClientId: platform.outputs.administrationIdentityClientId
     administrationIdentityName: platform.outputs.administrationIdentityName
     apiImage: apiImage
+    apiTrafficRevision: apiTrafficRevision
     tenantId: empty(apiTenantId) ? subscription().tenantId : apiTenantId
     apiAudience: apiAudience
     databaseHost: data.outputs.databaseHost
@@ -434,6 +445,12 @@ output apiName string = api.?outputs.apiName ?? ''
 
 @description('Name of the migration job, which migrate.sh starts.')
 output migrationJobName string = api.?outputs.migrationJobName ?? ''
+
+@description('The revision this deployment created. A release shifts traffic to it; a rollback shifts traffic away.')
+output apiRevisionName string = api.?outputs.apiRevisionName ?? ''
+
+@description('That revision\'s suffix, which is the commit its image was built from.')
+output apiRevisionSuffix string = api.?outputs.apiRevisionSuffix ?? ''
 
 @description('Image this environment is running, so that "which build is deployed" has an answer that is not a guess.')
 output apiImageDeployed string = api.?outputs.apiImageDeployed ?? ''

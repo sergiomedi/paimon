@@ -145,6 +145,21 @@ param apiCpu string = '1.0'
 @description('Memory per replica. Container Apps fixes the ratio to 2 GiB per vCPU on the Consumption profile and rejects anything else.')
 param apiMemory string = '2Gi'
 
+@description('''
+Revision suffix that holds 100% of the traffic, or empty for the newest.
+
+Empty is what a new environment needs: there is no revision yet, so "the latest
+one" is the only answer that exists. Afterwards it is what makes a deployment
+**traffic-preserving** — a release puts a new revision in with no traffic and
+shifts it deliberately (scripts/azure/release.sh), and a template that always
+claimed the newest revision would undo that the next time anybody ran deploy.sh,
+which is a rollback nobody asked for happening during an unrelated change.
+
+deploy.sh reads the live revision and passes it back in, so the default path
+keeps whatever is serving.
+''')
+param apiTrafficRevision string = ''
+
 @description('Tags applied to every resource.')
 param tags object
 
@@ -156,6 +171,16 @@ var bootstrapName = 'cj-paimon-bootstrap-${environmentName}'
 // domain belongs to the environment. That is what makes it possible to tell the
 // application its own public address at deployment time, which it needs for two
 // things that are otherwise a second deployment — see the MCP settings below.
+// The image's tag, which is a commit hash (publish.sh), reused as the revision
+// suffix. A revision named after the commit it runs is the difference between
+// "which revision is serving" being answerable and being a guess: the portal, the
+// traffic block and the release script all name the same thing, and `git show` on
+// it explains what changed.
+//
+// Container Apps would otherwise generate a suffix of its own, which is unique,
+// meaningless, and impossible to ask for by name in a release.
+var revisionSuffix = last(split(apiImage, ':'))
+
 var apiUrl = 'https://${appName}.${containerAppsDefaultDomain}'
 var apiHost = '${appName}.${containerAppsDefaultDomain}'
 
@@ -274,20 +299,43 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         // application. It is a real limit of this hosting choice (ADR-0034), and
         // the answer to it is streaming or a job, not a bigger number.
         clientCertificateMode: 'ignore'
-        traffic: [
-          {
-            latestRevision: true
-            weight: 100
-          }
-        ]
+        // Named when there is a name to use, and the newest otherwise. In
+        // multiple-revision mode both forms are valid, and which one applies is
+        // the difference between a deployment that preserves a release and one
+        // that silently reverts it.
+        traffic: empty(apiTrafficRevision)
+          ? [
+              {
+                latestRevision: true
+                weight: 100
+              }
+            ]
+          : [
+              {
+                revisionName: '${appName}--${apiTrafficRevision}'
+                weight: 100
+                label: 'blue'
+              }
+            ]
       }
-      // Single revision. Blue-green needs two revisions and a traffic split, and
-      // that is a delivery concern with a phase of its own; running it here would
-      // mean a rollback story written before there is anything to roll back.
-      activeRevisionsMode: 'Single'
+      // Multiple revisions, which is what makes a release reversible (ADR-0044).
+      // This said 'Single' through Phase 7, with a comment saying blue-green was
+      // "a delivery concern with a phase of its own". This is that phase.
+      //
+      // In single-revision mode a deployment replaces what is running and the
+      // only way back is another deployment: minutes, a rebuild, and no way to
+      // check the new version before it serves. In multiple mode a revision can
+      // exist with no traffic, be reached through a hostname of its own, and take
+      // traffic by weight — so a release is a weight change and so is its
+      // reversal.
+      activeRevisionsMode: 'Multiple'
+      // Two idle revisions kept: the one serving and the one before it. That is
+      // exactly as many as a rollback needs, and each one that is kept and not
+      // serving still holds its configuration in the platform.
       maxInactiveRevisions: 2
     }
     template: {
+      revisionSuffix: revisionSuffix
       containers: [
         {
           name: 'api'
@@ -692,3 +740,9 @@ output migrationJobName string = migrate.name
 
 @description('Image both of them run.')
 output apiImageDeployed string = apiImage
+
+@description('The revision this deployment created, by name. What a release shifts traffic to and what a rollback shifts it away from.')
+output apiRevisionName string = '${appName}--${revisionSuffix}'
+
+@description('Suffix of that revision on its own, which is the commit the image was built from.')
+output apiRevisionSuffix string = revisionSuffix

@@ -55,6 +55,11 @@ param apiAudience = readEnvironmentVariable('AZURE_PAIMON_API_AUDIENCE', '')
 // into, which is the right answer whenever the API and its callers live together.
 param apiTenantId = readEnvironmentVariable('AZURE_PAIMON_TENANT_ID', '')
 
+// Which revision keeps the traffic. Empty means the newest, which is right for a
+// new environment and wrong for one that has had a release: deploy.sh reads what
+// is live and exports this, so an ordinary deployment leaves the release alone.
+param apiTrafficRevision = readEnvironmentVariable('AZURE_PAIMON_API_TRAFFIC_REVISION', '')
+
 // Price list for cost attribution, as JSON:
 //   {"gpt-4.1-mini": {"input": 0.4, "output": 1.6}}
 //

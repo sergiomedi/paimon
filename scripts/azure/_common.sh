@@ -492,3 +492,30 @@ explain_token() {
             ;;
     esac
 }
+
+# Which revision is serving, by suffix. Empty when there is no app, no revision,
+# or nothing holding traffic.
+#
+# Asked of the platform rather than remembered anywhere. A file recording "what
+# is live" is a second source of truth for something Azure already knows, and the
+# moment it disagrees the disagreement is invisible — which matters most during a
+# rollback, when being wrong about what is serving is the whole failure.
+live_revision() {
+    local app="${AZURE_API_NAME:-ca-paimon-api-${ENVIRONMENT}}" name
+    name="$(az containerapp show --name "$app" --resource-group "$GROUP" \
+        --query "properties.configuration.ingress.traffic[?weight==\`100\`].revisionName | [0]" \
+        -o tsv 2>/dev/null || printf '')"
+    # The suffix, not the full name: that is what the template takes and what a
+    # revision is called in every command that addresses one.
+    printf '%s' "${name#"${app}"--}"
+}
+
+# Hostname of one labelled revision, which is how a release tests a version that
+# has no traffic. Three dashes, and they are not a typo: Container Apps builds
+# label hostnames as <app>---<label>.<domain>.
+labelled_url() {
+    local label="$1" app="${AZURE_API_NAME:-ca-paimon-api-${ENVIRONMENT}}"
+    local domain="${AZURE_CONTAINER_APPS_DEFAULT_DOMAIN:-}"
+    [[ -n "$domain" ]] || return 1
+    printf 'https://%s---%s.%s' "$app" "$label" "$domain"
+}

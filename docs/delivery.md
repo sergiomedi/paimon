@@ -1,9 +1,9 @@
 # Delivering Paimon
 
 > **Phase 8 is in progress.** What is described here as existing, exists: the federated
-> identity, the application role, and the verification workflow. Promotion, blue-green
-> releases and the rollback command arrive in the following batches and this guide grows
-> with them. Nothing is described here as working before it works.
+> identity, the application role, the verification workflow, and blue-green releases with
+> their rollback. The gated promotion workflow arrives in the following batch and this guide
+> grows with it. Nothing is described here as working before it works.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -136,14 +136,38 @@ attempting it.
 
 ## How a release moves, and how it is undone
 
-The application moves to **multiple active revisions**. A release creates a revision that
-takes **no traffic**, labels it `green`, and gets a hostname of its own —
-`ca-paimon-api-<env>---green.<domain>` — which is verified before anything is shifted. Then
-traffic moves by weight, and the previous revision stays running with a `blue` label.
+```bash
+./scripts/azure/release.sh      # the newest published image, checked before it serves
+./scripts/azure/rollback.sh     # back to the previous revision, in seconds
+```
 
-A rollback is therefore the same command with the weights exchanged: seconds, no rebuild, no
-image to find. The slowest possible moment to discover that reverting means twelve minutes
-of CI is the moment production is broken.
+The application runs in **multiple active revisions** mode. `release.sh` deploys the image as
+a revision that takes **no traffic**, labels it `green`, waits for readiness *through that
+label's own hostname* — `ca-paimon-api-<env>---green.<domain>`, and the three dashes are not a
+typo — and only then shifts weight to it. Readiness rather than liveness on purpose: it opens
+the database, the cache and the model endpoint, so what is checked is that the revision can
+serve rather than merely start.
+
+If the check fails, nothing moves. The new revision sits there idle, costing nothing while it
+serves nothing, and the script prints the command that shows its logs.
+
+`rollback.sh` changes one weight back. No build, no deployment, no image to find: the previous
+revision is still running and was serving every request a few minutes ago. It deliberately
+checks nothing first — a rollback is run when something is *already* wrong, and a script that
+pauses to verify the version that worked ten minutes ago is a script that makes an outage
+longer.
+
+### A deployment is not a release
+
+This distinction is enforced rather than described. `deploy.sh` reads which revision is
+serving and passes it back into the template, so an ordinary deployment — a setting, a scale
+limit, a template fix — leaves the traffic exactly where it was. Without that, every
+deployment would hand traffic to the newest revision as a side effect: a release nobody asked
+for, and a rollback nobody noticed.
+
+Revisions are named after the commit their image was built from, because "which revision is
+serving" should be answerable rather than guessable. Container Apps would otherwise generate a
+suffix that is unique, meaningless, and impossible to ask for by name.
 
 ## The rule about migrations
 
