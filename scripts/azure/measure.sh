@@ -7,6 +7,14 @@
 # about it through the deployed API, checks that a trace reached Application
 # Insights, and records every number in docs/measurements/<env>-<date>.md.
 #
+#   ./scripts/azure/measure.sh --cold    wait for the app to scale to zero first
+#
+# A cold start is only measurable when no replica is running, and every run of
+# this leaves one running for the next five minutes or so — which is how three
+# consecutive runs each reported "not a cold start" and asked for the same wait
+# that had just been spent. --cold waits for the platform to say zero rather
+# than asking somebody to guess when it will.
+#
 # The recording is the point. This environment exists to be measured once and
 # destroyed, so every figure here becomes unavailable the moment the resource
 # group does — and a measurement that lives only in a terminal that has since
@@ -16,6 +24,9 @@
 # It creates nothing in Azure and costs a few cents of tokens.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
+
+COLD=false
+[[ "${1:-}" == "--cold" ]] && COLD=true
 
 require_az
 announce
@@ -100,10 +111,32 @@ printf '  acquired (not printed, and not written to the report)\n\n'
 # for an image pull, a process start and a connection pool. That number is the
 # one nobody publishes and everybody meets, and it is only available once: the
 # second request cannot be a cold start however it is labelled.
+APP="${AZURE_API_NAME:-ca-paimon-api-${ENVIRONMENT}}"
+
+replica_count() {
+    local count
+    count="$(az containerapp replica list --name "$APP" --resource-group "$GROUP" \
+        --query 'length(@)' -o tsv 2>/dev/null || printf '')"
+    printf '%s' "${count:-0}"
+}
+
+if [[ "$COLD" == true ]]; then
+    bold "▸ waiting for the application to scale to zero"
+    printf '  KEDA takes about five minutes from the last request. Nothing is billed for the\n'
+    printf '  application while this waits; the database is, as always.\n'
+    # Twenty-four tries at thirty seconds: twelve minutes, comfortably past the
+    # cooldown, and it stops as soon as the platform says zero rather than after
+    # a fixed sleep somebody has to pick.
+    for _ in $(seq 1 24); do
+        [[ "$(replica_count)" == "0" ]] && break
+        printf '.'
+        sleep 30
+    done
+    printf '\n\n'
+fi
+
 bold "▸ replicas before the first request"
-REPLICAS="$(az containerapp replica list --name "${AZURE_API_NAME:-ca-paimon-api-${ENVIRONMENT}}" \
-    --resource-group "$GROUP" --query 'length(@)' -o tsv 2>/dev/null || printf '')"
-REPLICAS="${REPLICAS:-0}"
+REPLICAS="$(replica_count)"
 printf '  %s\n\n' "$REPLICAS"
 
 bold "▸ first request"
@@ -116,9 +149,9 @@ if [[ "$REPLICAS" -eq 0 ]]; then
 else
     record "**First request: ${SECONDS_TAKEN}s** (HTTP ${STATUS}, $(verdict "$STATUS"))."
     record ""
-    record "${REPLICAS} replica(s) were already running, so this is *not* a cold start. To"
-    record "measure one, leave the environment idle for the scale-to-zero cooldown — about"
-    record "five minutes — and run this again."
+    record "${REPLICAS} replica(s) were already running, so this is *not* a cold start —"
+    record "\`./scripts/azure/measure.sh --cold\` waits for the platform to scale to zero and then"
+    record "measures one."
 fi
 record ""
 printf '  %ss  HTTP %s\n\n' "$SECONDS_TAKEN" "$STATUS"
@@ -195,10 +228,9 @@ python3 "$SCRIPTS/measurement.py" body \
     --source-uri "file://${DOCUMENT}.md" \
     "$ROOT/evaluation/corpus/sample/${DOCUMENT}.md" > "${BODY}.request"
 request PUT "/api/v1/documents/${DOCUMENT}" "${BODY}.request"
-record "**Ingestion**: HTTP ${STATUS} in ${SECONDS_TAKEN}s — $(head -c 300 "$BODY")"
+record "**Ingestion**: HTTP ${STATUS} in ${SECONDS_TAKEN}s."
 record ""
-record "Chunked, embedded through Azure OpenAI and indexed into PostgreSQL over a private"
-record "endpoint, as one request."
+record "$(python3 "$SCRIPTS/measurement.py" ingestion < "$BODY" || true)"
 record ""
 printf '  %ss  HTTP %s\n\n' "$SECONDS_TAKEN" "$STATUS"
 

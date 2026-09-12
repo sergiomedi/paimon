@@ -187,6 +187,21 @@ PYTHON
     python3 -m py_compile scripts/azure/claims.py scripts/azure/app_registration.py \
         scripts/azure/measurement.py
     python3 - <<'PYTHON'
+import sys
+
+sys.path.insert(0, "scripts/azure")
+from measurement import describe_ingestion  # noqa: E402
+
+# The cheap outcome is the interesting one, and the report claimed the expensive
+# one regardless: it said a document had been chunked, embedded and indexed on a
+# run where the content hash matched and nothing whatsoever was done.
+repeat = describe_ingestion({"document_id": "d", "chunks_indexed": 0, "unchanged": True})
+assert "unchanged" in repeat and "idempotent" in repeat, "a repeat must say it did nothing"
+assert "embedded through" not in repeat, "and must not claim work it did not do"
+first = describe_ingestion({"document_id": "d", "chunks_indexed": 6, "unchanged": False})
+assert "6 chunks indexed" in first and "embedded through" in first
+PYTHON
+    python3 - <<'PYTHON'
 import json
 import sys
 

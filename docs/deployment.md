@@ -1,9 +1,11 @@
 # Deploying Paimon to Azure
 
-> **Phase 7 is in progress.** What is described here is what exists today: the platform
-> resources every other one depends on. The database, the search service, the models and
-> the application itself arrive in later batches, and this guide grows with them. Nothing
-> is described here as working before it works.
+> **Everything described here has been deployed and measured**, on 2026-09-12, in Sweden
+> Central: the platform resources, the database, the search service, the models, the
+> collector and the application itself. The figures that run produced are in
+> [docs/measurements](measurements/), and the environment was destroyed afterwards, which
+> is the arrangement this document exists to describe. Nothing is described here as working
+> before it works.
 
 This deployment is **ephemeral by design**. It is created to be measured and then removed,
 because the budget for this phase is a fixed amount of trial credit and the resources that
@@ -96,7 +98,6 @@ value has to be **exported** — it cannot be a default in the parameter file, s
 different in every tenant. Export it before `deploy.sh`: the audience is baked into the
 container's configuration rather than read at runtime, so a deployment made without it
 produces an API that refuses every token, and fixing it is another deployment.
-```
 
 ### A token to call it with
 
@@ -634,7 +635,7 @@ nothing else.
 ```bash
 ./scripts/azure/status.sh                  what exists and what it bills per hour
 ./scripts/azure/token.sh                   a token this deployment will accept
-./scripts/azure/measure.sh                 the run itself
+./scripts/azure/measure.sh --cold          the run itself, from a cold start
 ```
 
 `measure.sh` times the first request — a cold start, because the application scales to
@@ -645,8 +646,11 @@ Application Insights whether the traces arrived. It writes every figure to
 `docs/measurements/<env>-<date>.md` as it goes.
 
 It reports whether the first request was *actually* cold, because that is only true when no
-replica was running: if one still is, leave the environment idle for the scale-to-zero
-cooldown — about five minutes — and run it again.
+replica was running — and every run leaves one running for the next few minutes, so three
+consecutive runs each reported "not a cold start" and asked for a wait that had just been
+spent. `--cold` waits for the platform to say zero rather than asking anybody to guess when
+it will; without it, a first request measured against a live replica is labelled as what it
+is.
 
 **A 504 after 240 seconds is not a slow application.** 240 seconds is the Container Apps
 ingress timeout, and reaching it on `/api/v1/health/live` — which touches nothing — means

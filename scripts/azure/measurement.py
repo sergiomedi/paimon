@@ -50,6 +50,33 @@ def ingest_body(path: Path, document_id: str, source_uri: str) -> str:
     )
 
 
+def describe_ingestion(response: dict[str, Any]) -> str:
+    """Say what ingesting that document actually did.
+
+    Two outcomes, and the interesting one is the cheap one. Ingestion is
+    idempotent by document id: sending the same content twice reports
+    ``unchanged`` and does no work at all — no parse, no embeddings, no write.
+    The report used to assert that everything had been embedded and indexed
+    regardless, which on a second run was simply untrue, and it described the
+    platform's most defensible property as if it had not happened.
+    """
+    if "document_id" not in response:
+        return f"no ingestion result in the response: {json.dumps(response)[:QUOTE]}"
+
+    chunks = response.get("chunks_indexed", 0)
+    if response.get("unchanged"):
+        return (
+            f"**unchanged**, {chunks} chunks. The content hash matched, so nothing was parsed, "
+            "embedded or written: ingestion is idempotent by document id, and this is what that "
+            "costs on a repeat — a hash comparison. Compare it with the first ingestion of the "
+            "same document in an earlier run."
+        )
+    return (
+        f"{chunks} chunks indexed. Parsed, chunked, embedded through Azure OpenAI and written to "
+        "PostgreSQL over the private endpoint, as one request."
+    )
+
+
 def describe(response: dict[str, Any]) -> str:
     """Summarise an answer response in the terms the record cares about.
 
@@ -94,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
     body.add_argument("--source-uri", required=True)
 
     commands.add_parser("answer", help="Summarise an answer response read from stdin.")
+    commands.add_parser("ingestion", help="Summarise an ingestion response read from stdin.")
 
     arguments = parser.parse_args(argv)
 
@@ -115,7 +143,8 @@ def main(argv: list[str] | None = None) -> int:
     if not isinstance(response, dict):
         sys.stdout.write(f"the response was not an object: {raw[:QUOTE]}\n")
         return 1
-    sys.stdout.write(describe(response) + "\n")
+    summarise = describe_ingestion if arguments.command == "ingestion" else describe
+    sys.stdout.write(summarise(response) + "\n")
     return 0
 
 
