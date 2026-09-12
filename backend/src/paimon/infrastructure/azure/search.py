@@ -8,7 +8,7 @@ hybrid ranker, which is why this adapter also satisfies
 """
 
 import base64
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,14 +113,36 @@ class AzureSearchStore:
             )
             raise IndexMismatchError(msg)
 
-    async def _request(self, path: str, payload: dict[str, Any] | None = None) -> Any:
+    async def _request(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        method: str | None = None,
+        extra_headers: Mapping[str, str] | None = None,
+    ) -> Any:
+        """Call the service.
+
+        Args:
+            path: Path below the endpoint, without the api-version.
+            payload: Body to send, or None for a GET.
+            method: Override the method. The document and query endpoints are
+                POSTs and default accordingly; an index is addressed by name and
+                has to be PUT.
+            extra_headers: Headers beyond the credential's.
+
+        Returns:
+            The decoded body, or an empty mapping when there is none.
+
+        Raises:
+            RetrievalError: The service refused the call, could not be reached,
+                or answered with something that is not JSON.
+        """
         url = f"{path}?api-version={self._config.api_version}"
+        verb = method or ("GET" if payload is None else "POST")
         try:
-            headers = await self._credential.headers()
-            if payload is None:
-                response = await self._client.get(url, headers=headers)
-            else:
-                response = await self._client.post(url, json=payload, headers=headers)
+            headers = {**await self._credential.headers(), **(extra_headers or {})}
+            response = await self._client.request(verb, url, json=payload, headers=headers)
             response.raise_for_status()
             return response.json() if response.content else {}
         except httpx.HTTPStatusError as error:
@@ -333,8 +355,28 @@ class AzureSearchStore:
         return definition
 
     async def ensure_index(self) -> None:
-        """Create or update the index to match what this adapter expects."""
-        await self._request(f"/indexes/{self._config.index_name}", self.index_definition())
+        """Create or update the index to match what this adapter expects.
+
+        Three details, each of which the service enforces and none of which a
+        stand-in written alongside this method knew to:
+
+        * **PUT**, not POST. POST creates an index on the ``/indexes``
+          collection; addressing one by name and posting to it is a
+          ``405 Method Not Allowed``, which is what the first real call got.
+        * **The name is an OData key**, ``/indexes('name')``, in the form this
+          api-version documents.
+        * **``Prefer: return=representation`` is required on the PUT**, and the
+          service refuses the call without it rather than defaulting.
+
+        Raises:
+            RetrievalError: The service refused the definition.
+        """
+        await self._request(
+            f"/indexes('{self._config.index_name}')",
+            self.index_definition(),
+            method="PUT",
+            extra_headers={"Prefer": "return=representation"},
+        )
 
 
 def _escape(value: str) -> str:

@@ -55,10 +55,36 @@ class FakeAzureSearchService:
             return self._index(payload)
         if path.endswith("/docs/search"):
             return self._search(payload)
-        if request.method == "POST" and "/indexes/" in path:
-            self.index_definition = payload
-            return httpx.Response(201, json=payload)
+        if "/indexes" in path:
+            return self._index_definition(request, payload)
         return httpx.Response(404, json={"error": {"code": "NotFound"}})
+
+    def _index_definition(self, request: httpx.Request, payload: dict[str, Any]) -> httpx.Response:
+        """Answer the index endpoint the way the service does, refusals included.
+
+        This used to accept a POST to a named index, because that is what the
+        adapter sent — and a fake that agrees with the adapter tests nothing. The
+        real service answers `405 Method Not Allowed`, which is exactly what the
+        first real call to it received, five phases after the adapter was written.
+
+        So the rules are the service's now: an index addressed by name is a PUT,
+        and a PUT without `Prefer: return=representation` is refused rather than
+        defaulted.
+        """
+        if request.method != "PUT":
+            return httpx.Response(405, json={"error": {"code": "MethodNotAllowed"}})
+        if request.headers.get("Prefer") != "return=representation":
+            return httpx.Response(
+                400,
+                json={
+                    "error": {
+                        "code": "InvalidRequest",
+                        "message": "The Prefer header must be set to return=representation.",
+                    }
+                },
+            )
+        self.index_definition = payload
+        return httpx.Response(201, json=payload)
 
     def _index(self, payload: dict[str, Any]) -> httpx.Response:
         results = []

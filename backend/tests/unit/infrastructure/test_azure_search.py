@@ -142,6 +142,35 @@ class TestIndexDefinition:
         assert service.index_definition is not None
         assert service.index_definition["name"] == "chunks"
 
+    async def test_ensure_index_is_a_put_to_the_named_index(self) -> None:
+        """The call the service accepts, rather than the one this adapter used to make.
+
+        A POST to a named index is a 405 — which is how this was found, on the
+        first real request ever made to Azure AI Search, five phases after the
+        adapter was written. The stand-in accepted it because the stand-in was
+        written from the adapter instead of from the service.
+        """
+        service = FakeAzureSearchService()
+        store = store_for(service, FakeEmbeddingModel(dimensions=DIMENSIONS))
+
+        await store.ensure_index()
+
+        request = service.requests[-1]
+        assert request.method == "PUT"
+        assert "/indexes('chunks')" in str(request.url)
+        # Required by the service on a PUT, not merely conventional.
+        assert request.headers["Prefer"] == "return=representation"
+
+    async def test_the_document_endpoints_are_still_posts(self) -> None:
+        """The method is per endpoint, so overriding one must not move the others."""
+        service = FakeAzureSearchService()
+        model = FakeEmbeddingModel(dimensions=DIMENSIONS)
+        store = store_for(service, model)
+
+        await store.search_lexical("anything", top_k=1, filters=SearchFilters(tenant_id="tenant-a"))
+
+        assert service.requests[-1].method == "POST"
+
 
 class TestFailures:
     async def test_documents_rejected_inside_a_200_still_fail(self) -> None:
