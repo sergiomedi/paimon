@@ -1,0 +1,118 @@
+# Delivering Paimon
+
+> **Phase 8 is in progress.** What is described here as existing, exists: the federated
+> identity and the reasoning. The workflows arrive in the following batches and this guide
+> grows with them. Nothing is described here as working before it works.
+
+Continuous integration has been in place since Phase 1 and is not this phase
+([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
+after a merge: how an image is published, how a change reaches an environment, how the
+schema moves, what gates it, and how a release is undone.
+
+The shape of it is decided in
+[ADR-0044](adr/0044-delivery-without-a-standing-environment.md), against a constraint most
+descriptions of continuous delivery do not have: **there is no environment to deliver
+into**. This platform's environment costs about six euros a day for a database nobody is
+querying, out of a fixed amount of trial credit, and Phase 7's whole argument is that it
+should not exist when nobody is measuring it.
+
+So delivery here is two separate things, and keeping them separate is the design:
+
+| | |
+|---|---|
+| **Verification**, on every merge to `main` | An entire environment is created under a run-specific name, bootstrapped, migrated, called through with a real token, and **destroyed in the same job** — whether it passed, failed or was cancelled. |
+| **Promotion**, when somebody decides | A gated workflow that deploys to a named environment and leaves it running. Whether a deployment exists is a spending decision, and spending decisions are not made by a merge. |
+
+## Why the verification is the whole chain
+
+Phase 7 found four defects by deploying, and **not one of them was visible to a linter, a
+type checker, a contract test or a unit test**. A guard against configuration typos rejected
+four valid variables and the container exited 1 two seconds into every start. The Entra
+adapter passed a string describing a key object to PyJWT instead of a key, so every real
+token had been rejected since Phase 1. The search adapter created its index with a POST
+where the service requires a PUT. An app registration created by the documented commands
+could not be asked for a token at all.
+
+Three of those four were hidden by an in-process stand-in that agreed with the code it was
+meant to check. A pipeline that lints a template and builds an image would have been green
+for every one of them.
+
+That is why the verification job runs the real sequence — deploy, publish, deploy,
+bootstrap, migrate, authenticate, ingest, answer — against real Azure services, and why it
+is worth twelve minutes and a few cents per merge.
+
+## Signing in without a secret
+
+The pipeline authenticates to Azure with **OpenID Connect**. There is no client secret, no
+`AZURE_CREDENTIALS` blob, and nothing in the repository to rotate: GitHub mints a
+short-lived token for each run, and Entra is told in advance which repository, branch and
+environment it will trust.
+
+Run once, by a person:
+
+```bash
+./scripts/azure/federate.sh <owner>/<repository>
+```
+
+It creates the app registration, its service principal, one federated credential per trusted
+subject, and the two role assignments the deployment needs. Then it prints three values to
+store as repository **variables** — not secrets, because an application id, a tenant id and
+a subscription id are identifiers and holding all three gets nobody a token.
+
+Two details are worth knowing before they cost an afternoon:
+
+- **The subject is matched exactly.** `repo:owner/name:ref:refs/heads/main` is a different
+  subject from `repo:owner/name:pull_request`, and only the subjects federated above can
+  obtain the credential. A pull request from a fork therefore cannot deploy anything, which
+  is a property of the mechanism rather than a rule somebody has to enforce.
+- **The workflow needs `permissions: id-token: write`.** Without it GitHub mints no token
+  at all and `azure/login` fails on an empty assertion — an error that does not mention the
+  permission it is missing.
+
+The pipeline's identity holds **Contributor** and **Role Based Access Control
+Administrator** at the subscription. The second one surprises people: deploying resources
+and creating *role assignments* are separate rights, and this template creates several,
+because every identity in the platform is granted what it needs by the deployment rather
+than by hand. Without it the deployment fails partway through, having created most of an
+environment. Role Based Access Control Administrator rather than Owner, because it grants
+exactly that one thing.
+
+## How a release moves, and how it is undone
+
+The application moves to **multiple active revisions**. A release creates a revision that
+takes **no traffic**, labels it `green`, and gets a hostname of its own —
+`ca-paimon-api-<env>---green.<domain>` — which is verified before anything is shifted. Then
+traffic moves by weight, and the previous revision stays running with a `blue` label.
+
+A rollback is therefore the same command with the weights exchanged: seconds, no rebuild, no
+image to find. The slowest possible moment to discover that reverting means twelve minutes
+of CI is the moment production is broken.
+
+## The rule about migrations
+
+Blue-green means two versions of the code run against **one database** for as long as the
+switch takes. That is not a side effect to tolerate; it is the reason for the rule:
+
+> A migration may add. It must not remove or rename anything the running code still uses.
+
+Which is the expand–migrate–contract pattern, and it spreads a breaking change across
+releases rather than across a maintenance window: add the new column, deploy code that
+writes both, backfill, deploy code that reads the new one, stop writing the old one, and
+only then drop it. Each step is safe with either version running.
+
+The practical consequence in this repository: migrations run as their own job, against the
+environment, **before** the new revision takes traffic ([ADR-0040](adr/0040-migrations-run-from-inside-the-network.md)),
+and `alembic downgrade` is not a rollback plan. A release is reverted by weight; the schema
+is not reverted at all.
+
+## What this pipeline will not tell you
+
+Stated here rather than left to be assumed:
+
+- **Nothing that needs time.** An environment that lives for eight minutes cannot observe
+  certificate renewal, log retention, a slow leak, or a migration meeting a table with a
+  million rows in it.
+- **Nothing about load.** One replica, no concurrency, fifteen requests.
+- **Nothing about data.** Every run starts empty, so no migration is ever tested against
+  real data and no query is ever tested against a table that is not tiny.
+- **Nothing about a second region.** There is one, and failover is not modelled.

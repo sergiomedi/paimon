@@ -54,6 +54,7 @@ reasoning trail, and rewriting history destroys it.
 | [0041](0041-telemetry-leaves-through-a-collector-we-control.md) | Telemetry leaves through a collector we control | Accepted |
 | [0042](0042-a-second-identity-that-exists-to-grant-one-privilege.md) | A second identity, which exists to grant one privilege | Accepted |
 | [0043](0043-a-person-gets-a-token-the-same-way-a-workload-does.md) | A person gets a token the same way a workload does | Accepted |
+| [0044](0044-delivery-without-a-standing-environment.md) | Delivery without a standing environment | Accepted |
 
 ## Writing a new ADR
 

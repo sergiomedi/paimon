@@ -364,6 +364,10 @@ the reason behind it, and what a deployment that lives for an afternoon cannot t
 
 📏 **[Measurements](docs/measurements/)** — the runs themselves, as the script recorded them.
 
+🚚 **[Delivering Paimon](docs/delivery.md)** — Phase 8, in progress: how a merge reaches an
+environment when there is no environment to deliver into, why the pipeline signs in without a
+secret, and why a release is undone by weight rather than by rebuilding.
+
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
 pipeline running lint, types, contracts, tests, a frontend build and a container image
