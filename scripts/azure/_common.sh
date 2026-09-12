@@ -188,6 +188,24 @@ resolve_api_image() {
     if [[ -n "$PAIMON_API_IMAGE" ]]; then
         PAIMON_DEPLOY_API="true"
         printf 'image         %s\n\n' "$PAIMON_API_IMAGE"
+        # Checked here, on the pass that actually configures the application,
+        # rather than by the template. An audience is baked into the container at
+        # deployment time, so a wrong one is not a runtime misconfiguration you
+        # can correct — it is an API that rejects every token until the next
+        # deployment. The template can only refuse; this can explain.
+        if [[ -z "${PAIMON_AZURE_API_AUDIENCE:-}" ]]; then
+            warn "PAIMON_AZURE_API_AUDIENCE is not set, and this pass deploys the application."
+            warn ""
+            warn "It is the 'aud' claim the API will require, and it has to be the identifier"
+            warn "URI of your Entra app registration. Microsoft's default tenant policy refuses"
+            warn "a memorable one like api://paimon: it must contain the app id, the tenant id"
+            warn "or a verified domain. So:"
+            warn ""
+            warn "  APP_ID=\"\$(az ad app list --display-name paimon-api --query '[0].appId' -o tsv)\""
+            warn "  az ad app update --id \"\$APP_ID\" --identifier-uris \"api://\$APP_ID\""
+            warn "  export PAIMON_AZURE_API_AUDIENCE=\"api://\$APP_ID\""
+            die "nothing deployed."
+        fi
     else
         PAIMON_DEPLOY_API="false"
         # A value the template will not use, present only because the parameter

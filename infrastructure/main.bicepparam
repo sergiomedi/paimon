@@ -45,7 +45,11 @@ param deployApi = readEnvironmentVariable('PAIMON_DEPLOY_API', 'true') == 'true'
 // example api://paimon. See "Before you start" in docs/deployment.md — this is
 // the one thing the template cannot create, because an Entra app registration is
 // not an ARM resource.
-param apiAudience = readEnvironmentVariable('PAIMON_AZURE_API_AUDIENCE', 'api://paimon')
+// No default: it is `api://<your app id>` and so differs in every tenant. An
+// empty value fails the deployment at the point the application is added, which
+// is much better than baking a wrong audience into a container and finding out
+// when the first token is rejected.
+param apiAudience = readEnvironmentVariable('PAIMON_AZURE_API_AUDIENCE', '')
 
 // The tenant whose tokens are accepted. Empty means the tenant being deployed
 // into, which is the right answer whenever the API and its callers live together.

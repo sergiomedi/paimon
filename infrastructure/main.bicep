@@ -154,8 +154,19 @@ The one prerequisite this template cannot create for you: an Entra app
 registration is not an ARM resource. A deployed environment refuses the
 development identity provider outright, so there is no bypass and no way to defer
 this. The deployment guide has the two commands that create it.
+
+**It has no default, and that is the point.** It used to default to
+`api://paimon`, which reads like a convenience and is a trap twice over:
+Microsoft's default tenant policy refuses an identifier URI that does not
+contain the app id, the tenant id or a verified domain, so that URI usually
+cannot be created at all — and a deployment that quietly used it anyway would
+produce an API that refuses every token it is ever sent. The audience is baked
+into the container's configuration, so discovering that costs another
+deployment. Refusing to deploy is the cheaper failure. The length is not
+constrained here, because an empty one is correct on the first pass — that pass
+leaves the application out — and scripts/azure/deploy.sh refuses the pass that
+would actually use it.
 ''')
-@minLength(1)
 param apiAudience string
 
 @description('Replicas to keep warm. Zero costs nothing while idle and pays a cold start on the first request after roughly five minutes of quiet.')

@@ -78,14 +78,24 @@ APP_ID="$(az ad app create --display-name paimon-api --query appId -o tsv)"
 
 # The application ID URI is what clients name when asking for a token, and what the
 # API checks the 'aud' claim against. They have to be the same string.
-az ad app update --id "$APP_ID" --identifier-uris "api://paimon"
+az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
 
-export PAIMON_AZURE_API_AUDIENCE="api://paimon"
+export PAIMON_AZURE_API_AUDIENCE="api://$APP_ID"
 ```
 
-`api://paimon` is the default the parameter file uses, so if you use that URI there is
-nothing to export. Anything else has to be exported before `deploy.sh`, because the value
-is baked into the container's configuration rather than read at runtime.
+**The URI has to contain the app id, the tenant id, or a verified domain.** A memorable one
+like `api://paimon` is refused outright under Microsoft's default tenant policy:
+
+```
+All newly added URIs must contain a tenant verified domain, tenant ID, or app ID,
+as per the default tenant policy of your organization.
+```
+
+`api://<app id>` always satisfies it, which is why the commands above use it and why this
+value has to be **exported** — it cannot be a default in the parameter file, since it is
+different in every tenant. Export it before `deploy.sh`: the audience is baked into the
+container's configuration rather than read at runtime, so a deployment made without it
+produces an API that refuses every token, and fixing it is another deployment.
 ```
 
 The scripts print the subscription name and id before doing anything. Read that line —
