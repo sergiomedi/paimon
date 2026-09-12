@@ -63,22 +63,42 @@ else
 fi
 
 # Purging is per-resource and cannot be done before the delete completes.
+#
+# Neither purge discards standard error any more, and neither reports success it
+# has not checked. The previous version printed the name of everything it was
+# about to purge and then said nothing whatever the outcome — so a teardown that
+# purged nothing at all was indistinguishable from one that worked, and the
+# `status.sh` immediately afterwards found both the vault and the OpenAI account
+# still soft-deleted, minutes after the script had implied otherwise.
 bold "▸ purging soft-deleted key vaults"
-for vault in $(az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].name" -o tsv 2>/dev/null); do
-    printf '  %s\n' "$vault"
-    az keyvault purge --name "$vault" --no-wait 2>/dev/null ||
-        warn "  could not purge $vault — it may be protected, or already gone"
+for vault in $(az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].name" -o tsv); do
+    printf '  %s' "$vault"
+    # Not --no-wait. A purge that returns before it has purged cannot be
+    # verified, and verifying is the whole point of the block below.
+    if az keyvault purge --name "$vault" -o none; then
+        printf ' purged\n'
+    else
+        printf '\n'
+        warn "  could not purge $vault — purge protection, or a role you do not hold"
+    fi
 done
 
 bold "▸ purging soft-deleted Azure OpenAI accounts"
-while IFS=$'\t' read -r name group location; do
-    [[ -n "$name" ]] || continue
-    printf '  %s\n' "$name"
-    az cognitiveservices account purge --name "$name" --resource-group "$group" --location "$location" 2>/dev/null ||
-        warn "  could not purge $name"
-done < <(az cognitiveservices account list-deleted \
-    --query "[?starts_with(name, 'oai-paimon')].[name, resourceGroup, location]" \
-    -o tsv 2>/dev/null || true)
+# By resource id. The name-and-group-and-region form needs all three correct and
+# reports nothing useful when one is not — which is how a purge that silently did
+# nothing left a soft-deleted account holding this subscription's only Azure
+# OpenAI account, and the next deployment failed on FlagMustBeSetForRestore for a
+# name nobody could see.
+for id in $(az cognitiveservices account list-deleted \
+    --query "[?starts_with(name, 'oai-paimon')].id" -o tsv); do
+    printf '  %s' "${id##*/}"
+    if az resource delete --ids "$id" -o none; then
+        printf ' purged\n'
+    else
+        printf '\n'
+        warn "  could not purge ${id##*/}"
+    fi
+done
 
 rm -f "$INFRA/.env.${ENVIRONMENT}"
 
@@ -86,6 +106,33 @@ printf '\n'
 bold "▸ what is left, anywhere in this subscription"
 az resource list --tag application=paimon --query "[].{name:name, type:type, group:resourceGroup}" -o table
 
+# Asked again, of Azure, after the purges rather than before them. "I ran the
+# purge" and "the name is free" are separate claims, and only the second one
+# matters to the next deployment.
 printf '\n'
+bold "▸ and what is still soft-deleted"
+REMAINING_VAULTS="$(az keyvault list-deleted --query "[?starts_with(name, 'kv-paimon')].name" -o tsv)"
+REMAINING_ACCOUNTS="$(az cognitiveservices account list-deleted \
+    --query "[?starts_with(name, 'oai-paimon')].name" -o tsv)"
+
+if [[ -z "$REMAINING_VAULTS" && -z "$REMAINING_ACCOUNTS" ]]; then
+    printf '  nothing. Every name this environment held is free again.\n\n'
+else
+    printf '\n'
+    [[ -n "$REMAINING_VAULTS" ]] && warn "  key vaults:       $(printf '%s' "$REMAINING_VAULTS" | tr '\n' ' ')"
+    [[ -n "$REMAINING_ACCOUNTS" ]] && warn "  OpenAI accounts:  $(printf '%s' "$REMAINING_ACCOUNTS" | tr '\n' ' ')"
+    warn ""
+    warn "These cost nothing and are not harmless. A soft-deleted resource holds its"
+    warn "name for the retention window, and a soft-deleted Azure OpenAI account also"
+    warn "holds an account against OpenAI.S0.AccountCount — which is 1 of 1 on a trial"
+    warn "subscription. The next deployment will fail on FlagMustBeSetForRestore."
+    warn ""
+    warn "Retry, or purge by hand:"
+    warn "  az keyvault purge --name <name>"
+    warn "  az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
+    warn "    --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
+    printf '\n'
+fi
+
 printf 'An empty table above means this cost you nothing further. If it is not empty,\n'
 printf 'run ./scripts/azure/status.sh — something is in a group this script did not own.\n'
