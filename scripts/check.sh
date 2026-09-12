@@ -13,6 +13,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# bicep_cli and have_bicep, defined once for this script and for the Azure ones.
+source "$ROOT/scripts/_bicep.sh"
 TARGET="${1:-all}"
 
 step() { printf '\n\033[1m▸ %s\033[0m\n' "$1"; }
@@ -68,6 +71,74 @@ if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
     # Azure output — including the row whose name disagrees with the model's
     # (`gpt4.1-mini` against `gpt-4.1-mini`) and the dot inside it, which a naive
     # split drops. Both of those cost a day each; neither can cost another.
+    # The Bicep helper, exercised against both installations rather than only the
+    # one on this machine. A path is positional for the standalone compiler and
+    # `--file` for the Azure CLI's, and a caller written for the wrong one fails
+    # with a non-zero exit and nothing on stdout — which read as "the template
+    # will not compile" on a machine where this very script had just compiled it.
+    # The workflow file, parsed. It is YAML containing shell containing Python,
+    # and an inner block indented one column too far silently ends the outer one:
+    # a `run: |` step whose script becomes a sibling key. Nothing local reads this
+    # file, so a broken one is found by pushing it — which is how a broken one was
+    # pushed.
+    step "ci workflow"
+    python3 - <<'PYTHON'
+import pathlib
+import sys
+
+try:
+    import yaml
+except ImportError:  # pragma: no cover - CI installs it; a laptop may not have it
+    print("  PyYAML is not installed, skipping")
+    sys.exit(0)
+
+workflow = yaml.safe_load(pathlib.Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
+jobs = workflow["jobs"]
+for name, job in jobs.items():
+    for step in job["steps"]:
+        assert "uses" in step or "run" in step, f"{name}: a step does nothing"
+print(f"  {len(jobs)} jobs, every step runs something")
+PYTHON
+
+    step "bicep invocation"
+    (
+        stub="$(mktemp -d)"
+        trap 'rm -rf "$stub"' EXIT
+        # An `az` that accepts --file and refuses a positional path, as the real
+        # one does.
+        cat > "$stub/az" <<'STUB'
+#!/usr/bin/env bash
+[[ "$1" == "bicep" ]] || exit 0
+shift
+[[ "$1" == "version" ]] && exit 0
+shift
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --file) [[ -n "$2" ]] || exit 2; shift 2;;
+        --*) shift;;
+        *) exit 2;;
+    esac
+done
+exit 0
+STUB
+        # A standalone `bicep` that wants the path positionally and nothing else.
+        cat > "$stub/bicep" <<'STUB'
+#!/usr/bin/env bash
+shift
+[[ "$1" == --* || -z "$1" ]] && exit 2
+exit 0
+STUB
+        chmod +x "$stub/az" "$stub/bicep"
+        source "$ROOT/scripts/_bicep.sh"
+
+        PATH="$stub:/usr/bin:/bin" bicep_cli build x.bicep --stdout ||
+            { printf '  the standalone compiler is invoked wrongly\n'; exit 1; }
+        rm "$stub/bicep"
+        PATH="$stub:/usr/bin:/bin" bicep_cli build x.bicep --stdout ||
+            { printf '  the Azure CLI compiler is invoked wrongly\n'; exit 1; }
+        printf '  both installations are invoked correctly\n'
+    )
+
     step "model quota"
     python3 -m py_compile scripts/azure/model_quota.py
     python3 - <<'PYTHON'
@@ -100,24 +171,15 @@ PYTHON
     # the gate: the linter runs inside it, and infrastructure/bicepconfig.json
     # raises the rules that matter here to errors, so a template that builds is a
     # template that passed them.
-    if command -v bicep >/dev/null 2>&1; then
-        BICEP=(bicep)
-    elif command -v az >/dev/null 2>&1 && az bicep version >/dev/null 2>&1; then
-        BICEP=(az bicep)
-    else
-        BICEP=()
-    fi
-
-    if [[ ${#BICEP[@]} -gt 0 ]]; then
+    if have_bicep; then
         cd "$ROOT/infrastructure"
         step "bicep build"
-        if [[ "${BICEP[0]}" == "az" ]]; then
-            az bicep build --file main.bicep --stdout >/dev/null
-            az bicep build-params --file main.bicepparam --stdout >/dev/null
-        else
-            bicep build main.bicep --stdout >/dev/null
-            bicep build-params main.bicepparam --stdout >/dev/null
-        fi
+        # Through the shared helper, which absorbs the difference between the
+        # standalone compiler and the one the Azure CLI manages: they take the
+        # file differently, and this script having its own copy of that knowledge
+        # is exactly how a second caller came to be written without it.
+        bicep_cli build main.bicep --stdout >/dev/null
+        bicep_cli build-params main.bicepparam --stdout >/dev/null
     else
         printf '\n\033[33mSkipping infrastructure: install Bicep (az bicep install) to check the templates.\033[0m\n'
     fi

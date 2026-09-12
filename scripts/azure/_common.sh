@@ -10,6 +10,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INFRA="$ROOT/infrastructure"
 
+# bicep_cli and have_bicep, defined once for this script and for check.sh.
+source "$ROOT/scripts/_bicep.sh"
+
 # Name of the environment. Everything is named and tagged after it, and every
 # script acts on exactly one.
 ENVIRONMENT="${PAIMON_AZURE_ENV:-dev}"
@@ -34,19 +37,6 @@ export PAIMON_AZURE_LOCATION="$LOCATION"
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 warn() { printf '\033[33m%s\033[0m\n' "$1"; }
 die() { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
-
-# The Bicep compiler, however it is installed here: the standalone binary or the
-# one the Azure CLI manages. Same detection as scripts/check.sh, which is the
-# authority on how this repository finds it.
-bicep_cli() {
-    if command -v bicep >/dev/null 2>&1; then
-        bicep "$@"
-    elif az bicep version >/dev/null 2>&1; then
-        az bicep "$@"
-    else
-        return 1
-    fi
-}
 
 require_az() {
     command -v az >/dev/null 2>&1 || die "the Azure CLI is not installed: https://aka.ms/azure-cli"
