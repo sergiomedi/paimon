@@ -8,8 +8,15 @@ from opentelemetry.sdk.trace import ReadableSpan, TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from paimon.domain import ports
 from paimon.domain.entities import Chunk
-from paimon.domain.ports import ChunkRecord, IndexDescriptor, NativeHybridSearch, SearchFilters
+from paimon.domain.ports import (
+    ChunkRecord,
+    IndexDescriptor,
+    ManagedIndex,
+    NativeHybridSearch,
+    SearchFilters,
+)
 from paimon.infrastructure.observability import (
     TracedHybridVectorStore,
     TracedVectorStore,
@@ -17,7 +24,59 @@ from paimon.infrastructure.observability import (
 )
 from paimon.infrastructure.observability.retrieval import STRATEGY
 from paimon.observability import genai
-from tests.fakes import FakeEmbeddingModel, InMemoryHybridVectorStore, InMemoryVectorStore
+from tests.fakes import (
+    FakeEmbeddingModel,
+    InMemoryHybridManagedVectorStore,
+    InMemoryHybridVectorStore,
+    InMemoryManagedVectorStore,
+    InMemoryVectorStore,
+)
+
+#: Every optional capability that sits beside VectorStore, discovered rather than
+#: listed. A capability is a protocol somewhere else chooses a code path with, so
+#: the set of them is exactly the set of ways a wrapper can silently change
+#: behaviour — and a list would go stale the moment somebody adds the third.
+CAPABILITIES: tuple[type, ...] = tuple(
+    member
+    for member in vars(ports.retrieval).values()
+    if isinstance(member, type)
+    and getattr(member, "_is_protocol", False)
+    and getattr(member, "_is_runtime_protocol", False)
+    and member.__module__ == ports.retrieval.__name__
+    and member is not ports.VectorStore
+)
+
+
+#: The same, in a stable order, so the parametrised test ids do not move about.
+BY_NAME: tuple[type, ...] = tuple(sorted(CAPABILITIES, key=lambda protocol: protocol.__name__))
+
+
+def protocol_attributes(protocol: type) -> set[str]:
+    """The members isinstance() will look for on a runtime protocol."""
+    declared = getattr(protocol, "__protocol_attrs__", None)
+    if declared is not None:
+        return set(declared)
+    return {name for name in vars(protocol) if not name.startswith("_")}
+
+
+def capable_store(descriptor: IndexDescriptor, capability: type) -> InMemoryVectorStore:
+    """A store satisfying one capability, built from the protocol itself.
+
+    Built rather than written, so that a capability added tomorrow gets a fake
+    today. The stubs are never called: what is under test is whether the wrapper
+    still answers to the protocol, and answering is the whole contract.
+    """
+
+    async def stub(*_args: object, **_kwargs: object) -> None:
+        return None
+
+    fake = type(
+        f"Fake{capability.__name__}Store",
+        (InMemoryVectorStore,),
+        dict.fromkeys(protocol_attributes(capability), stub),
+    )
+    return fake(descriptor)  # type: ignore[no-any-return]
+
 
 TENANT = "tenant-1"
 DIMENSIONS = 64
@@ -178,6 +237,51 @@ class TestTheCapabilitySurvives:
             filters=SearchFilters(tenant_id=TENANT),
         )
         assert spans.attributes()[STRATEGY] == "native_hybrid"
+
+    def test_wrapping_a_managed_store_keeps_the_index_creatable(self) -> None:
+        """The second capability, added in Phase 7 and immediately lost.
+
+        ManagedIndex went on the port and this factory did not learn about it, so
+        the benchmark whose entire purpose is to exercise Azure AI Search was told
+        by Azure AI Search that it had no index to create. Silent in exactly the
+        way the class above describes.
+        """
+        wrapped = trace_vector_store(InMemoryManagedVectorStore(descriptor()))
+        assert isinstance(wrapped, ManagedIndex)
+
+    async def test_creating_the_index_reaches_the_wrapped_store(self) -> None:
+        store = InMemoryManagedVectorStore(descriptor())
+        wrapped = trace_vector_store(store)
+        assert isinstance(wrapped, ManagedIndex)
+
+        await wrapped.ensure_index()
+
+        assert store.ensured == 1
+
+    def test_both_capabilities_survive_together(self) -> None:
+        """Which is what Azure AI Search is: native fusion and a managed index."""
+        wrapped = trace_vector_store(InMemoryHybridManagedVectorStore(descriptor()))
+        assert isinstance(wrapped, NativeHybridSearch)
+        assert isinstance(wrapped, ManagedIndex)
+
+    @pytest.mark.parametrize("capability", BY_NAME)
+    def test_no_capability_is_lost_by_wrapping(self, capability: type) -> None:
+        """Enumerated rather than listed, so the *next* capability is covered too.
+
+        Every optional protocol beside VectorStore is discovered from the ports
+        module and checked here. A third capability added without teaching
+        trace_vector_store about it fails this test on the day it is written,
+        rather than in a deployed environment three phases later.
+        """
+        store = capable_store(descriptor(), capability)
+        assert isinstance(store, capability), "the fake must satisfy what it claims"
+
+        wrapped = trace_vector_store(store)
+
+        assert isinstance(wrapped, capability), (
+            f"{capability.__name__} did not survive being wrapped. Every capability is "
+            f"chosen by an isinstance check somewhere, so losing one is silent."
+        )
 
     def test_the_wrapper_reports_the_index_it_wraps(self) -> None:
         wrapped = trace_vector_store(InMemoryVectorStore(descriptor()))

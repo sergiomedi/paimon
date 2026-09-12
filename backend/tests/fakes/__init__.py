@@ -9,7 +9,12 @@ from tests.fakes.judge import ScriptedJudge
 from tests.fakes.repository import InMemoryDocumentRepository
 from tests.fakes.source import InMemoryDocumentSource
 from tests.fakes.tool_chat import FakeToolCallingChatModel
-from tests.fakes.vector_store import InMemoryHybridVectorStore, InMemoryVectorStore
+from tests.fakes.vector_store import (
+    InMemoryHybridManagedVectorStore,
+    InMemoryHybridVectorStore,
+    InMemoryManagedVectorStore,
+    InMemoryVectorStore,
+)
 
 __all__ = [
     "FakeAzureSearchService",
@@ -20,7 +25,9 @@ __all__ = [
     "InMemoryCheckpointer",
     "InMemoryDocumentRepository",
     "InMemoryDocumentSource",
+    "InMemoryHybridManagedVectorStore",
     "InMemoryHybridVectorStore",
+    "InMemoryManagedVectorStore",
     "InMemoryVectorStore",
     "ScriptedJudge",
 ]

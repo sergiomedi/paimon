@@ -66,15 +66,25 @@ az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
      | project TimeGenerated, Type, Name, Target, DurationMs, Success" -o table
 
 printf '\n'
-bold "▸ and what it cost"
-# The metrics the platform emits for itself. Absent when no price table was
-# configured, which is deliberate: a model with no published price produces
-# silence rather than a zero (see docs/deployment.md).
+bold "▸ what the platform measured about itself"
+# Two prefixes, because the names follow the OpenTelemetry GenAI convention:
+# gen_ai.client.token.usage and gen_ai.client.operation.duration are the
+# standard's, and only the estimated cost is ours. The first version of this
+# filtered on 'paimon' alone and reported an empty table for a deployment that
+# was emitting metrics perfectly — the same mistake as the quota row spelled
+# `gpt4.1-mini`, and the same lesson: an empty result means "I am asking wrongly"
+# before it means "there is nothing there".
 az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
     "AppMetrics
-     | where TimeGenerated > ago(4h) and Name startswith 'paimon'
-     | summarize total = sum(Sum), n = count() by Name
+     | where TimeGenerated > ago(4h)
+     | where Name startswith 'gen_ai' or Name startswith 'paimon'
+     | summarize total = sum(Sum), calls = sum(ItemCount) by Name
      | order by Name asc" -o table
+
+printf '\n'
+printf 'No cost row is the expected outcome: cost is token counts times a price table\n'
+printf 'somebody typed, so the table is empty by default and a model absent from it\n'
+printf 'produces silence rather than a zero. docs/deployment.md says how to fill it.\n'
 
 printf '\n'
 printf 'Paste the two tables above into this session'"'"'s file in docs/measurements/. They are\n'

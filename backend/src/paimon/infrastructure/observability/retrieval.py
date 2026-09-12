@@ -21,6 +21,7 @@ from opentelemetry.trace import Span
 from paimon.domain.ports import (
     ChunkRecord,
     IndexDescriptor,
+    ManagedIndex,
     NativeHybridSearch,
     SearchFilters,
     SearchHit,
@@ -45,6 +46,29 @@ STRATEGY = "paimon.retrieval.strategy"
 @runtime_checkable
 class HybridVectorStore(VectorStore, NativeHybridSearch, Protocol):
     """A store that is both, as one type."""
+
+
+@runtime_checkable
+class ManagedVectorStore(VectorStore, ManagedIndex, Protocol):
+    """A store whose index has to be created, as one type."""
+
+
+class _DelegatesIndexManagement:
+    """Passes index creation through to the wrapped store.
+
+    A mixin rather than three copies of one method, because the number of wrapper
+    classes is the product of the capabilities and this is the second of them.
+    Nothing here is traced: creating an index is administrative, happens once, by
+    hand, and is not part of any request — a span for it would be a span nobody
+    ever looks at, on a code path that runs before there is anything to look at
+    it with.
+    """
+
+    _managed: ManagedIndex
+
+    async def ensure_index(self) -> None:
+        """Create the index, or bring an existing one up to this definition."""
+        await self._managed.ensure_index()
 
 
 class TracedVectorStore:
@@ -133,6 +157,26 @@ class TracedHybridVectorStore(TracedVectorStore):
             return hits
 
 
+class TracedManagedVectorStore(_DelegatesIndexManagement, TracedVectorStore):
+    """Traced, and still able to have its index created."""
+
+    def __init__(self, inner: ManagedVectorStore, *, capture_content: bool = False) -> None:
+        """Wrap a store whose index is managed."""
+        super().__init__(inner, capture_content=capture_content)
+        self._managed = inner
+
+
+class TracedHybridManagedVectorStore(_DelegatesIndexManagement, TracedHybridVectorStore):
+    """Both capabilities, which is what Azure AI Search actually is."""
+
+    def __init__(self, inner: VectorStore, *, capture_content: bool = False) -> None:
+        """Wrap a store that fuses natively *and* manages its index."""
+        assert isinstance(inner, HybridVectorStore)  # noqa: S101  chosen by the factory
+        assert isinstance(inner, ManagedIndex)  # noqa: S101  chosen by the factory
+        super().__init__(inner, capture_content=capture_content)
+        self._managed = inner
+
+
 def trace_vector_store(inner: VectorStore, *, capture_content: bool = False) -> VectorStore:
     """Wrap a vector store without losing what it can do.
 
@@ -141,20 +185,39 @@ def trace_vector_store(inner: VectorStore, *, capture_content: bool = False) -> 
         capture_content: Record query text on spans.
 
     Returns:
-        A wrapper that also satisfies :class:`NativeHybridSearch` when the wrapped
-        store does. Losing that would not raise — it would silently move Azure AI
-        Search off its own fusion and onto in-process fusion, changing retrieval
-        quality with nothing reporting it.
+        A wrapper satisfying every capability protocol the wrapped store does.
+
+    Two capabilities means four wrappers, and that product is the cost of
+    expressing capabilities as types rather than as flags. It is a cost worth
+    paying only because losing one is silent: dropping ``NativeHybridSearch``
+    moves Azure AI Search off its own fusion and onto in-process fusion — a
+    change in retrieval *quality* that raises nothing — and dropping
+    ``ManagedIndex`` hides the command that creates the index behind a message
+    saying this store has none.
+
+    The second of those is not hypothetical. ``ManagedIndex`` was added and this
+    factory was not, so the benchmark that exists to exercise Azure AI Search
+    reported that Azure AI Search had no index to create. The test that now
+    enumerates the capability protocols is what makes a third one safe.
     """
+    managed = isinstance(inner, ManagedIndex)
     if isinstance(inner, HybridVectorStore):
+        if managed:
+            return TracedHybridManagedVectorStore(inner, capture_content=capture_content)
         return TracedHybridVectorStore(inner, capture_content=capture_content)
+    if managed:
+        assert isinstance(inner, ManagedVectorStore)  # noqa: S101  narrowed by the check above
+        return TracedManagedVectorStore(inner, capture_content=capture_content)
     return TracedVectorStore(inner, capture_content=capture_content)
 
 
 __all__ = [
     "STRATEGY",
     "HybridVectorStore",
+    "ManagedVectorStore",
+    "TracedHybridManagedVectorStore",
     "TracedHybridVectorStore",
+    "TracedManagedVectorStore",
     "TracedVectorStore",
     "trace_vector_store",
 ]

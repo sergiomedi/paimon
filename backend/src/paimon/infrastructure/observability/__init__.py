@@ -14,7 +14,9 @@ from paimon.infrastructure.observability.models import (
     trace_embedding_model,
 )
 from paimon.infrastructure.observability.retrieval import (
+    TracedHybridManagedVectorStore,
     TracedHybridVectorStore,
+    TracedManagedVectorStore,
     TracedVectorStore,
     trace_vector_store,
 )
@@ -22,7 +24,9 @@ from paimon.infrastructure.observability.retrieval import (
 __all__ = [
     "TracedChatModel",
     "TracedEmbeddingModel",
+    "TracedHybridManagedVectorStore",
     "TracedHybridVectorStore",
+    "TracedManagedVectorStore",
     "TracedToolCallingChatModel",
     "TracedVectorStore",
     "trace_chat_model",

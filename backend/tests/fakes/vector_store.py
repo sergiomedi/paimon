@@ -125,3 +125,32 @@ class InMemoryHybridVectorStore(InMemoryVectorStore):
             SearchHit(chunk=hit.chunk, score=hit.score, rank=position, retriever="hybrid")
             for position, hit in enumerate(dense, start=1)
         ]
+
+
+class InMemoryManagedVectorStore(InMemoryVectorStore):
+    """An in-memory store whose index has to be created first.
+
+    Stands in for the administrative half of a search service: the index is a
+    schema the service holds rather than a table a migration owns, so something
+    has to create it, and that something is deliberately not the workload.
+    """
+
+    def __init__(self, descriptor: IndexDescriptor) -> None:
+        super().__init__(descriptor)
+        self.ensured = 0
+
+    async def ensure_index(self) -> None:
+        """Record that the index was created or brought up to date."""
+        self.ensured += 1
+
+
+class InMemoryHybridManagedVectorStore(InMemoryHybridVectorStore):
+    """Both capabilities at once, which is what Azure AI Search actually is."""
+
+    def __init__(self, descriptor: IndexDescriptor) -> None:
+        super().__init__(descriptor)
+        self.ensured = 0
+
+    async def ensure_index(self) -> None:
+        """Record that the index was created or brought up to date."""
+        self.ensured += 1
