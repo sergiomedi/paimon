@@ -156,6 +156,12 @@ explain() {
             warn "    az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
             warn "      --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
             ;;
+        *unable*to*pull*image*using*Managed*identity*)
+            warn "  A container is attached to an identity that cannot pull from the registry."
+            warn "  Only the workload identity holds AcrPull. A job running as another identity"
+            warn "  has to be attached to both and pull as the workload's — which is what the"
+            warn "  bootstrap job's registries[].identity names."
+            ;;
         *AadAuthPrincipalCreationFailed*42710*)
             warn "  PostgreSQL already has a role under a name that no longer matches the one"
             warn "  Azure is asking for. A role name stops at 63 characters, and Azure registers"

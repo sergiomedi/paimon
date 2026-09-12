@@ -552,10 +552,20 @@ resource bootstrap 'Microsoft.App/jobs@2024-03-01' = {
   name: bootstrapName
   location: location
   tags: tags
+  // Both identities, which is the only container here that needs two — and the
+  // reason is worth stating because the first attempt attached one and failed.
+  //
+  // Pulling the image and reaching the database are separate acts with separate
+  // credentials. The workload identity holds AcrPull; the administration identity
+  // holds nothing on the registry and should not, because it exists to hold one
+  // privilege on the database and no others. So the job runs with both attached,
+  // pulls as the workload's, and authenticates to PostgreSQL as the
+  // administration one — which is what AZURE_CLIENT_ID below selects.
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
       '${administrationIdentityResourceId}': {}
+      '${identityResourceId}': {}
     }
   }
   properties: {
@@ -575,7 +585,10 @@ resource bootstrap 'Microsoft.App/jobs@2024-03-01' = {
       registries: [
         {
           server: containerRegistryLoginServer
-          identity: administrationIdentityResourceId
+          // The workload's identity, not the one this job runs as. Only this one
+          // has AcrPull, and granting the administration identity a registry role
+          // to save a line would widen it for no reason.
+          identity: identityResourceId
         }
       ]
     }

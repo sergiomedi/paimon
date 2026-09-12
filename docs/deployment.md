@@ -289,6 +289,13 @@ the server has no public address, so a person's account could not reach it from 
 whether or not it were registered. Turn it on only for a sign-in name comfortably under 63
 characters, on a deployment where somebody works from inside the network.
 
+**`unable to pull image using Managed identity`.** A container is attached to an identity that
+has no `AcrPull` on the registry. Only the workload identity holds it, so the bootstrap job —
+which runs as the administration identity in order to reach the database — is attached to
+**both** and names the workload's in `registries[].identity`. Pulling an image and reaching a
+database are separate acts with separate credentials, and giving the administration identity a
+registry role to save a line would widen an identity that exists to hold exactly one privilege.
+
 **`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
 Purge it rather than restoring it, and note that on a trial subscription it is also holding the
 only account you are allowed to have:
