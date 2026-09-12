@@ -355,6 +355,23 @@ az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
    | project TimeGenerated, RevisionName_s, Log_s | order by TimeGenerated desc | take 60" -o table
 ```
 
+**`401 {"detail": "invalid or missing token"}` on a token that is provably valid.** The reason
+is logged and never returned — telling a caller why a token was rejected helps them forge a
+better one — so the answer is one line in the container's log:
+
+```bash
+az containerapp logs show -n ca-paimon-api-dev -g rg-paimon-dev --container api --tail 200 |
+  grep authentication_failed
+```
+
+The first occurrence was *"Could not parse the provided public key"*, and the defect was five
+phases old. The adapter passed `str(jwk.key)` to PyJWT; `PyJWK.key` is a cryptography key
+object, so that string is `<cryptography…RSAPublicKey object at 0x7f…>`. Its unit test had
+replaced the key client with a stand-in returning a PEM string — a shape the real library never
+returns — so the adapter had never once been given a real key. **A double that answers in a
+shape the real thing does not produce tests the double.** The stand-in now returns a `PyJWK`,
+and with that one change the existing assertions fail against the old code.
+
 **`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
 Purge it rather than restoring it, and note that on a trial subscription it is also holding the
 only account you are allowed to have:

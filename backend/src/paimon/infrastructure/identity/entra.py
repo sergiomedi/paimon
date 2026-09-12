@@ -9,7 +9,7 @@ import asyncio
 from typing import Final
 
 import jwt
-from jwt import PyJWKClient
+from jwt import PyJWK, PyJWKClient
 
 from paimon.domain.entities import Principal
 from paimon.domain.errors import IdentityProviderUnavailableError, InvalidTokenError
@@ -114,15 +114,29 @@ class EntraIdentityProvider:
             raise InvalidTokenError(msg) from error
         return principal_from_claims(claims)
 
-    async def _signing_key_for(self, token: str) -> str:
+    async def _signing_key_for(self, token: str) -> PyJWK:
         """Resolve the signing key for a token's key id.
 
         PyJWKClient performs blocking HTTP, so it runs in a worker thread rather
         than stalling the event loop for every request that arrives after a key
         rotation.
+
+        Returns the key **as the library represents it**. This used to return
+        ``str(jwk.key)``, which is not a key: ``PyJWK.key`` is a cryptography
+        public-key object, so string-formatting it produces
+        ``<cryptography…RSAPublicKey object at 0x7f…>``. PyJWT then cannot parse
+        it, raises ``InvalidKeyError`` — a ``PyJWTError``, caught above as a bad
+        token — and every real token became a 401 whose logged reason was
+        *"Could not parse the provided public key"*.
+
+        It survived from Phase 1 to the first deployed request because the
+        adapter's own test replaced this client with a stand-in that answered
+        with a PEM string, which is a shape the real library never returns. The
+        stand-in now answers with a ``PyJWK``, which is what makes the test
+        capable of failing.
         """
         try:
-            jwk = await asyncio.to_thread(self._jwks_client.get_signing_key_from_jwt, token)
+            return await asyncio.to_thread(self._jwks_client.get_signing_key_from_jwt, token)
         except jwt.PyJWKClientError as error:
             # Failing to reach the key set is not the caller's fault: it means we
             # cannot tell whether the token is valid, which is a 503, not a 401.
@@ -131,4 +145,3 @@ class EntraIdentityProvider:
         except jwt.PyJWTError as error:
             msg = f"token rejected: {error}"
             raise InvalidTokenError(msg) from error
-        return str(jwk.key)
