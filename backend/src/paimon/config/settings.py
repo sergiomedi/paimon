@@ -14,7 +14,7 @@ import os
 from collections.abc import Mapping
 from enum import StrEnum
 from functools import lru_cache
-from typing import Literal, Self
+from typing import Literal, Self, get_args
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -847,23 +847,53 @@ are worse than a list that has to be kept in step with one file.
 """
 
 
-def _known_environment_variables() -> frozenset[str]:
-    """Every environment variable name the settings model can consume.
+def _nested_models(annotation: object) -> list[type[BaseModel]]:
+    """The settings models an annotation can hold.
 
-    Covers the one level of nesting the settings actually use; a deeper model
-    would need this to recurse.
+    A list rather than one, and it looks at a union's members, so that an
+    optional sub-model is not mistaken for a leaf. That mistake is invisible: it
+    makes every variable underneath the optional field look unrecognised.
     """
-    prefix = Settings.model_config.get("env_prefix", "")
+    candidates = get_args(annotation) or (annotation,)
+    return [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, type) and issubclass(candidate, BaseModel)
+    ]
+
+
+def _variable_names(model: type[BaseModel], prefix: str) -> set[str]:
+    """Every variable name this model and its sub-models can consume.
+
+    Recursive, because the settings model is. The previous version walked exactly
+    one level and said so in its own docstring — *"a deeper model would need this
+    to recurse"* — and then a later phase added ``observability.tracing.endpoint``
+    two levels down and ``observability.metrics.pricing.models`` three.
+
+    What that produced is worth stating plainly, because it is the failure this
+    guard exists to prevent, inflicted by the guard itself: those variables are
+    real, pydantic consumes them correctly, and the check reported them as typos.
+    The deployed container exited 1 two seconds into every start, eight times,
+    and the diagnosis cost an afternoon of an environment that bills by the hour.
+
+    A sub-model's own name is included as well as its children's: pydantic
+    accepts a whole nested model as one JSON value, so ``PAIMON_DATABASE`` is a
+    variable this model can consume too.
+    """
     delimiter = Settings.model_config.get("env_nested_delimiter", "")
     names: set[str] = set()
-    for name, field in Settings.model_fields.items():
+    for name, field in model.model_fields.items():
         base = f"{prefix}{name}".upper()
-        annotation = field.annotation
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            names.update(f"{base}{delimiter}{sub}".upper() for sub in annotation.model_fields)
-        else:
-            names.add(base)
-    return frozenset(names)
+        names.add(base)
+        for nested in _nested_models(field.annotation):
+            names |= _variable_names(nested, f"{base}{delimiter}")
+    return names
+
+
+def _known_environment_variables() -> frozenset[str]:
+    """Every environment variable name the settings model can consume."""
+    prefix = Settings.model_config.get("env_prefix", "")
+    return frozenset(_variable_names(Settings, prefix))
 
 
 def unknown_environment_variables(environ: Mapping[str, str] | None = None) -> frozenset[str]:

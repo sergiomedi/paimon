@@ -329,6 +329,32 @@ far as noticing the extension is installed. `IF NOT EXISTS` protects against the
 existing; it does not protect against not being allowed to ask. A migration therefore queries
 `pg_catalog.pg_extension` and skips, which is what the initial migration now does.
 
+**`Container 'api' was terminated with exit code '1' and reason 'ProcessExited'`, two seconds
+after every start.** Not a probe and not the image: the process validates its settings at
+startup and refused. A `Probe of StartUp failed` warning arrives beside it and is the
+consequence rather than the cause — the probe has nothing to talk to.
+
+The first occurrence of this was the guard against typos rejecting four variables that were
+entirely correct. `unknown_environment_variables` walked **one level** of nesting, said so in
+its own docstring, and a later phase added `observability.tracing.endpoint` two levels down and
+`observability.metrics.pricing.models` three. Nothing in the repository could see it: the
+template compiled, the linter passed, the tests passed, the image built, the deployment
+succeeded, and the first request came back 504 after four minutes.
+
+There is now a test in the backend suite that reads `infrastructure/modules/api.bicep` and
+asserts every `PAIMON_*` name it sets is one the settings model consumes. It lives with the
+model because the model is the only thing that knows, and it is the check that turns this class
+of failure back into a red test. If a container exits 1 this quickly again, the container's own
+log names the setting — and if there is no replica left to read it from, Log Analytics has it:
+
+```bash
+WORKSPACE="$(az monitor log-analytics workspace show --resource-group rg-paimon-dev \
+  --workspace-name log-paimon-dev --query customerId -o tsv)"
+az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
+  "ContainerAppConsoleLogs_CL | where ContainerAppName_s == 'ca-paimon-api-dev' \
+   | project TimeGenerated, RevisionName_s, Log_s | order by TimeGenerated desc | take 60" -o table
+```
+
 **`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
 Purge it rather than restoring it, and note that on a trial subscription it is also holding the
 only account you are allowed to have:

@@ -89,6 +89,37 @@ class TestUnknownVariableDetection:
         environ = {**BASE_ENV, "PATH": "/usr/bin", "OTHER_APP_HOST": "x"}
         assert unknown_environment_variables(environ) == frozenset()
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "PAIMON_ENVIRONMENT",
+            "PAIMON_DATABASE",
+            "PAIMON_DATABASE__HOST",
+            "PAIMON_OBSERVABILITY__TRACING__ENABLED",
+            "PAIMON_OBSERVABILITY__TRACING__ENDPOINT",
+            "PAIMON_OBSERVABILITY__METRICS__ENDPOINT",
+            "PAIMON_OBSERVABILITY__METRICS__PRICING__CURRENCY",
+            "PAIMON_OBSERVABILITY__METRICS__PRICING__MODELS",
+        ],
+    )
+    def test_nesting_is_followed_all_the_way_down(self, name: str) -> None:
+        """The guard walked one level and the model is four deep.
+
+        Every name here is real and pydantic consumes it; the guard reported the
+        deeper ones as typos, and the deployed container therefore exited 1 two
+        seconds into every start. A guard that rejects valid configuration is
+        worse than no guard: it fails at the moment the thing it protects is
+        finally being used, and it blames the wrong thing while doing it.
+        """
+        assert unknown_environment_variables({**BASE_ENV, name: "x"}) == frozenset()
+
+    def test_a_typo_deep_in_the_model_is_still_reported(self) -> None:
+        """Recursing must not turn the guard into one that accepts anything."""
+        environ = {**BASE_ENV, "PAIMON_OBSERVABILITY__TRACING__ENDPONT": "x"}
+        assert unknown_environment_variables(environ) == frozenset(
+            {"PAIMON_OBSERVABILITY__TRACING__ENDPONT"}
+        )
+
     def test_get_settings_refuses_to_build_with_a_typo(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
