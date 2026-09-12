@@ -141,22 +141,72 @@ fi
 printf '\n'
 
 bold "▸ federated credentials"
-EXISTING="$(az ad app federated-credential list --id "$APP_ID" --query '[].name' -o tsv)"
+# Keyed on the **subject**, not the name. The name is ours and means nothing to
+# Entra; the subject is the entire mechanism, and Entra enforces that a subject
+# appears once per application.
+#
+# This checked the name first, and that was a real defect with a familiar shape:
+# a credential called paimon-main already existed carrying the *old* subject, so
+# the script reported it as present, never created the immutable one, and then
+# collided on the subject when it got to the legacy entry. It checked the thing
+# it could see rather than the thing that matters, and reported success for a
+# state that could not work.
+# Re-read on every pass, because this loop deletes as well as creates, and a
+# snapshot taken once goes stale the moment it does: the legacy subject would be
+# reported as present *after* the entry that replaced it had removed it, and the
+# credential that was supposed to carry it would never be written. A cached
+# answer to a question the loop keeps changing the answer to.
+credentials() {
+    az ad app federated-credential list --id "$APP_ID" -o json |
+        python3 -c '
+import json
+import sys
+
+for credential in json.load(sys.stdin):
+    print(credential["name"], credential["subject"], sep="\t")
+'
+}
+
 for entry in "${CREDENTIALS[@]}"; do
     name="${entry%%:*}"
     subject="${entry#*:}"
-    if printf '%s\n' "$EXISTING" | grep -qx "$name"; then
-        printf '  %-20s exists\n' "$name"
+    EXISTING="$(credentials)"
+
+    subject_exists() { printf '%s\n' "$EXISTING" | cut -f2 | grep -qxF "$1"; }
+    name_exists() { printf '%s\n' "$EXISTING" | cut -f1 | grep -qxF "$1"; }
+
+    if subject_exists "$subject"; then
+        printf '  %-26s exists\n' "$name"
         continue
     fi
+
+    # The name is taken by a different subject — which is what an earlier run of
+    # this script leaves behind. Removed rather than worked around: these names
+    # are this script's own, a federated credential holds no state worth keeping,
+    # and leaving a credential whose name says one thing and whose subject says
+    # another is how the next reader is misled exactly as this script was.
+    if name_exists "$name"; then
+        az ad app federated-credential delete --id "$APP_ID" \
+            --federated-credential-id "$name" --yes -o none 2>/dev/null || true
+        printf '  %-26s replacing (name held a different subject)\n' "$name"
+    fi
+
     az ad app federated-credential create --id "$APP_ID" --parameters "$(printf '%s' "{
         \"name\": \"${name}\",
         \"issuer\": \"https://token.actions.githubusercontent.com\",
         \"subject\": \"${subject}\",
         \"audiences\": [\"api://AzureADTokenExchange\"]
     }")" -o none
-    printf '  %-20s created  %s\n' "$name" "$subject"
+    printf '  %-26s created\n' "$name"
+    printf '    %s\n' "$subject"
 done
+printf '\n'
+
+bold "▸ what this application now trusts"
+# Read back rather than assumed. Every failure in this area prints a subject and
+# nothing else, so the list of subjects is the one thing worth seeing whole.
+az ad app federated-credential list --id "$APP_ID" \
+    --query '[].{name: name, subject: subject}' -o table
 printf '\n'
 
 bold "▸ roles"
