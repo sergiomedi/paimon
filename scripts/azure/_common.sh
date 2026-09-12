@@ -412,19 +412,41 @@ ensure_app_registration() {
     az ad sp show --id "$app_id" -o none 2>/dev/null ||
         az ad sp create --id "$app_id" -o none
 
-    application="$(az ad app show --id "$app_id" -o json)"
-    patch="$(printf '%s' "$application" | python3 "$SCRIPTS/app_registration.py")"
-    [[ -n "$patch" ]] || return 0
+    # One change per pass, re-reading in between. Graph validates a
+    # pre-authorised client against the scopes it has *already stored*, so the
+    # obvious single request — add the scope and authorise the client for it —
+    # is refused outright with a permission id that cannot be found. The scope
+    # has to land first. app_registration.py therefore plans one step at a time,
+    # and this applies them until it has nothing left to say.
+    local announced=false
+    for _ in 1 2 3; do
+        application="$(az ad app show --id "$app_id" -o json)"
+        patch="$(printf '%s' "$application" | python3 "$SCRIPTS/app_registration.py")"
+        [[ -n "$patch" ]] || break
 
-    bold "▸ preparing the app registration"
-    az rest --method PATCH \
-        --url "https://graph.microsoft.com/v1.0/applications/${object_id}" \
-        --headers 'Content-Type=application/json' \
-        --body "$patch" -o none
-    printf '  a delegated scope, the Azure CLI pre-authorised, and v2.0 tokens\n\n'
-    # Graph is eventually consistent about this and a token asked for straight
-    # afterwards can still be refused for want of consent.
-    sleep 10
+        if [[ "$announced" == false ]]; then
+            bold "▸ preparing the app registration"
+            announced=true
+        fi
+        az rest --method PATCH \
+            --url "https://graph.microsoft.com/v1.0/applications/${object_id}" \
+            --headers 'Content-Type=application/json' \
+            --body "$patch" -o none ||
+            die "$(printf '%s\n' \
+                "Microsoft Graph refused that change to the app registration." \
+                "" \
+                "The message above is Graph's own. Nothing else was attempted, and the" \
+                "registration is in whatever state the previous steps left it — this is safe" \
+                "to run again once the reason is dealt with.")"
+        # Read-after-write here is usually consistent and occasionally is not;
+        # the next pass re-reads, and the scope's id is derived rather than
+        # generated so a stale read cannot produce a second scope.
+        sleep 10
+    done
+
+    if [[ "$announced" == true ]]; then
+        printf '  a delegated scope, the Azure CLI pre-authorised, and v2.0 tokens\n\n'
+    fi
 }
 
 # A token for the deployed API, printed on standard output and nowhere else.

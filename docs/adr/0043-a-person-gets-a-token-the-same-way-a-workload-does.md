@@ -81,6 +81,17 @@ replaced, because Microsoft Graph replaces these collections wholesale and a
 deployment script that silently removes another client's authorisation is a worse
 failure than one that does nothing.
 
+**The three changes cannot be made in one request**, which the first real run
+found. Graph validates `preAuthorizedApplications` against the scopes it has
+already *stored*, not against the ones in the same body, and refuses the obvious
+single PATCH with `Property api.preAuthorizedApplications.delegatedPermissionIds
+has a Permission Id that cannot be found in the AppPermissions sets`. It is a
+long-standing limitation rather than a malformed request. So the scope lands
+first, the registration is read back, and the client is pre-authorised on the
+next pass. The scope's id is *derived from the application id* rather than
+generated, so that a read which has not caught up yet cannot produce a second
+scope and orphan the consent attached to the first.
+
 The API's side of it: `accepted_audiences` derives the other spelling of the
 configured audience and accepts both. This is not a widening of who gets in —
 both strings name this one API in this one tenant — and it removes the class of

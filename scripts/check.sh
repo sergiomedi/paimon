@@ -202,16 +202,30 @@ assert audience_matches("api://2858bfe0", "2858bfe0"), "and a v1.0 token the URI
 assert not audience_matches("api://something-else", "api://2858bfe0")
 assert issuer_version("https://sts.windows.net/t/") == "v1.0", "which this API refuses"
 
-# Idempotent, and Graph is fed its own output on the second run: it returns keys
-# the patch does not set, and an equality check against the whole object would
-# rewrite the registration — and with it the scope id that consent refers to —
+# One change per pass. Graph validates a pre-authorised client against the scopes
+# it has already stored, so a body carrying both is refused with a permission id
+# that cannot be found — the scope has to land in its own request first.
+application = {"id": "obj", "appId": "an-app-id", "api": {}}
+first = body(application)
+assert first is not None, "a fresh registration needs the scope and v2.0"
+assert "preAuthorizedApplications" not in first["api"], "not in the same request as the scope"
+
+# Graph is then fed its own output, as the next pass reads it back: it returns
+# keys the patch did not set, and an equality check against the whole object
+# would rewrite the registration — and with it the scope id consent refers to —
 # on every single run.
-first = body({"id": "obj", "api": {}})
-assert first is not None, "a fresh registration needs the scope, the client and v2.0"
-returned = json.loads(json.dumps(first["api"]))
-returned["oauth2PermissionScopes"][0]["origin"] = "Application"
-assert body({"id": "obj", "api": returned}) is None, "the second pass must change nothing"
-print("  the token helpers agree on both spellings and change nothing twice")
+application["api"] = json.loads(json.dumps(first["api"]))
+application["api"]["oauth2PermissionScopes"][0]["origin"] = "Application"
+second = body(application)
+assert second is not None and "preAuthorizedApplications" in second["api"], "then the client"
+
+application["api"]["preAuthorizedApplications"] = second["api"]["preAuthorizedApplications"]
+assert body(application) is None, "and then there is nothing left to do"
+
+# A stale read must not produce a second scope, so the id is derived rather than
+# generated: the same application always plans the same id.
+assert body({"id": "obj", "appId": "an-app-id", "api": {}}) == first, "the scope id is stable"
+print("  the token helpers agree on both spellings and settle in two passes")
 PYTHON
 
     # A bearer token printed to a terminal is a credential to rotate: this
