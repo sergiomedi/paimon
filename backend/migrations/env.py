@@ -6,6 +6,7 @@ or who connects to it.
 """
 
 import asyncio
+import logging
 
 from alembic import context
 from sqlalchemy import Connection, pool
@@ -18,6 +19,19 @@ from paimon.infrastructure.persistence.models import Base
 
 config = context.config
 target_metadata = Base.metadata
+
+# Alembic says what it is doing at INFO — "Running upgrade <from> -> <to>" — and
+# nothing here was listening, so `alembic upgrade head` printed absolutely
+# nothing whether it applied five migrations or none. Silence and a zero exit
+# code are not evidence that anything ran.
+#
+# alembic.ini configures these loggers and this file never applied that
+# configuration; `fileConfig` is not used because it would take the root logger
+# away from the structured logging the rest of the platform emits. Raising the
+# one logger that matters is enough, and it is what makes the migration job's
+# output say which revisions were applied.
+logging.getLogger("alembic").setLevel(logging.INFO)
+logging.basicConfig(format="%(levelname)-5.5s [%(name)s] %(message)s")
 
 
 def _url_override() -> str | None:
