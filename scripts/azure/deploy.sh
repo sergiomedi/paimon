@@ -92,10 +92,13 @@ if [[ "$PAIMON_DEPLOY_API" == "false" ]]; then
     printf '  ./scripts/azure/publish.sh      build the image into this registry\n'
     printf '  ./scripts/azure/deploy.sh       deploy it\n\n'
 else
-    printf 'Next:\n'
+    printf 'Next, in this order:\n'
+    printf '  ./scripts/azure/bootstrap.sh    the database role and extensions, once\n'
     printf '  ./scripts/azure/migrate.sh      bring the schema up to date\n\n'
-    printf 'The schema step is not optional on a new environment, and it needs the manual\n'
-    printf 'PostgreSQL role from "The one manual step" in docs/deployment.md to exist first.\n\n'
+    printf 'Neither is optional on a new environment, and the order matters: the migration\n'
+    printf 'authenticates as the workload, which has no PostgreSQL role until the bootstrap\n'
+    printf 'creates one. Give role assignments a few minutes to propagate first — a bootstrap\n'
+    printf 'that fails on timing alone is safe to retry, and usually that is the whole fix.\n\n'
 fi
 
 printf 'This environment bills for the database at roughly 0.25 EUR an hour whether or not\n'

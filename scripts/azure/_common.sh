@@ -41,6 +41,24 @@ die() { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 require_az() {
     command -v az >/dev/null 2>&1 || die "the Azure CLI is not installed: https://aka.ms/azure-cli"
     az account show >/dev/null 2>&1 || die "not signed in. Run: az login"
+
+    # Checked here so that no command further in can stop to ask for it.
+    #
+    # Every containerapp command needs this extension, and when it is missing the
+    # CLI offers to install it — interactively, on standard error. A script that
+    # sends that stream to /dev/null turns the question into an indefinite wait on
+    # an answer the operator was never shown, which is exactly what happened to
+    # the first run of bootstrap.sh: no output, no error, no prompt returned.
+    #
+    # Not installed silently. Installing software on somebody's machine from a
+    # deployment script is not this script's business; naming the one command is.
+    az extension show --name containerapp >/dev/null 2>&1 || die "$(printf '%s\n' \
+        "the Azure CLI extension 'containerapp' is not installed." \
+        "" \
+        "  az extension add --name containerapp --allow-preview true" \
+        "" \
+        "Installed here rather than when a command first needs it, because the CLI" \
+        "asks interactively and a script is not there to answer.")"
 }
 
 # The subscription being spent. Printed by every script before it does anything,
@@ -300,9 +318,26 @@ run_job() {
     # Ingestion lags the execution by a few seconds, which is long enough that a
     # job that has just finished often has nothing to show yet.
     sleep 5
-    az containerapp job logs show --name "$job" --resource-group "$GROUP" \
-        --container "$container" --execution "$execution" --tail 100 2>/dev/null \
-        || warn "  no logs yet. Try again in a moment, or look in Log Analytics."
+    # Under `timeout`, because this command hangs. It waits on a log stream that
+    # a finished execution never produces another line on, and the first real run
+    # of the bootstrap sat at this line indefinitely on a job that had already
+    # completed — the outcome was known and unreachable. Sixty seconds is far
+    # longer than the call needs when it works.
+    # Standard error is *not* discarded. Hiding it here is what hid the prompt
+    # that hung the first real run: a question nobody could see, waiting for an
+    # answer nobody knew to give. Noise on the terminal is a smaller problem than
+    # a script that stops for a reason it refuses to print.
+    if ! timeout 60 az containerapp job logs show --name "$job" --resource-group "$GROUP" \
+        --container "$container" --execution "$execution" --tail 100; then
+        warn "  no logs through the CLI. They are in Log Analytics a minute or two later:"
+        warn ""
+        warn "    WORKSPACE=\"\$(az monitor log-analytics workspace show \\"
+        warn "      --resource-group $GROUP --workspace-name log-paimon-${ENVIRONMENT} \\"
+        warn "      --query customerId -o tsv)\""
+        warn "    az monitor log-analytics query --workspace \"\$WORKSPACE\" --analytics-query \\"
+        warn "      \"ContainerAppConsoleLogs_CL | where ContainerName_s == '${container}'\\"
+        warn "       | project TimeGenerated, Log_s | order by TimeGenerated asc\" -o table"
+    fi
 
     printf '\n'
     JOB_STATUS="$status"
