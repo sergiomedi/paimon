@@ -180,6 +180,12 @@ explain() {
             warn "  has to be attached to both and pull as the workload's — which is what the"
             warn "  bootstrap job's registries[].identity names."
             ;;
+        *InsufficientPrivilegeError*CREATE\ EXTENSION*|*isn\'t\ a\ trusted\ extension*)
+            warn "  An ordinary role tried to create an extension. Only members of"
+            warn "  azure_pg_admin may create an untrusted one — and Azure checks that before"
+            warn "  PostgreSQL notices the extension is already installed, so IF NOT EXISTS"
+            warn "  does not help. A migration must ask the catalogue first and skip."
+            ;;
         *AadAuthPrincipalCreationFailed*42710*)
             warn "  PostgreSQL already has a role under a name that no longer matches the one"
             warn "  Azure is asking for. A role name stops at 63 characters, and Azure registers"

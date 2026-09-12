@@ -24,9 +24,14 @@ case "$JOB_STATUS" in
         ;;
     Failed)
         printf '\n'
-        warn "The usual first cause is that the bootstrap has not run: a managed identity"
-        warn "cannot authenticate until a PostgreSQL role exists for it, and the migration"
-        warn "authenticates as the workload. Run ./scripts/azure/bootstrap.sh first."
+        warn "Two causes account for most of these, and the logs above say which:"
+        warn "  · the bootstrap has not run. A managed identity cannot authenticate until a"
+        warn "    PostgreSQL role exists for it, and the migration authenticates as the"
+        warn "    workload. Run ./scripts/azure/bootstrap.sh first."
+        warn "  · a migration tried to CREATE EXTENSION. Only azure_pg_admin may create an"
+        warn "    untrusted one, and Azure checks that before noticing it already exists, so"
+        warn "    IF NOT EXISTS is no protection. The bootstrap creates extensions; a"
+        warn "    migration has to ask the catalogue and skip."
         die "migration failed."
         ;;
     *)

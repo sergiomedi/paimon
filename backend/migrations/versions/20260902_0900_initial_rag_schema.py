@@ -22,9 +22,26 @@ EMBEDDING_DIMENSIONS = 1024
 
 def upgrade() -> None:
     """Create the extension, the tables and their indexes."""
-    # Idempotent so that a database provisioned from the pgvector image, whose
-    # init script already enables it, migrates without special-casing.
-    op.execute("CREATE EXTENSION IF NOT EXISTS vector")
+    # Asked about rather than asked for, because `IF NOT EXISTS` does not protect
+    # this statement on Azure.
+    #
+    # `vector` is not a *trusted* extension, so only members of `azure_pg_admin`
+    # may create it — and Azure enforces that **before** PostgreSQL gets as far as
+    # noticing the extension is already installed. So a migration running as an
+    # ordinary role is refused even when there is nothing to do, which is exactly
+    # what happened the first time this ran in a deployed environment: the
+    # bootstrap had created the extension minutes earlier and this line still
+    # failed on a permission.
+    #
+    # Checking the catalogue first keeps both worlds working. Against the local
+    # pgvector image the extension is already there and this does nothing; on a
+    # fresh local database it creates it; on Azure the bootstrap (ADR-0042) has
+    # created it and this never asks.
+    installed = op.get_bind().scalar(
+        sa.text("SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'vector'")
+    )
+    if installed is None:
+        op.execute("CREATE EXTENSION vector")
 
     # PostgreSQL only accepts IMMUTABLE expressions in a generated column, and
     # array_to_string is merely STABLE: for a general anyarray its result depends

@@ -296,6 +296,14 @@ which runs as the administration identity in order to reach the database — is 
 database are separate acts with separate credentials, and giving the administration identity a
 registry role to save a line would widen an identity that exists to hold exactly one privilege.
 
+**`Because vector isn't a trusted extension, only members of "azure_pg_admin" are allowed to
+use CREATE EXTENSION`.** Raised by a *migration*, which runs as the workload. The bootstrap
+creates the extension, so there is nothing left to do — but `CREATE EXTENSION IF NOT EXISTS` is
+still refused, because Azure enforces the trusted-extension rule **before** PostgreSQL gets as
+far as noticing the extension is installed. `IF NOT EXISTS` protects against the extension
+existing; it does not protect against not being allowed to ask. A migration therefore queries
+`pg_catalog.pg_extension` and skips, which is what the initial migration now does.
+
 **`FlagMustBeSetForRestore`.** A soft-deleted Cognitive Services account still holds the name.
 Purge it rather than restoring it, and note that on a trial subscription it is also holding the
 only account you are allowed to have:
