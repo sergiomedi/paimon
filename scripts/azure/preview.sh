@@ -28,9 +28,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 require_az
 announce
 
-PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
-PAIMON_AZURE_OPERATOR_NAME="$(operator_principal_name)"
-export PAIMON_AZURE_OPERATOR_ID PAIMON_AZURE_OPERATOR_NAME
+AZURE_PAIMON_OPERATOR_ID="$(operator_principal_id)"
+AZURE_PAIMON_OPERATOR_NAME="$(operator_principal_name)"
+export AZURE_PAIMON_OPERATOR_ID AZURE_PAIMON_OPERATOR_NAME
 resolve_api_image
 
 validate

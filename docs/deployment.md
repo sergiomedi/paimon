@@ -80,7 +80,7 @@ APP_ID="$(az ad app create --display-name paimon-api --query appId -o tsv)"
 # API checks the 'aud' claim against. They have to be the same string.
 az ad app update --id "$APP_ID" --identifier-uris "api://$APP_ID"
 
-export PAIMON_AZURE_API_AUDIENCE="api://$APP_ID"
+export AZURE_PAIMON_API_AUDIENCE="api://$APP_ID"
 ```
 
 **The URI has to contain the app id, the tenant id, or a verified domain.** A memorable one
@@ -120,8 +120,8 @@ sign-in flow.
 Two optional settings, both with defaults:
 
 ```bash
-export PAIMON_AZURE_ENV=dev              # names and tags everything
-export PAIMON_AZURE_LOCATION=swedencentral
+export AZURE_PAIMON_ENV=dev              # names and tags everything
+export AZURE_PAIMON_LOCATION=swedencentral
 ```
 
 **Region is not a latency decision, and it is not only a quota decision either.** Ask
@@ -457,8 +457,8 @@ To fill it, read the pricing page on the day and pass the numbers in, per **mill
 which is the unit providers publish:
 
 ```bash
-export PAIMON_AZURE_MODEL_PRICES='{"gpt-4.1-mini":{"input":0.4,"output":1.6}}'
-export PAIMON_AZURE_PRICE_REVISION="$(date -u +%Y-%m-%d)"
+export AZURE_PAIMON_MODEL_PRICES='{"gpt-4.1-mini":{"input":0.4,"output":1.6}}'
+export AZURE_PAIMON_PRICE_REVISION="$(date -u +%Y-%m-%d)"
 ./scripts/azure/deploy.sh
 ```
 

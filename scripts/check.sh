@@ -163,6 +163,22 @@ assert not missing(usage, [Wanted("Standard", "text-embedding-3-large")])
 print("  quota matching holds across both spellings")
 PYTHON
 
+    # The application owns the PAIMON_ prefix and refuses any variable in it that
+    # is not one of its settings — deliberately, so a typo in a deployment stops
+    # the process. The deployment scripts therefore must not name their own
+    # variables in it: exporting one made `alembic upgrade head` in the same
+    # shell fail on a variable that had nothing to do with the database.
+    #
+    # Scoped to the scripts and the parameter file. modules/api.bicep sets real
+    # application settings for the containers and belongs in that namespace.
+    step "deployment variable namespace"
+    if squatting=$(grep -rhoE '\bPAIMON_[A-Z0-9_]+' scripts/azure/*.sh infrastructure/main.bicepparam | sort -u); then
+        printf '%s\n' "$squatting" | sed 's/^/  /'
+        printf '  deployment variables must be AZURE_PAIMON_*, not PAIMON_*\n'
+        exit 1
+    fi
+    printf '  the deployment scripts stay out of the application namespace\n'
+
     step "collector config"
     python3 -m py_compile scripts/azure/collector_config.py
     python3 scripts/azure/collector_config.py

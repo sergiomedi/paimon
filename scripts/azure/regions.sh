@@ -58,9 +58,9 @@ printf 'subscription  %s (%s)\n\n' \
     "$(az account show --query name -o tsv)" "$(az account show --query id -o tsv)"
 printf 'Validating the real template in %d regions. Nothing is created.\n\n' "${#REGIONS[@]}"
 
-PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
-PAIMON_AZURE_OPERATOR_NAME="$(operator_principal_name)"
-export PAIMON_AZURE_OPERATOR_ID PAIMON_AZURE_OPERATOR_NAME
+AZURE_PAIMON_OPERATOR_ID="$(operator_principal_id)"
+AZURE_PAIMON_OPERATOR_NAME="$(operator_principal_name)"
+export AZURE_PAIMON_OPERATOR_ID AZURE_PAIMON_OPERATOR_NAME
 
 # Resolved once. `bicep build-params` emits the parameter file and the compiled
 # template separately, and every one of these four values is currently a template
@@ -82,7 +82,7 @@ for region in "${REGIONS[@]}"; do
 
     # The scripts export this, and an exported value wins over the parameter
     # file's default — which is the whole mechanism being exercised here.
-    export PAIMON_AZURE_LOCATION="$region"
+    export AZURE_PAIMON_LOCATION="$region"
 
     if output=$(az deployment sub validate \
         --name "paimon-${ENVIRONMENT}-probe" \
@@ -143,7 +143,7 @@ bold "▸ usable today"
 printf '  %s\n' "${USABLE[@]}"
 printf '\n'
 printf 'To use one:\n'
-printf '  export PAIMON_AZURE_LOCATION=%s\n' "${USABLE[0]}"
+printf '  export AZURE_PAIMON_LOCATION=%s\n' "${USABLE[0]}"
 printf '  ./scripts/azure/preview.sh\n\n'
 printf 'If it is going to be used more than once, change the default in\n'
 printf 'scripts/azure/_common.sh and infrastructure/main.bicepparam rather than\n'

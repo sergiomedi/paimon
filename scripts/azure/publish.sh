@@ -97,4 +97,4 @@ printf '\n'
 bold "▸ published"
 printf 'Image  %s\n\n' "$REFERENCE"
 printf 'deploy.sh will pick this up on its own. To pin it explicitly:\n'
-printf '  export PAIMON_API_IMAGE=%s\n' "$REFERENCE"
+printf '  export AZURE_PAIMON_API_IMAGE=%s\n' "$REFERENCE"

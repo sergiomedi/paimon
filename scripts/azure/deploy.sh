@@ -20,12 +20,12 @@ CONFIRM=true
 require_az
 announce
 
-PAIMON_AZURE_OPERATOR_ID="$(operator_principal_id)"
-PAIMON_AZURE_OPERATOR_NAME="$(operator_principal_name)"
-export PAIMON_AZURE_OPERATOR_ID PAIMON_AZURE_OPERATOR_NAME
-if [[ -z "$PAIMON_AZURE_OPERATOR_ID" ]]; then
+AZURE_PAIMON_OPERATOR_ID="$(operator_principal_id)"
+AZURE_PAIMON_OPERATOR_NAME="$(operator_principal_name)"
+export AZURE_PAIMON_OPERATOR_ID AZURE_PAIMON_OPERATOR_NAME
+if [[ -z "$AZURE_PAIMON_OPERATOR_ID" ]]; then
     warn "No signed-in user object id: nobody will be granted access to the key vault."
-    warn "That is correct for a pipeline and wrong for a laptop. Set PAIMON_AZURE_OPERATOR_ID to override."
+    warn "That is correct for a pipeline and wrong for a laptop. Set AZURE_PAIMON_OPERATOR_ID to override."
     printf '\n'
 fi
 
@@ -86,7 +86,7 @@ cat "$OUTPUTS"
 printf '\n'
 bold "▸ deployed"
 
-if [[ "$PAIMON_DEPLOY_API" == "false" ]]; then
+if [[ "$AZURE_PAIMON_DEPLOY_API" == "false" ]]; then
     printf 'The application was not part of this pass, because there was no image to run.\n'
     printf 'Next:\n'
     printf '  ./scripts/azure/publish.sh      build the image into this registry\n'

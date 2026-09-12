@@ -15,9 +15,9 @@ source "$ROOT/scripts/_bicep.sh"
 
 # Name of the environment. Everything is named and tagged after it, and every
 # script acts on exactly one.
-ENVIRONMENT="${PAIMON_AZURE_ENV:-dev}"
+ENVIRONMENT="${AZURE_PAIMON_ENV:-dev}"
 # Sweden Central, matching the default in main.bicepparam. They have to agree:
-# these scripts export PAIMON_AZURE_LOCATION, and an exported value wins over the
+# these scripts export AZURE_PAIMON_LOCATION, and an exported value wins over the
 # parameter file's default — so a stale default here silently overrode the one
 # that was changed on evidence, and every deployment went to the wrong region.
 #
@@ -25,14 +25,14 @@ ENVIRONMENT="${PAIMON_AZURE_ENV:-dev}"
 # rather than from a document: it is the only one of the ten probed that holds
 # both deployments this template creates, and it holds far more besides. West
 # Europe, which it replaces, stopped accepting new customers outright.
-LOCATION="${PAIMON_AZURE_LOCATION:-swedencentral}"
+LOCATION="${AZURE_PAIMON_LOCATION:-swedencentral}"
 GROUP="rg-paimon-${ENVIRONMENT}"
 
 # Name of the image repository inside the registry. One repository, many tags.
 IMAGE_REPOSITORY="paimon-api"
 
-export PAIMON_AZURE_ENV="$ENVIRONMENT"
-export PAIMON_AZURE_LOCATION="$LOCATION"
+export AZURE_PAIMON_ENV="$ENVIRONMENT"
+export AZURE_PAIMON_LOCATION="$LOCATION"
 
 bold() { printf '\033[1m%s\033[0m\n' "$1"; }
 warn() { printf '\033[33m%s\033[0m\n' "$1"; }
@@ -79,8 +79,8 @@ announce() {
 # read: a service principal in a pipeline has no signed-in user, and that is a
 # valid way to deploy.
 operator_principal_id() {
-    if [[ -n "${PAIMON_AZURE_OPERATOR_ID:-}" ]]; then
-        printf '%s' "$PAIMON_AZURE_OPERATOR_ID"
+    if [[ -n "${AZURE_PAIMON_OPERATOR_ID:-}" ]]; then
+        printf '%s' "$AZURE_PAIMON_OPERATOR_ID"
         return
     fi
     az ad signed-in-user show --query id -o tsv 2>/dev/null || printf ''
@@ -91,8 +91,8 @@ operator_principal_id() {
 # disagree — with a message about the name, which sends you looking in the wrong
 # place.
 operator_principal_name() {
-    if [[ -n "${PAIMON_AZURE_OPERATOR_NAME:-}" ]]; then
-        printf '%s' "$PAIMON_AZURE_OPERATOR_NAME"
+    if [[ -n "${AZURE_PAIMON_OPERATOR_NAME:-}" ]]; then
+        printf '%s' "$AZURE_PAIMON_OPERATOR_NAME"
         return
     fi
     az ad signed-in-user show --query userPrincipalName -o tsv 2>/dev/null || printf ''
@@ -221,8 +221,8 @@ registry_name() {
 # arrives minutes later as an unhealthy app rather than immediately as a refused
 # deployment. Asking the registry first turns that into one legible message.
 api_image() {
-    if [[ -n "${PAIMON_API_IMAGE:-}" ]]; then
-        printf '%s' "$PAIMON_API_IMAGE"
+    if [[ -n "${AZURE_PAIMON_API_IMAGE:-}" ]]; then
+        printf '%s' "$AZURE_PAIMON_API_IMAGE"
         return
     fi
 
@@ -253,17 +253,17 @@ api_image() {
 # This is the same shape as `azd provision` followed by `azd deploy`, for the
 # same reason, and it is why the sequence in the guide is three commands.
 resolve_api_image() {
-    PAIMON_API_IMAGE="$(api_image)"
-    if [[ -n "$PAIMON_API_IMAGE" ]]; then
-        PAIMON_DEPLOY_API="true"
-        printf 'image         %s\n\n' "$PAIMON_API_IMAGE"
+    AZURE_PAIMON_API_IMAGE="$(api_image)"
+    if [[ -n "$AZURE_PAIMON_API_IMAGE" ]]; then
+        AZURE_PAIMON_DEPLOY_API="true"
+        printf 'image         %s\n\n' "$AZURE_PAIMON_API_IMAGE"
         # Checked here, on the pass that actually configures the application,
         # rather than by the template. An audience is baked into the container at
         # deployment time, so a wrong one is not a runtime misconfiguration you
         # can correct — it is an API that rejects every token until the next
         # deployment. The template can only refuse; this can explain.
-        if [[ -z "${PAIMON_AZURE_API_AUDIENCE:-}" ]]; then
-            warn "PAIMON_AZURE_API_AUDIENCE is not set, and this pass deploys the application."
+        if [[ -z "${AZURE_PAIMON_API_AUDIENCE:-}" ]]; then
+            warn "AZURE_PAIMON_API_AUDIENCE is not set, and this pass deploys the application."
             warn ""
             warn "It is the 'aud' claim the API will require, and it has to be the identifier"
             warn "URI of your Entra app registration. Microsoft's default tenant policy refuses"
@@ -272,20 +272,20 @@ resolve_api_image() {
             warn ""
             warn "  APP_ID=\"\$(az ad app list --display-name paimon-api --query '[0].appId' -o tsv)\""
             warn "  az ad app update --id \"\$APP_ID\" --identifier-uris \"api://\$APP_ID\""
-            warn "  export PAIMON_AZURE_API_AUDIENCE=\"api://\$APP_ID\""
+            warn "  export AZURE_PAIMON_API_AUDIENCE=\"api://\$APP_ID\""
             die "nothing deployed."
         fi
     else
-        PAIMON_DEPLOY_API="false"
+        AZURE_PAIMON_DEPLOY_API="false"
         # A value the template will not use, present only because the parameter
         # is required and a required parameter with a usable default is how an
         # unstartable app gets deployed by accident.
-        PAIMON_API_IMAGE="none"
+        AZURE_PAIMON_API_IMAGE="none"
         warn "No image published yet, so this pass leaves the application out."
         warn "Afterwards:  ./scripts/azure/publish.sh  &&  ./scripts/azure/deploy.sh"
         printf '\n'
     fi
-    export PAIMON_API_IMAGE PAIMON_DEPLOY_API
+    export AZURE_PAIMON_API_IMAGE AZURE_PAIMON_DEPLOY_API
 }
 
 # Start a manually-triggered container apps job, wait for it, print its logs, and

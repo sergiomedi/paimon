@@ -905,6 +905,11 @@ def get_settings() -> Settings:
     """
     if unknown := unknown_environment_variables():
         listed = ", ".join(sorted(unknown))
-        msg = f"unknown configuration variables (check for typos): {listed}"
+        msg = (
+            f"unknown configuration variables (check for typos): {listed}. "
+            "Note that the deployment scripts' own variables are named AZURE_PAIMON_*, "
+            "not PAIMON_*, precisely so that having deployed in a shell does not stop "
+            "the application running in it."
+        )
         raise ValueError(msg)
     return Settings()
