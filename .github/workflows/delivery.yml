@@ -64,8 +64,42 @@ jobs:
     steps:
       - uses: actions/checkout@v7.0.1
 
+      - name: Check the repository is configured
+        # Before signing in, because azure/login's own message for a missing
+        # value — "Not all values are present" — names neither which value nor
+        # where it comes from, and these are *variables* rather than secrets, so
+        # a reader who knows the secrets are set looks in the wrong tab.
+        #
+        # Written as a step rather than trusted, because this is the one part of
+        # the setup that lives outside the repository and therefore outside every
+        # gate in it.
+        run: |
+          missing=""
+          for name in AZURE_CLIENT_ID AZURE_TENANT_ID AZURE_SUBSCRIPTION_ID AZURE_PAIMON_API_AUDIENCE; do
+            if [ -z "$(eval echo \$$name)" ]; then
+              missing="$missing $name"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "Missing repository variables:$missing"
+            echo
+            echo "They are printed by ./scripts/azure/federate.sh and are set as"
+            echo "variables, not secrets: an application id, a tenant id and a"
+            echo "subscription id are identifiers, and holding all three gets"
+            echo "nobody a token."
+            echo
+            echo "  Settings -> Secrets and variables -> Actions -> Variables"
+            exit 1
+          fi
+          echo "All four are set."
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_PAIMON_API_AUDIENCE: ${{ vars.AZURE_PAIMON_API_AUDIENCE }}
+
       - name: Sign in to Azure
-        uses: azure/login@v2.4.0
+        uses: azure/login@v3.0.0
         with:
           # Identifiers, not secrets: an application id, a tenant id and a
           # subscription id get nobody a token. The token comes from GitHub, for

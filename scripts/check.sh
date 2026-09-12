@@ -84,6 +84,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
     step "workflows"
     python3 - <<'PYTHON'
 import pathlib
+import re
 import sys
 
 try:
@@ -170,8 +171,36 @@ assert migrate < release, (
     "front of users against a schema it does not have yet."
 )
 
-print(f"  {len(files)} workflows, {jobs} jobs; the teardown cannot be skipped and")
-print("  promotion is gated, migrates first, and destroys nothing")
+# Every action pinned to a full version, and to the *same* version everywhere.
+#
+# This cannot check that a version exists — that needs the network, and GitHub
+# answers it in five seconds for free. It checks the two things an offline gate
+# can: that nothing floats on a moving major tag, and that two workflows never
+# disagree about the same action, which is how one of them keeps working while
+# the other is upgraded and breaks.
+#
+# The five-second failure is worth knowing by sight: an unresolvable `uses:`
+# fails a run before any step executes, so a workflow that dies that fast is
+# almost never the deployment. azure/login@v2.4.0 — a version invented rather
+# than looked up — cost three runs that way.
+pinned = {}
+for path in files:
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for job in workflow["jobs"].values():
+        for step in job["steps"]:
+            reference = step.get("uses")
+            if not reference or "@" not in reference:
+                continue
+            action, version = reference.rsplit("@", 1)
+            assert re.fullmatch(r"v\d+\.\d+\.\d+", version), (
+                f"{path.name}: {reference} is not pinned to an exact version"
+            )
+            assert pinned.setdefault(action, version) == version, (
+                f"{action} is pinned to two different versions across the workflows"
+            )
+
+print(f"  {len(files)} workflows, {jobs} jobs, {len(pinned)} actions pinned exactly")
+print("  the teardown cannot be skipped; promotion is gated, migrates first, destroys nothing")
 PYTHON
 
     step "bicep invocation"
