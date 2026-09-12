@@ -684,6 +684,41 @@ which is deployed and billing throughout. The hybrid benchmark is the only thing
 phase that runs a real query through that adapter, so without it the search service costs
 money and proves nothing.
 
+### Closing it out: the three things the measured run does not cover
+
+```bash
+./scripts/azure/benchmark.sh     retrieval and answer quality, against the real services
+./scripts/azure/spans.sh         one request's span tree, out of Log Analytics
+```
+
+**The benchmark is the one that matters**, and not only for the quality numbers: it is the
+only thing in this phase that sends a real query through the **Azure AI Search** adapter.
+The deployed application never does — its configuration leaves `retrieval.store` at
+`pgvector` — so without this the search service bills for the whole session and proves
+nothing. The script runs the answer benchmark with models and retrieval in Azure and
+PostgreSQL and Redis local in Docker, creates the index from the application's own
+definition first, and writes `evaluation/reports/azure-<date>.json`.
+
+**If it fails on a role assignment, wait rather than debug.** The deployment grants the
+signed-in user Search Index Data Contributor and Cognitive Services OpenAI User, and Entra
+takes minutes — sometimes longer — to publish that. Re-provisioning does not help and costs
+another cycle.
+
+**`spans.sh` is what a screenshot would have been**, except that it can be committed. It
+prints one request and every dependency under it with durations, straight out of the
+workspace, which is also the only proof that the whole telemetry chain works: an exporter
+that cannot authenticate looks healthy and drops everything, so a span tree here says more
+than any health endpoint can.
+
+**The cost figure has no script, and should not have one.** Azure's own numbers lag by
+hours, and a script that reported a plausible figure early would be worse than no script.
+Read it from Cost Management in the portal — *Cost analysis*, scoped to
+`rg-paimon-<environment>`, grouped by service — the day after, and write the per-service
+breakdown into the measurement file by hand. What the platform reports about *token* cost
+is a different number with a different meaning: tokens multiplied by a price table somebody
+typed, which is why the table is empty by default and why every measurement carries the
+revision label of the table that produced it.
+
 Then `./scripts/azure/destroy.sh`, and `./scripts/azure/status.sh` once more to
 prove the table is empty. The second one matters: it is what turns "I destroyed
 it" into something checked rather than assumed.

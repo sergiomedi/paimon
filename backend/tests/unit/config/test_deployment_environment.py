@@ -30,18 +30,31 @@ from paimon.config import unknown_environment_variables
 #: application. The migration and bootstrap jobs share api.bicep's own variables.
 TEMPLATES = ("modules/api.bicep",)
 
+#: Operator scripts that run this application rather than deploy it, and so
+#: legitimately set its variables. Every other script in that directory is
+#: forbidden the PAIMON_ prefix outright, by a gate in scripts/check.sh — a
+#: deployment script exporting one broke `alembic upgrade head` in the same shell
+#: over a variable that had nothing to do with the database.
+SCRIPTS = ("azure/benchmark.sh",)
+
 #: A name and nothing else. The template writes them as `name: 'PAIMON_X'`.
 VARIABLE = re.compile(r"name:\s*'(PAIMON_[A-Z0-9_]+)'")
+
+#: And a script writes them as `export PAIMON_X=...`.
+EXPORTED = re.compile(r"\bexport\s+(PAIMON_[A-Z0-9_]+)=")
 
 REPOSITORY = Path(__file__).resolve().parents[4]
 INFRASTRUCTURE = REPOSITORY / "infrastructure"
 
 
 def declared() -> set[str]:
-    """Every PAIMON_ variable the deployment templates set."""
+    """Every PAIMON_ variable the deployment sets, from a template or a script."""
     names: set[str] = set()
     for template in TEMPLATES:
         names |= set(VARIABLE.findall((INFRASTRUCTURE / template).read_text(encoding="utf-8")))
+    for script in SCRIPTS:
+        text = (REPOSITORY / "scripts" / script).read_text(encoding="utf-8")
+        names |= set(EXPORTED.findall(text))
     return names
 
 
@@ -50,6 +63,8 @@ def test_the_templates_are_where_this_test_thinks_they_are() -> None:
     pass against an empty set — a test that cannot fail, reporting success."""
     for template in TEMPLATES:
         assert (INFRASTRUCTURE / template).is_file(), f"{template} is not where it was"
+    for script in SCRIPTS:
+        assert (REPOSITORY / "scripts" / script).is_file(), f"{script} is not where it was"
     assert len(declared()) > 10, "suspiciously few variables found; has the syntax changed?"
 
 

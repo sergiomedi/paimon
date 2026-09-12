@@ -29,6 +29,7 @@ from paimon.domain.ports.repository import DocumentRepository
 from paimon.domain.ports.retrieval import (
     ChunkRecord,
     IndexDescriptor,
+    ManagedIndex,
     NativeHybridSearch,
     SearchFilters,
     SearchHit,
@@ -56,6 +57,7 @@ __all__ = [
     "HumanInTheLoop",
     "IdentityProvider",
     "IndexDescriptor",
+    "ManagedIndex",
     "Message",
     "NativeHybridSearch",
     "ParsedDocument",

@@ -153,6 +153,26 @@ class VectorStore(Protocol):
 
 
 @runtime_checkable
+class ManagedIndex(Protocol):
+    """A store whose index has to be created before anything can be written to it.
+
+    The second optional capability on this port, and the same argument as
+    :class:`NativeHybridSearch`: a difference between backends expressed as a type
+    the checker understands rather than a flag somebody remembers to read.
+
+    pgvector's index is a table the migration creates, so the local store does not
+    satisfy this. A search service's index is a schema the service holds, and
+    creating it is a deliberate act by somebody with the privilege to do it —
+    deliberately not the workload, which can write documents and read them and
+    cannot redefine the shape of the index underneath them.
+    """
+
+    async def ensure_index(self) -> None:
+        """Create the index, or bring an existing one up to this definition."""
+        ...
+
+
+@runtime_checkable
 class NativeHybridSearch(Protocol):
     """A store that fuses dense and lexical retrieval itself.
 

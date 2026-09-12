@@ -171,8 +171,16 @@ PYTHON
     #
     # Scoped to the scripts and the parameter file. modules/api.bicep sets real
     # application settings for the containers and belongs in that namespace.
+    #
+    # benchmark.sh is excluded, and the exclusion is the rule rather than an
+    # exception to it: that script *runs the application*, so the application's
+    # namespace is precisely where its variables belong. What must hold for them
+    # is something this gate cannot check — that each name is a real setting —
+    # and the backend's own test suite checks it, against the settings model,
+    # which is the only thing that knows.
     step "deployment variable namespace"
-    if squatting=$(grep -rhoE '\bPAIMON_[A-Z0-9_]+' scripts/azure/*.sh infrastructure/main.bicepparam | sort -u); then
+    if squatting=$(grep -rhoE '\bPAIMON_[A-Z0-9_]+' \
+        $(ls scripts/azure/*.sh | grep -v benchmark.sh) infrastructure/main.bicepparam | sort -u); then
         printf '%s\n' "$squatting" | sed 's/^/  /'
         printf '  deployment variables must be AZURE_PAIMON_*, not PAIMON_*\n'
         exit 1
