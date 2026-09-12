@@ -81,7 +81,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "infrastructure" ]]; then
     # a `run: |` step whose script becomes a sibling key. Nothing local reads this
     # file, so a broken one is found by pushing it — which is how a broken one was
     # pushed.
-    step "ci workflow"
+    step "workflows"
     python3 - <<'PYTHON'
 import pathlib
 import sys
@@ -92,12 +92,43 @@ except ImportError:  # pragma: no cover - CI installs it; a laptop may not have 
     print("  PyYAML is not installed, skipping")
     sys.exit(0)
 
-workflow = yaml.safe_load(pathlib.Path(".github/workflows/ci.yml").read_text(encoding="utf-8"))
-jobs = workflow["jobs"]
-for name, job in jobs.items():
-    for step in job["steps"]:
-        assert "uses" in step or "run" in step, f"{name}: a step does nothing"
-print(f"  {len(jobs)} jobs, every step runs something")
+files = sorted(pathlib.Path(".github/workflows").glob("*.yml"))
+assert files, "no workflows found; has the directory moved?"
+
+jobs = 0
+for path in files:
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for name, job in workflow["jobs"].items():
+        jobs += 1
+        for step in job["steps"]:
+            assert "uses" in step or "run" in step, f"{path.name}:{name}: a step does nothing"
+
+delivery = yaml.safe_load(pathlib.Path(".github/workflows/delivery.yml").read_text("utf-8"))
+
+# The two properties of this workflow that cost money to get wrong, checked here
+# because neither is visible in a diff and both are one careless edit away.
+#
+# A teardown that does not run on failure leaves an entire environment billing —
+# and the runs that fail are the ones nobody is watching. `always()` is the only
+# condition that covers failure *and* cancellation.
+steps = delivery["jobs"]["verify"]["steps"]
+teardown = [step for step in steps if "destroy.sh" in str(step.get("run", ""))]
+assert len(teardown) == 1, "the verification job must tear down exactly once"
+assert teardown[0].get("if") == "always()", (
+    "the teardown must be if: always() — success() leaves a failed run's database billing"
+)
+assert steps.index(teardown[0]) == len(steps) - 1, "and it must be the last step"
+
+# Cancelling between the deployment and the teardown is the same failure with a
+# person's finger on it.
+assert delivery["concurrency"]["cancel-in-progress"] is False, (
+    "cancelling mid-run kills the job before the teardown"
+)
+
+# Without this GitHub mints no token and azure/login fails on an empty assertion.
+assert delivery["permissions"]["id-token"] == "write", "OIDC needs id-token: write"
+
+print(f"  {len(files)} workflows, {jobs} jobs, and the teardown cannot be skipped")
 PYTHON
 
     step "bicep invocation"
@@ -243,12 +274,20 @@ second = body(application)
 assert second is not None and "preAuthorizedApplications" in second["api"], "then the client"
 
 application["api"]["preAuthorizedApplications"] = second["api"]["preAuthorizedApplications"]
+
+# And then the application role, which is a separate property and a separate
+# pass: client credentials get no token at all for a resource the caller holds no
+# app role on, whatever the delegated scopes say.
+third = body(application)
+assert third is not None and "appRoles" in third, "then the role for non-human callers"
+assert third["appRoles"][0]["allowedMemberTypes"] == ["Application"], "not for people"
+application["appRoles"] = third["appRoles"]
 assert body(application) is None, "and then there is nothing left to do"
 
 # A stale read must not produce a second scope, so the id is derived rather than
 # generated: the same application always plans the same id.
 assert body({"id": "obj", "appId": "an-app-id", "api": {}}) == first, "the scope id is stable"
-print("  the token helpers agree on both spellings and settle in two passes")
+print("  the token helpers agree on both spellings and settle in three passes")
 PYTHON
 
     # A bearer token printed to a terminal is a credential to rotate: this

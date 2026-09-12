@@ -418,8 +418,11 @@ ensure_app_registration() {
     # is refused outright with a permission id that cannot be found. The scope
     # has to land first. app_registration.py therefore plans one step at a time,
     # and this applies them until it has nothing left to say.
+    # Four passes for three steps: a scope, the pre-authorised client, and the
+    # application role. One spare, because a pass that Graph has not yet made
+    # visible costs a repeat rather than a failure.
     local announced=false
-    for _ in 1 2 3; do
+    for _ in 1 2 3 4; do
         application="$(az ad app show --id "$app_id" -o json)"
         patch="$(printf '%s' "$application" | python3 "$SCRIPTS/app_registration.py")"
         [[ -n "$patch" ]] || break
@@ -445,7 +448,8 @@ ensure_app_registration() {
     done
 
     if [[ "$announced" == true ]]; then
-        printf '  a delegated scope, the Azure CLI pre-authorised, and v2.0 tokens\n\n'
+        printf '  a delegated scope, the Azure CLI pre-authorised, v2.0 tokens, and an\n'
+        printf '  application role for callers that are not people\n\n'
     fi
 }
 

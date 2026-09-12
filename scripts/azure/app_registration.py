@@ -23,7 +23,7 @@ asking twice produces the same id. A random one regenerated after a read that ha
 not caught up yet would replace the scope with a different one and detach every
 consent that referred to it.
 
-Three things have to be true, and none of them is the default for an application
+Four things have to be true, and none of them is the default for an application
 created by ``az ad app create``:
 
 * **A delegated scope exists.** A resource with no scopes cannot be asked for a
@@ -35,6 +35,11 @@ created by ``az ad app create``:
   are never asked. It is also why this needs no client secret anywhere — the
   same argument as ADR-0037, extended from the services to the person calling
   them.
+* **An application role exists, and the pipeline is assigned it.** Client
+  credentials are not delegated: Entra issues no token at all for a resource the
+  calling application holds no app role on. Defining the role is this file's job;
+  assigning it is ``federate.sh``'s, because an assignment lives on the service
+  principal rather than on the registration.
 * **The token version is 2.** The API pins the v2.0 issuer
   (``…/v2.0``), and a v1.0 token is issued by ``sts.windows.net`` and fails
   verification on the issuer rather than on anything that names the cause.
@@ -63,24 +68,50 @@ AZURE_CLI_APPLICATION_ID = "04b07795-8ddb-461a-bbee-02f9e1bf7b46"
 #: authorises on the tenant and the object id, not on a scope name.
 SCOPE = "user_impersonation"
 
+#: Name of the application role, for a caller that is not a person.
+#:
+#: The delegated scope above covers somebody at a terminal. A pipeline signs in as
+#: a service principal, and client credentials work differently: Entra issues **no
+#: token at all** for a resource the calling application has no app role on,
+#: reporting that the application is not assigned to a role rather than anything
+#: about scopes. So the API has to define one, and the pipeline has to be assigned
+#: it — which is also the useful shape, since it makes the set of non-human
+#: callers a list somebody can read.
+APP_ROLE = "Deployment.Verify"
+
 #: v2.0. See the module docstring — this is the property that decides both the
 #: issuer and the spelling of the audience.
 TOKEN_VERSION = 2
 
 
-def scope_id(application: dict[str, Any], existing: dict[str, Any] | None) -> str:
-    """The id this scope has, or will have.
+def identifier_for(application: dict[str, Any], existing: dict[str, Any] | None, name: str) -> str:
+    """The id this scope or role has, or will have.
 
-    An existing one wins: it is what pre-authorisation and any granted consent
-    refer to, and replacing it would silently detach both. Otherwise it is
-    derived from the application id, so that two runs agree on it — a random id
-    regenerated between the write and a read that had not caught up would create
-    a second scope and orphan the first.
+    An existing one wins: it is what an assignment, a pre-authorisation or a
+    granted consent refers to, and replacing it would silently detach all three.
+    Otherwise it is derived from the application id and the name, so that two runs
+    agree on it — a random id regenerated between the write and a read that had
+    not caught up would create a second definition and orphan the first.
     """
     if existing and existing.get("id"):
         return str(existing["id"])
-    seed = f"api://{application.get('appId', '')}/{SCOPE}"
+    seed = f"api://{application.get('appId', '')}/{name}"
     return str(uuid.uuid5(uuid.NAMESPACE_URL, seed))
+
+
+def app_role_definition(identifier: str) -> dict[str, Any]:
+    """The application role this API exposes to non-human callers."""
+    return {
+        "id": identifier,
+        "value": APP_ROLE,
+        # Application, not User: this is for a caller with no person behind it.
+        # A role that also allowed User would show up in a human's token as well,
+        # which is a different authorisation decision wearing the same name.
+        "allowedMemberTypes": ["Application"],
+        "isEnabled": True,
+        "displayName": "Verify a deployment",
+        "description": "Call this API from the delivery pipeline's verification run.",
+    }
 
 
 def scope_definition(identifier: str) -> dict[str, Any]:
@@ -111,7 +142,7 @@ def body(application: dict[str, Any]) -> dict[str, Any] | None:
     preauthorised = list(api.get("preAuthorizedApplications") or [])
 
     current = next((scope for scope in scopes if scope.get("value") == SCOPE), None)
-    wanted = scope_definition(scope_id(application, current))
+    wanted = scope_definition(identifier_for(application, current, SCOPE))
 
     # Compared field by field rather than whole: Graph returns keys this does not
     # set (``origin``, for one), and an equality check against the object it
@@ -143,21 +174,36 @@ def body(application: dict[str, Any]) -> dict[str, Any] | None:
     cli = next(
         (entry for entry in preauthorised if entry.get("appId") == AZURE_CLI_APPLICATION_ID), None
     )
-    if cli is not None and wanted["id"] in (cli.get("delegatedPermissionIds") or []):
+    if cli is None or wanted["id"] not in (cli.get("delegatedPermissionIds") or []):
+        others = [
+            entry for entry in preauthorised if entry.get("appId") != AZURE_CLI_APPLICATION_ID
+        ]
+        return {
+            "api": {
+                "preAuthorizedApplications": [
+                    *others,
+                    {
+                        "appId": AZURE_CLI_APPLICATION_ID,
+                        "delegatedPermissionIds": [wanted["id"]],
+                    },
+                ],
+            }
+        }
+
+    # Step three: the application role, for a caller with no person behind it.
+    # A separate property from `api`, and a separate pass for the same reason as
+    # the others — one change per PATCH is what keeps a half-applied step simply
+    # planned again rather than reasoned about.
+    roles = list(application.get("appRoles") or [])
+    current_role = next((role for role in roles if role.get("value") == APP_ROLE), None)
+    wanted_role = app_role_definition(identifier_for(application, current_role, APP_ROLE))
+    if current_role is not None and all(
+        current_role.get(key) == value for key, value in wanted_role.items()
+    ):
         return None
 
-    others = [entry for entry in preauthorised if entry.get("appId") != AZURE_CLI_APPLICATION_ID]
-    return {
-        "api": {
-            "preAuthorizedApplications": [
-                *others,
-                {
-                    "appId": AZURE_CLI_APPLICATION_ID,
-                    "delegatedPermissionIds": [wanted["id"]],
-                },
-            ],
-        }
-    }
+    remaining_roles = [role for role in roles if role.get("value") != APP_ROLE]
+    return {"appRoles": [*remaining_roles, wanted_role]}
 
 
 def main() -> int:

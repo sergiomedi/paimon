@@ -100,9 +100,17 @@ record "| database | ${AZURE_DATABASE_HOST:-unknown} |"
 record ""
 
 bold "▸ a token to call it with"
+# The registration is not prepared here, only used. Preparing it is token.sh's
+# job and needs rights over an Entra object that a measurement has no business
+# holding — and the pipeline that runs this has deliberately not been given them:
+# it may deploy resources and it may not rewrite the application everything
+# authenticates against.
 APP_ID="$(api_app_id)"
-ensure_app_registration "$APP_ID"
-TOKEN="$(api_token "$APP_ID")" || die "no token, so there is nothing to measure."
+TOKEN="$(api_token "$APP_ID")" || die "$(printf '%s\n' \
+    "no token, so there is nothing to measure." \
+    "" \
+    "If this is the first run against this app registration, it has to be prepared" \
+    "once by somebody who can change it:  ./scripts/azure/token.sh")"
 printf '  acquired (not printed, and not written to the report)\n\n'
 
 # ── Cold start ───────────────────────────────────────────────────────────────

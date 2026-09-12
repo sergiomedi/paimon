@@ -118,6 +118,60 @@ for role in "Contributor" "Role Based Access Control Administrator"; do
 done
 printf '\n'
 
+bold "▸ the pipeline's app role on the API"
+# The last piece, and the one that is not obvious from anything the pipeline
+# reports. Signing in to Azure is not the same as being allowed to call this
+# platform's own API: the pipeline authenticates with *client credentials*, and
+# Entra issues no token at all for a resource the calling application holds no
+# app role on — it says the application is not assigned to a role, which sounds
+# like an Azure RBAC problem and is not one.
+#
+# The delegated scope from Phase 7 does not help here. Pre-authorising the Azure
+# CLI covers a person at a terminal; a service principal is not a person and
+# there is no consent to inherit.
+if [[ -z "${AZURE_PAIMON_API_AUDIENCE:-}" ]]; then
+    warn "  AZURE_PAIMON_API_AUDIENCE is not set, so the API's registration is unknown and"
+    warn "  the role cannot be assigned. The pipeline will deploy and its smoke test will"
+    warn "  get a 401. Set it and run this again:"
+    warn ""
+    warn "    export AZURE_PAIMON_API_AUDIENCE=\"api://\$(az ad app list \\"
+    warn "      --display-name paimon-api --query '[0].appId' -o tsv)\""
+    printf '\n'
+else
+    API_APP_ID="$(api_app_id)"
+    # Defined on the registration by app_registration.py, which token.sh runs.
+    # Reading it from the service principal rather than the application because
+    # that is the object the assignment is made against, and the two can
+    # disagree for a minute after a change.
+    ROLE_ID="$(az ad sp show --id "$API_APP_ID" \
+        --query "appRoles[?value=='Deployment.Verify'].id | [0]" -o tsv 2>/dev/null || printf '')"
+    API_SP_ID="$(az ad sp show --id "$API_APP_ID" --query id -o tsv 2>/dev/null || printf '')"
+
+    if [[ -z "$ROLE_ID" || -z "$API_SP_ID" ]]; then
+        warn "  the API's registration has no Deployment.Verify role yet. token.sh adds it:"
+        warn ""
+        warn "    ./scripts/azure/token.sh"
+        warn ""
+        warn "  then run this again. The role has to exist before it can be assigned."
+        printf '\n'
+    elif az rest --method GET \
+        --url "https://graph.microsoft.com/v1.0/servicePrincipals/${API_SP_ID}/appRoleAssignedTo" \
+        --query "value[?principalId=='${OBJECT_ID}'] | [0].id" -o tsv 2>/dev/null | grep -q .; then
+        printf '  Deployment.Verify already assigned\n\n'
+    else
+        # principalId is who gets it, resourceId is who defined it, appRoleId is
+        # which one. All three are object ids of service principals or roles, and
+        # none of them is an application id — a mistake that returns a
+        # "Request_BadRequest" naming none of the three.
+        az rest --method POST \
+            --url "https://graph.microsoft.com/v1.0/servicePrincipals/${API_SP_ID}/appRoleAssignedTo" \
+            --headers 'Content-Type=application/json' \
+            --body "$(printf '{"principalId": "%s", "resourceId": "%s", "appRoleId": "%s"}' \
+                "$OBJECT_ID" "$API_SP_ID" "$ROLE_ID")" -o none
+        printf '  Deployment.Verify assigned\n\n'
+    fi
+fi
+
 bold "▸ put these in the repository, as variables rather than secrets"
 printf 'None of them is a credential: an application id, a tenant id and a subscription id\n'
 printf 'are identifiers, and holding all three gets nobody a token. The token comes from\n'

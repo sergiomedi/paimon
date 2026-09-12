@@ -1,8 +1,9 @@
 # Delivering Paimon
 
 > **Phase 8 is in progress.** What is described here as existing, exists: the federated
-> identity and the reasoning. The workflows arrive in the following batches and this guide
-> grows with them. Nothing is described here as working before it works.
+> identity, the application role, and the verification workflow. Promotion, blue-green
+> releases and the rollback command arrive in the following batches and this guide grows
+> with them. Nothing is described here as working before it works.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -76,6 +77,62 @@ because every identity in the platform is granted what it needs by the deploymen
 than by hand. Without it the deployment fails partway through, having created most of an
 environment. Role Based Access Control Administrator rather than Owner, because it grants
 exactly that one thing.
+
+## The verification workflow
+
+`.github/workflows/delivery.yml` runs on every merge to `main` that changes anything which
+can change what runs — documentation and evaluation reports are excluded, which is a cost
+control rather than a shortcut. It does exactly what a person did by hand throughout Phase 7:
+
+```
+deploy.sh --yes      provision, without the application (its registry does not exist yet)
+publish.sh           build the image into that registry
+deploy.sh --yes      deploy the application
+bootstrap.sh         the database role and the extensions
+migrate.sh           the schema
+measure.sh           a real token, an authenticated call, a document, a question
+destroy.sh --yes     always, whatever happened above
+```
+
+Three lines in that file are load-bearing in a way a diff does not show, so
+`scripts/check.sh` asserts all three rather than trusting them:
+
+- **The teardown is `if: always()`.** `success()` would leave a failed run's database
+  billing until somebody noticed — and the runs that fail are precisely the ones nobody is
+  watching.
+- **`cancel-in-progress` is `false`.** Cancelling a run mid-flight kills the job between the
+  deployment and the teardown, which is the same expensive failure with a person's finger on
+  it.
+- **`permissions: id-token: write`.** Without it there is no OIDC token and `azure/login`
+  fails on an empty assertion.
+
+The environment is named `ci<run number>`, which is short on purpose: every resource name is
+derived from it, and the tight Azure limits are unforgiving — a PostgreSQL role name stops at
+63 characters, and that has already cost this project a deployment.
+
+What `measure.sh` records is uploaded as an artifact before the teardown, because the
+environment stops existing a step later.
+
+### A token for something that is not a person
+
+The pipeline signs in as a service principal, and that needs one more thing than a person
+does. **Client credentials are not delegated**: Entra issues no token at all for a resource
+the calling application holds no *app role* on, and reports that the application is not
+assigned to a role — which sounds like an Azure RBAC problem and is not one. The delegated
+scope and the pre-authorised Azure CLI from
+[ADR-0043](adr/0043-a-person-gets-a-token-the-same-way-a-workload-does.md) cover somebody at
+a terminal and do nothing here.
+
+So the API's registration exposes an application role, `Deployment.Verify`, with
+`allowedMemberTypes: ["Application"]` — deliberately not `User`, because a role that also
+admitted people would be a different authorisation decision wearing the same name. Defining
+it is `token.sh`'s job; assigning it is `federate.sh`'s, because an assignment lives on the
+service principal rather than on the registration.
+
+The pipeline is **not** given rights over that registration. It may deploy resources; it may
+not rewrite the application everything authenticates against. `measure.sh` therefore uses the
+registration and never prepares it, and says so when the preparation is missing rather than
+attempting it.
 
 ## How a release moves, and how it is undone
 

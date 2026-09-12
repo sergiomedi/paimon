@@ -1,0 +1,125 @@
+# Verification: every merge to main is deployed to Azure, exercised, and destroyed.
+#
+# Not a deployment to a standing environment, because there is not one and having
+# one would cost about six euros a day for a database nobody is querying
+# (ADR-0044). This creates an environment of its own, runs the sequence a person
+# ran by hand through the whole of Phase 7, and deletes it — in a job whose
+# teardown runs whether the verification passed, failed or was cancelled.
+#
+# Why it runs the real thing rather than a linter: Phase 7 found four defects by
+# deploying, and not one was visible to a linter, a type checker, a contract test
+# or a unit test. Three of the four were hidden by in-process stand-ins that
+# agreed with the code they were meant to check. A pipeline that compiles the
+# template and builds the image would have been green for every one of them.
+#
+# It costs about twelve minutes and a few cents. That is the price of finding out
+# in CI rather than in an afternoon.
+
+name: Delivery
+
+on:
+  push:
+    branches: [main]
+    # A documentation change does not need a deployment to prove it. This is a
+    # cost control, not a shortcut: every path that can change what runs is
+    # absent from this list.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "evaluation/**"
+      - "LICENSE"
+  workflow_dispatch:
+
+# One at a time, and never cancelled. `cancel-in-progress: true` would be wrong
+# here in a way that costs money: cancelling mid-run kills the job between the
+# deployment and the teardown, and leaves an entire environment billing with
+# nothing scheduled to remove it.
+concurrency:
+  group: delivery
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  # Without this GitHub mints no OIDC token at all and azure/login fails on an
+  # empty assertion — an error that does not mention the permission it needs.
+  id-token: write
+
+jobs:
+  verify:
+    name: Deploy, exercise, destroy
+    runs-on: ubuntu-latest
+    # Generous, and deliberately finite. The environment bills while the job
+    # runs, so a hung step must end in a teardown rather than in a six-hour
+    # default.
+    timeout-minutes: 45
+
+    env:
+      # One environment per run. Short, because every resource name is derived
+      # from it and several Azure name limits are tight — a PostgreSQL role name
+      # stops at 63 characters, and that one has already cost a deployment.
+      AZURE_PAIMON_ENV: ci${{ github.run_number }}
+      AZURE_PAIMON_LOCATION: swedencentral
+      AZURE_PAIMON_API_AUDIENCE: ${{ vars.AZURE_PAIMON_API_AUDIENCE }}
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: Sign in to Azure
+        uses: azure/login@v2.4.0
+        with:
+          # Identifiers, not secrets: an application id, a tenant id and a
+          # subscription id get nobody a token. The token comes from GitHub, for
+          # a run whose subject Entra was told to trust — scripts/azure/federate.sh.
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Install the containerapp extension
+        # Every containerapp command needs it, and the CLI otherwise offers to
+        # install it interactively — on a runner, that is a wait for an answer
+        # nobody can give. require_az refuses to start without it for this reason.
+        run: az extension add --name containerapp --allow-preview true --only-show-errors
+
+      - name: Provision, without the application
+        # The first pass cannot include the application: the registry it pulls
+        # from is created *by* this deployment, so there is nowhere for an image
+        # to have been pushed yet. The scripts know; this is the same three-command
+        # sequence the guide gives a person.
+        run: ./scripts/azure/deploy.sh --yes
+
+      - name: Build and push the image
+        run: ./scripts/azure/publish.sh
+
+      - name: Deploy the application
+        run: ./scripts/azure/deploy.sh --yes
+
+      - name: Create the database role and extensions
+        run: ./scripts/azure/bootstrap.sh
+
+      - name: Migrate the schema
+        run: ./scripts/azure/migrate.sh
+
+      - name: Exercise it end to end
+        # The step that would have caught three of Phase 7's four defects: it
+        # obtains a real token, calls the API with it, ingests a document and asks
+        # a question about it. A deployment that starts is not a deployment that
+        # works, and the difference is only visible from outside.
+        run: ./scripts/azure/measure.sh
+
+      - name: Keep what it measured
+        # The environment is about to stop existing, so the numbers leave with the
+        # artifact or not at all.
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: measurements-${{ github.run_number }}
+          path: docs/measurements/
+          if-no-files-found: warn
+
+      - name: Destroy the environment
+        # `always()`, which covers failure and cancellation as well as success.
+        # This is the most important line in the file: without it a failed run
+        # leaves a database billing until somebody notices, and the runs that
+        # fail are exactly the ones nobody is watching.
+        if: always()
+        run: ./scripts/azure/destroy.sh --yes
