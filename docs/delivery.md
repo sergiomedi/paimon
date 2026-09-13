@@ -11,11 +11,13 @@
 > is in this document, because the interesting part of a pipeline is not that it works — it
 > is what had to be true first.
 >
-> Nothing is described here as working before it works — and by that standard **one half of
-> this document has not run**. Everything above "How a release moves" has, twelve times
-> now. The release and promotion path below it has never been executed against Azure: it is
-> written, gated, and checked by `scripts/check.sh`, which is exactly what the first nine
-> runs of the verification workflow also were. Its section says so where it starts.
+> Promotion has run too, on the third attempt of its own. The first was refused by Entra at
+> the image step — the same expired assertion that had already cost the verification
+> workflow a run, in a file the fix had not been carried to. The second put a revision in
+> front of traffic through its own hostname, which is what this document's second half
+> describes. One thing is still outstanding and is marked where it belongs: **`rollback.sh`
+> has never been executed**, because the release that would have given it something to go
+> back to was the first ever made in that environment.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -214,14 +216,28 @@ attempting it.
 
 ## How a release moves, and how it is undone
 
-> **This has not run.** Everything from here to the end of the next section describes
-> scripts and a workflow that exist, compile, and are enforced by the gates — and that have
-> never once been executed against Azure. The verification workflow was in exactly this
-> state for nine runs, and each of those nine found something no gate could: an action
-> version that did not exist, a subject claim nobody writes down, a federated credential
-> matched by the wrong field, an OIDC assertion five minutes dead. There is no reason to
-> think this half is different, and the paragraphs below are written in the present tense
-> because that is how the design reads, not because it has been observed.
+> **This has run, except the undoing.** On 13 September 2026 a promotion to `prod` put a
+> revision in front of traffic the way this section describes:
+>
+> ```
+>   green -> 5dcd77a
+> ▸ checking https://ca-paimon-api-prod---green.icydesert-36998c23.swedencentral.azurecontainerapps.io
+>   200 — ready
+> ▸ shifting traffic to 5dcd77a
+> ```
+>
+> Thirty seconds between the check starting and the 200, through the label's own hostname,
+> with no traffic on the new revision until after it answered.
+>
+> What that run could not show is the half that matters most. It printed `Standing by
+> nothing`: the promotion before it had failed at the image, so nothing had ever served in
+> that environment, and this was the first revision to exist. A release with no previous
+> revision does not exercise the thing blue-green is for — an old version still answering
+> every request while the new one is checked — and **`rollback.sh` has not run at all**,
+> because there was nothing to go back to.
+>
+> The next promotion from a different commit is what closes that, and this note stays until
+> it has.
 
 ```bash
 ./scripts/azure/release.sh      # the newest published image, checked before it serves
@@ -290,6 +306,29 @@ exactly.
 names.** `production` is the gate; `target` is the Azure environment — the resource group
 suffix — and it defaults to `prod`. One approval mechanism can gate promotions to several
 Azure environments, which is why they are not the same field.
+
+### What the first two promotions cost
+
+| | |
+|---|---|
+| First promotion | 14m 16s, and failed — `AADSTS700024` at the image |
+| Second promotion | 19m 8s, green |
+| Of which: readiness through the `green` hostname | 30s |
+| Of which: the traffic shift itself | about 15s |
+
+The first failure is the one worth keeping. `promote.yml` had a single `azure/login` at the
+top, and by the time thirteen minutes of provisioning had passed, the assertion behind it was
+long expired — the identical failure `delivery.yml` had in run 9, in a file the fix had never
+been carried to. It was fixed where it broke rather than where its cause lived.
+
+That is now a gate rather than a memory: `scripts/check.sh` walks every job in every workflow
+and requires that any step running `publish.sh` or `measure.sh` is immediately preceded by a
+fresh `azure/login`, since those are the two that ask Entra for an audience the job's first
+sign-in can no longer pay for.
+
+The second number is the one to quote. **Thirty seconds** is how long a version was reachable,
+running and answering before it was given a single request — which is the entire argument for
+labels, and the reason a release here is a weight rather than a deployment.
 
 ## The rule about migrations
 
