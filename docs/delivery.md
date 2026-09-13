@@ -1,11 +1,18 @@
 # Delivering Paimon
 
-> **Phase 8 is in progress.** What is described here as existing, exists: the federated
-> identity, the application role, the verification workflow, blue-green releases with their
-> rollback, and the gated promotion workflow. What has not happened yet is a run of any of
-> them against Azure — until then this describes a pipeline that compiles and is checked,
-> not one that has delivered anything. Nothing is described here as working before it
-> works.
+> **This has run.** On 13 September 2026 a push to `main` created an environment in Azure,
+> built and pushed the image, deployed it, created the database role, migrated the schema,
+> obtained a real token, ingested a document, asked a question about it, and destroyed the
+> environment — in **27 minutes and 46 seconds**, unattended, as
+> [run 10](measurements/ci10-2026-09-13T0857.md) records.
+>
+> It took ten attempts. Runs 1 to 6 never reached Azure; 7 and 8 died on the identity; 9
+> provisioned and then failed to authenticate to the registry. Every one of those failures
+> is in this document, because the interesting part of a pipeline is not that it works — it
+> is what had to be true first. Nothing is described here as working before it works, and
+> one thing still is not: the traces did not arrive in Application Insights within the
+> environment's lifetime, and until a run says otherwise that is an open question rather
+> than a feature.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -250,6 +257,43 @@ The practical consequence in this repository: migrations run as their own job, a
 environment, **before** the new revision takes traffic ([ADR-0040](adr/0040-migrations-run-from-inside-the-network.md)),
 and `alembic downgrade` is not a rollback plan. A release is reverted by weight; the schema
 is not reverted at all.
+
+## What it actually took, measured
+
+Run 10, the first that reached the end. Every figure is from the run's own artifact rather
+than from an estimate — `docs/measurements/<env>-deploy.log`, written by `deploy.sh` while
+it waited, and uploaded whether the job passes, fails or is killed.
+
+| | |
+|---|---|
+| The whole job | 27m 46s |
+| Provisioning, first pass | 12m — the Container Apps environment for 4, then PostgreSQL for 6 |
+| Build and push the image | ~2m, on the runner |
+| Provisioning, second pass | 4m, adding the application and its two jobs |
+| Bootstrap, migration | under a minute each |
+| First request, warm | 0.423s |
+| Unauthenticated call | 401, which is the expected answer |
+| Authenticated call | 0.582s |
+| Ingesting a document | 1.098s, 6 chunks embedded and written over the private endpoint |
+| First grounded answer | 1.609s, 1 citation, 6 chunks retrieved, 656 tokens |
+| The same question again | 1.280s — an embedding cache, not an answer cache ([ADR-0039](adr/0039-the-cache-runs-beside-the-thing-that-uses-it.md)) |
+| Teardown | seconds, and then ARM's own time in the background |
+
+Two of those numbers are worth more than the rest.
+
+**PostgreSQL is six of the twelve minutes**, and it is six minutes of one resource that
+everything else waits for. That is the cost of a private network with no public address
+([ADR-0038](adr/0038-a-database-with-no-password-and-no-public-address.md)) and it is not recoverable by
+making anything else faster.
+
+**The teardown takes seconds**, which it did not until run 9 measured it taking
+thirty-three minutes — more than the rest of the pipeline put together. A key vault and an
+Azure OpenAI account are soft-deleted rather than deleted, and purging one cannot happen
+until the resource group delete has completed. So the purges waited on a PostgreSQL server
+being deleted, and a run killed by its own timeout never reached them: the soft-deleted
+account it left behind then held the subscription's only Azure OpenAI slot, and failed the
+*next* run at preflight. Deleting those two by name takes seconds, so they go first now and
+the group follows without being waited on. The ordering was never about speed.
 
 ## What this pipeline will not tell you
 

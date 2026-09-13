@@ -17,7 +17,9 @@ grounded answers, cited evidence and automated workflows.
 
 ---
 
-> **Project status: Phases 1 to 7 complete. Phase 8 — continuous delivery — next.**
+> **Project status: Phases 1 to 8 complete.** A push to `main` builds, deploys and
+> exercises the platform against real Azure services in an environment it creates for the
+> purpose and destroys when it is done — [27m 46s, unattended](docs/measurements/ci10-2026-09-13T0857.md).
 > Ingestion, hybrid retrieval and grounded answering with citations work end to end; three
 > agents run as LangGraph workflows over the same use cases, streaming their steps and pausing
 > for a person when asked to; the platform speaks
@@ -364,9 +366,10 @@ the reason behind it, and what a deployment that lives for an afternoon cannot t
 
 📏 **[Measurements](docs/measurements/)** — the runs themselves, as the script recorded them.
 
-🚚 **[Delivering Paimon](docs/delivery.md)** — Phase 8, in progress: how a merge reaches an
-environment when there is no environment to deliver into, why the pipeline signs in without a
-secret, and why a release is undone by weight rather than by rebuilding.
+🚚 **[Delivering Paimon](docs/delivery.md)** — Phase 8: how a merge reaches an environment
+when there is no environment to deliver into, why the pipeline signs in without a secret, why
+a release is undone by weight rather than by rebuilding, and what the ten attempts it took to
+get there each had to teach first.
 
 Also in place: typed configuration validated at startup, JSON logging with a correlation id
 that covers library output too, six machine-enforced architecture contracts, and a CI
@@ -458,7 +461,7 @@ including the negative ones.
 | Cloud | Azure Container Apps · Bicep | Ephemeral by design: provisioned, measured, destroyed — [ADR-0034](docs/adr/0034-container-apps-not-app-service.md) to [ADR-0042](docs/adr/0042-a-second-identity-that-exists-to-grant-one-privilege.md), [guide](docs/deployment.md) |
 | Evaluation | Golden sets · verified citations · LLM judge | Intervals, paired comparison and Cohen's kappa — [ADR-0029](docs/adr/0029-benchmark-numbers-carry-their-uncertainty.md) to [ADR-0033](docs/adr/0033-faithfulness-is-graded-against-the-sources-shown.md), [guide](docs/evaluation.md) |
 | Tooling | uv · ruff · mypy --strict · import-linter | Standards enforced by machine, not convention |
-| Delivery | Docker · GitHub Actions · Azure Container Apps | Green build from the first commit |
+| Delivery | Docker · GitHub Actions · Azure Container Apps | Keyless OIDC, an environment per merge, blue-green releases — [ADR-0043](docs/adr/0043-a-person-gets-a-token-the-same-way-a-workload-does.md), [ADR-0044](docs/adr/0044-delivery-without-a-standing-environment.md), [guide](docs/delivery.md) |
 
 ## Roadmap
 
@@ -472,7 +475,7 @@ previous one is complete.
 - [x] **Phase 5 — Observability** · Langfuse, OpenTelemetry, cost monitoring
 - [x] **Phase 6 — Evaluation** · golden sets, verified attribution, a calibrated judge
 - [x] **Phase 7 — Cloud** · Azure deployment, deployed and measured, then destroyed
-- [ ] **Phase 8 — Delivery** · automated build, deploy and release gating
+- [x] **Phase 8 — Delivery** · an environment per merge, created, exercised and destroyed
 
 ## Getting started
 

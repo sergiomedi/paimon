@@ -278,22 +278,52 @@ bold "▸ did the traces arrive"
 WORKSPACE="$(az monitor log-analytics workspace show --resource-group "$GROUP" \
     --workspace-name "log-paimon-${ENVIRONMENT}" --query customerId -o tsv 2>/dev/null || printf '')"
 TRACES="unknown"
+WAITED=0
 if [[ -n "$WORKSPACE" ]]; then
-    # A minute or two of ingestion lag is normal, and these requests were seconds
-    # ago, so an empty answer here is not yet evidence of anything.
-    sleep 60
-    TRACES="$(az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
-        "AppRequests | where TimeGenerated > ago(30m) | summarize n = count() | project n" \
-        --query '[0].n' -o tsv 2>/dev/null || printf 'unknown')"
+    # Asked repeatedly rather than once after a fixed minute.
+    #
+    # Application Insights ingestion lags somewhere between one and five minutes,
+    # and the old single `sleep 60` sat inside that range — so an empty answer
+    # meant either "the telemetry is broken" or "you asked too early", with no
+    # way to tell which. Run 10 reported exactly that: zero, and no way to know
+    # what it meant.
+    #
+    # Polling collapses the ambiguity and costs almost nothing, because it stops
+    # the moment something arrives. How long it took is recorded, which makes
+    # this a measurement of ingestion latency rather than only a check.
+    for _ in $(seq 1 10); do
+        sleep 30
+        WAITED=$((WAITED + 30))
+        TRACES="$(az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
+            "AppRequests | where TimeGenerated > ago(30m) | summarize n = count() | project n" \
+            --query '[0].n' -o tsv 2>/dev/null || printf 'unknown')"
+        [[ "$TRACES" =~ ^[1-9] ]] && break
+        printf '.'
+    done
+    printf '\n'
 fi
-record "**Requests in Application Insights in the last 30 minutes**: ${TRACES}."
-record ""
-if [[ "$TRACES" == "unknown" || "$TRACES" == "0" ]]; then
-    record "Nothing arrived, or the query could not run. The collector is the first place to"
-    record "look, not the second — an exporter that cannot authenticate is healthy and silent:"
+
+if [[ "$TRACES" =~ ^[1-9] ]]; then
+    record "**Requests in Application Insights**: ${TRACES}, first visible ${WAITED}s after asking."
+    record ""
+    record "That number is the ingestion lag, not the application's latency. It is recorded"
+    record "because it is the only thing here that says how long after a request the trace of"
+    record "it can actually be read — which is what decides whether an environment that lives"
+    record "for twenty minutes can be observed at all."
+    record ""
+else
+    record "**Requests in Application Insights**: none, after ${WAITED}s of asking."
+    record ""
+    record "The collector is the first place to look, not the second: an exporter that cannot"
+    record "authenticate is healthy and silent. So its own output is below rather than a"
+    record "command to run — by the time anybody reads this the environment is destroyed, and"
+    record "an instruction that needs it alive is not a diagnosis."
     record ""
     record '```'
-    record "az containerapp logs show --name ca-paimon-otel-${ENVIRONMENT} --resource-group ${GROUP} --tail 100"
+    # Standard error kept, because the interesting case is the CLI refusing.
+    record "$(timeout 60 az containerapp logs show --name "ca-paimon-otel-${ENVIRONMENT}" \
+        --resource-group "$GROUP" --tail 40 2>&1 ||
+        printf 'no collector logs through the CLI.')"
     record '```'
     record ""
 fi
