@@ -56,10 +56,61 @@ else
         [[ "$answer" == "$ENVIRONMENT" ]] || die "nothing deleted."
     fi
 
+    # ── The two that hold something scarce, first and by themselves ──────────
+    #
+    # A key vault and an Azure OpenAI account are soft-deleted rather than
+    # deleted, and each then holds its name for the retention window. The OpenAI
+    # account also holds a slot against OpenAI.S0.AccountCount, which on a trial
+    # subscription is 1 of 1 — so one left behind does not merely collide with
+    # the next deployment, it forbids it.
+    #
+    # They used to be purged after the resource group delete, because a purge
+    # cannot happen until the delete has completed. That ordering was measured in
+    # delivery run 9 and it cost **thirty-three minutes**: the group contains a
+    # PostgreSQL flexible server on a private network and a Container Apps
+    # managed environment, and deleting those is most of an hour's patience. The
+    # run was killed by its own timeout before reaching the purges, which is
+    # almost certainly what left the soft-deleted account that then failed the
+    # run after it.
+    #
+    # Deleting these two on their own takes seconds, so they go first. What the
+    # next deployment needs — the names, and the quota — is free within a minute
+    # of asking, and no longer hostage to how long the slow half takes.
+    bold "▸ releasing the names and the quota"
+    for vault in $(az keyvault list --resource-group "$GROUP" --query "[].name" -o tsv); do
+        printf '  %s' "$vault"
+        az keyvault delete --name "$vault" --resource-group "$GROUP" -o none
+        if az keyvault purge --name "$vault" -o none; then
+            printf ' purged\n'
+        else
+            printf '\n'
+            warn "  deleted, but not purged — purge protection, or a role you do not hold"
+        fi
+    done
+    for account in $(az cognitiveservices account list --resource-group "$GROUP" \
+        --query "[].name" -o tsv); do
+        printf '  %s' "$account"
+        az cognitiveservices account delete --name "$account" --resource-group "$GROUP" -o none
+        # By resource id, read back after the delete. The name-and-group-and-region
+        # form needs all three correct and says nothing useful when one is not.
+        id="$(az cognitiveservices account list-deleted \
+            --query "[?name=='${account}'].id | [0]" -o tsv)"
+        if [[ -n "$id" ]] && az resource delete --ids "$id" -o none; then
+            printf ' purged\n'
+        else
+            printf '\n'
+            warn "  deleted, but not purged. It still holds this subscription's only account."
+        fi
+    done
+    printf '\n'
+
     bold "▸ deleting $GROUP"
-    # Not --no-wait: the purges below need the delete to have finished, and a
-    # teardown that returns before it is torn down is how a bill survives it.
-    az group delete --name "$GROUP" --yes
+    # --no-wait, which it could not be until the block above existed. Nothing
+    # downstream depends on this finishing any more, and ARM does not need to be
+    # watched to carry on: the deletion is accepted and proceeds whether or not
+    # anybody is still connected. Waiting bought one thing — certainty that the
+    # billing had stopped — and that is now bought below, and more cheaply.
+    az group delete --name "$GROUP" --yes --no-wait
 fi
 
 # Purging is per-resource and cannot be done before the delete completes.
@@ -103,6 +154,34 @@ done
 rm -f "$INFRA/.env.${ENVIRONMENT}"
 
 printf '\n'
+bold "▸ is the group gone yet"
+# Asked for two minutes and then let go. The deletion is ARM's now — it was
+# accepted, and it finishes whether or not this script is still watching — so
+# this is a courtesy report rather than the thing that makes it happen.
+#
+# Two minutes because that is long enough to catch a small environment finishing
+# and far too short for a large one, and pretending otherwise is what cost the
+# thirty-three minutes. Nothing downstream waits on the answer.
+GONE=false
+for _ in $(seq 1 12); do
+    if ! az group show --name "$GROUP" -o none 2>/dev/null; then
+        GONE=true
+        break
+    fi
+    printf '.'
+    sleep 10
+done
+printf '\n'
+
+if [[ "$GONE" == true ]]; then
+    printf '  gone.\n\n'
+else
+    printf '  still deleting, which is normal and costs nothing extra to leave alone.\n'
+    printf '  A PostgreSQL flexible server and a Container Apps environment take the best\n'
+    printf '  part of half an hour between them. ARM continues without this script.\n\n'
+    printf '  Later, to confirm:  ./scripts/azure/status.sh\n\n'
+fi
+
 bold "▸ what is left, anywhere in this subscription"
 az resource list --tag application=paimon --query "[].{name:name, type:type, group:resourceGroup}" -o table
 
@@ -134,5 +213,8 @@ else
     printf '\n'
 fi
 
-printf 'An empty table above means this cost you nothing further. If it is not empty,\n'
-printf 'run ./scripts/azure/status.sh — something is in a group this script did not own.\n'
+printf 'The soft-delete list is the one that decides whether the next deployment can\n'
+printf 'happen, and it is empty. The resource table above may not be, and that is not a\n'
+printf 'failure: the group is being deleted in the background and its contents disappear\n'
+printf 'as ARM works through them. What would be a failure is something outside this\n'
+printf "environment's group — ./scripts/azure/status.sh names it.\n"

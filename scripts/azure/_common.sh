@@ -237,6 +237,35 @@ explain() {
 # what it is waiting for and can stop the moment the answer is known. The
 # deployment is identical; what changes is that this can be watched and can give
 # up, and that ARM's per-resource timings fall out of it for free.
+# What this deployment is building right now, as `module/resourceType`.
+#
+# It takes two queries because it is two scopes. A subscription deployment's own
+# operations are the resource group and one `Microsoft.Resources/deployments` per
+# module, so asking only that scope answers every minute with the same
+# uninformative line — twelve of them, in the first run that had this:
+#
+#     1m  Microsoft.Resources/deployments
+#     2m  Microsoft.Resources/deployments
+#
+# True, useless, and precisely the question this was written to answer. The
+# resources live in the modules, so the modules are asked in turn.
+provisioning_now() {
+    local name="$1" modules module
+    modules="$(az deployment operation sub list --name "$name" \
+        --query "[?properties.provisioningState=='Running' && properties.targetResource.resourceType=='Microsoft.Resources/deployments'].properties.targetResource.resourceName" \
+        -o tsv 2>/dev/null || printf '')"
+    [[ -n "$modules" ]] || return 0
+
+    # The group does not exist for the first few seconds, and a module that has
+    # only just started has no operations yet. Both are ordinary and neither is
+    # worth a message, so a module that answers nothing contributes nothing.
+    for module in $modules; do
+        az deployment operation group list --resource-group "$GROUP" --name "$module" \
+            --query "[?properties.provisioningState=='Running'].properties.targetResource.resourceType" \
+            -o tsv 2>/dev/null | sed "s|^.*/|${module}/|" || printf ''
+    done | sort -u | tr '\n' ' '
+}
+
 await_deployment() {
     local name="$1" log="$2" state elapsed running started
     started="$SECONDS"
@@ -253,12 +282,7 @@ await_deployment() {
         esac
 
         elapsed=$(((SECONDS - started) / 60))
-        # What is *still* being built, deduplicated by resource type. Not a
-        # progress bar: the useful question during a long deployment is never
-        # "how far along" but "what is it stuck on", and this answers that one.
-        running="$(az deployment operation sub list --name "$name" \
-            --query "[?properties.provisioningState=='Running'].properties.targetResource.resourceType" \
-            -o tsv 2>/dev/null | sort -u | tr '\n' ' ' || printf '')"
+        running="$(provisioning_now "$name")"
         printf '  %3dm  %s\n' "$elapsed" "${running:-submitting}" | tee -a "$log"
 
         sleep 60

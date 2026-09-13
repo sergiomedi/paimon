@@ -127,6 +127,26 @@ jobs:
         # sequence the guide gives a person.
         run: ./scripts/azure/deploy.sh --yes
 
+      - name: Sign in again, for the registry
+        # Not redundant, and deleting it breaks the run after this one.
+        #
+        # The assertion GitHub mints for federated sign-in is valid for about
+        # five minutes, and the Azure CLI cannot mint another — an acknowledged
+        # limitation of its OIDC support (Azure/azure-cli#28708). The access
+        # token it exchanges that assertion for lasts an hour, which is why
+        # everything talking to ARM keeps working; but a token for a *different*
+        # audience has to go back to Entra, and by then there is nothing valid to
+        # go back with.
+        #
+        # The registry is a different audience. Run 9 provisioned for twelve
+        # minutes and then failed here on AADSTS700024, with the assertion nine
+        # minutes dead. Running the action again is what mints a fresh one.
+        uses: azure/login@v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
       - name: Build and push the image
         run: ./scripts/azure/publish.sh
 
@@ -138,6 +158,22 @@ jobs:
 
       - name: Migrate the schema
         run: ./scripts/azure/migrate.sh
+
+      - name: Sign in again, for Microsoft Graph and for the API
+        # The second one, for the same reason and two more audiences. measure.sh
+        # reads and repairs the app registration through Microsoft Graph, then
+        # asks for a token whose audience is the API itself — neither of which
+        # the sign-in at the top of this job can still pay for by the time the
+        # environment is built, migrated and ready to be exercised.
+        #
+        # This one has never failed, because no run has ever reached this step.
+        # It is here on the same evidence as the one above rather than on a guess:
+        # the failure is a property of the audience, not of the command.
+        uses: azure/login@v3.0.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Exercise it end to end
         # The step that would have caught three of Phase 7's four defects: it
