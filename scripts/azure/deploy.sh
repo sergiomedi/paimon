@@ -29,6 +29,7 @@ if [[ -z "$AZURE_PAIMON_OPERATOR_ID" ]]; then
     printf '\n'
 fi
 
+preflight_cognitive_services
 resolve_api_image
 
 # Whatever is serving keeps serving. A deployment is not a release: a release is
@@ -64,26 +65,54 @@ fi
 # is the only record of what was applied and when; a fixed name overwrites it.
 DEPLOYMENT="paimon-${ENVIRONMENT}-$(date -u +%Y%m%d-%H%M%S)"
 
+# The running commentary, kept where an artifact upload can reach it. A killed
+# step leaves no log behind, so anything only printed to the terminal is lost in
+# exactly the case worth investigating.
+mkdir -p "$MEASUREMENTS"
+PROGRESS="$MEASUREMENTS/${ENVIRONMENT}-deploy.log"
+printf '%s  %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$DEPLOYMENT" >> "$PROGRESS"
+
 bold "▸ deploying ${DEPLOYMENT}"
-# Captured rather than streamed, so that a failure can be explained instead of
-# being handed over as one line of JSON. A deployment fails for the same reasons a
-# validation does, and the first real run of this template proved it by failing on
-# two errors that validate() already knew how to describe.
-if ! OUTPUT=$(az deployment sub create \
+# Submitted, not awaited. Everything about why is in await_deployment.
+#
+# The submission can still be refused outright — a template that does not compile,
+# a parameter ARM will not take — and that failure arrives here rather than in the
+# deployment history, so it is captured and explained on the spot.
+if ! SUBMISSION=$(az deployment sub create \
     --name "$DEPLOYMENT" \
     --location "$LOCATION" \
     --template-file "$INFRA/main.bicep" \
     --parameters "$INFRA/main.bicepparam" \
-    --output none 2>&1); then
+    --no-wait --output none 2>&1); then
     printf '\n'
-    printf '%s\n' "$OUTPUT" | tr ',' '\n' | grep -E '"(code|message)"' | sed 's/^ */  /' | head -20 || true
+    printf '%s\n' "$SUBMISSION" | tr ',' '\n' | grep -E '"(code|message)"' | sed 's/^ */  /' | head -20 || true
     printf '\n'
-    explain "$OUTPUT"
+    explain "$SUBMISSION"
+    die "ARM refused the deployment."
+fi
+
+await_deployment "$DEPLOYMENT" "$PROGRESS"
+printf '\n'
+
+if [[ "$DEPLOYMENT_STATE" != "Succeeded" ]]; then
+    # The inner errors, printed rather than referred to. What used to be here was
+    # a hint telling the reader which command would show them — which is fine
+    # until the environment is destroyed by the teardown thirty seconds later and
+    # the only copy of the answer goes with it.
+    DETAIL="$(failed_operations "$DEPLOYMENT")"
+    if [[ -n "$DETAIL" ]]; then
+        printf '%s\n' "$DETAIL" | tee -a "$PROGRESS"
+    else
+        warn "  ARM reported ${DEPLOYMENT_STATE} and attached no operation errors."
+    fi
     printf '\n'
-    warn "Deployment history keeps the detail:"
+    explain "$DETAIL"
+    printf '\n'
+    warn "The deployment history outlives the resource group, so this is still readable"
+    warn "after a teardown — by name, from any machine signed in to this subscription:"
     warn "  az deployment operation sub list --name $DEPLOYMENT \\"
     warn "    --query \"[?properties.provisioningState=='Failed']\" -o json"
-    die "deployment failed."
+    die "deployment ${DEPLOYMENT_STATE}."
 fi
 
 OUTPUTS="$INFRA/.env.${ENVIRONMENT}"

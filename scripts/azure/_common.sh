@@ -9,6 +9,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 INFRA="$ROOT/infrastructure"
+# Where a script writes down what it saw while it was running.
+#
+# Not a log directory for its own sake: this one is uploaded as an artifact by
+# the delivery workflow's `if: always()` step, which makes it the only place a
+# note survives a runner that GitHub kills. A step killed by `timeout-minutes`
+# has no log at all afterwards — the first thing looked for after run 8 was the
+# deployment's output, and there was none, because the step that produced it was
+# cancelled and its log discarded with it.
+MEASUREMENTS="$ROOT/docs/measurements"
 # This directory, so that the helpers here can reach the Python beside them
 # whichever script sourced this and from wherever it was run.
 SCRIPTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -211,6 +220,104 @@ explain() {
     esac
 }
 
+# ── Waiting on a deployment, out loud ────────────────────────────────────────
+#
+# `az deployment sub create` blocks until everything settles and prints nothing
+# at all in the meantime, and both halves of that cost a run.
+#
+# Run 8 of the delivery pipeline died on `timeout-minutes: 45` having produced
+# not one line of output in forty-five minutes. Afterwards, the subscription's
+# deployment history said the deployment had actually failed at **12m55s**. The
+# other thirty minutes were the CLI politely waiting for the rest of the
+# template — chiefly a PostgreSQL flexible server, which takes twenty minutes and
+# was by then being built for a deployment that was already dead — before it
+# would return and let the script say so.
+#
+# So: submit with --no-wait and do the waiting here, where the script can say
+# what it is waiting for and can stop the moment the answer is known. The
+# deployment is identical; what changes is that this can be watched and can give
+# up, and that ARM's per-resource timings fall out of it for free.
+await_deployment() {
+    local name="$1" log="$2" state elapsed running started
+    started="$SECONDS"
+
+    while :; do
+        state="$(az deployment sub show --name "$name" \
+            --query properties.provisioningState -o tsv 2>/dev/null || printf 'Unknown')"
+
+        # Terminal the moment ARM says so, rather than when the last unrelated
+        # resource finishes. This is the line that turns forty-five minutes of
+        # silence into thirteen minutes and an error message.
+        case "$state" in
+            Succeeded | Failed | Canceled) break ;;
+        esac
+
+        elapsed=$(((SECONDS - started) / 60))
+        # What is *still* being built, deduplicated by resource type. Not a
+        # progress bar: the useful question during a long deployment is never
+        # "how far along" but "what is it stuck on", and this answers that one.
+        running="$(az deployment operation sub list --name "$name" \
+            --query "[?properties.provisioningState=='Running'].properties.targetResource.resourceType" \
+            -o tsv 2>/dev/null | sort -u | tr '\n' ' ' || printf '')"
+        printf '  %3dm  %s\n' "$elapsed" "${running:-submitting}" | tee -a "$log"
+
+        sleep 60
+    done
+
+    printf '  %3dm  %s\n' "$(((SECONDS - started) / 60))" "$state" | tee -a "$log"
+    DEPLOYMENT_STATE="$state"
+}
+
+# The errors of a failed deployment, inner ones included.
+#
+# `az deployment sub create` reports the outermost error, which for a nested
+# module is invariably "the template deployment 'x' is not valid ... see inner
+# errors for details" and names neither the resource nor the reason. The detail
+# is in the operations, several levels into a JSON blob; deployment_errors.py
+# walks it.
+failed_operations() {
+    local name="$1"
+    az deployment operation sub list --name "$name" \
+        --query "[?properties.provisioningState=='Failed'].properties.statusMessage" \
+        -o json 2>/dev/null | python3 "$SCRIPTS/deployment_errors.py"
+}
+
+# Refuse to start a deployment that a soft-deleted account is going to refuse.
+#
+# An Azure OpenAI account in soft-delete holds two things: its name, and a slot
+# against OpenAI.S0.AccountCount — which on a trial subscription is 1 of 1. So
+# one left behind does not merely collide, it consumes the only account the
+# subscription is allowed to have, and the deployment fails on preflight
+# validation thirteen minutes in with FlagMustBeSetForRestore.
+#
+# Every teardown purges these, so finding one means a previous run was killed
+# before its teardown finished. That is worth failing on immediately rather than
+# discovering a quarter of an hour later.
+#
+# It reports rather than purges. Purging is destructive and irreversible, and a
+# deployment script that quietly deletes accounts it did not create is a worse
+# thing to own than a deployment script that stops and tells you.
+preflight_cognitive_services() {
+    local deleted
+    deleted="$(az cognitiveservices account list-deleted \
+        --query "[?starts_with(name, 'oai-paimon')].name" -o tsv 2>/dev/null || printf '')"
+    [[ -n "$deleted" ]] || return 0
+
+    warn "A soft-deleted Azure OpenAI account is still holding this subscription's quota:"
+    warn ""
+    printf '%s\n' "$deleted" | sed 's/^/    /'
+    warn ""
+    warn "OpenAI.S0.AccountCount is 1 of 1 on a trial subscription, and a soft-deleted"
+    warn "account occupies it. This deployment would run for about thirteen minutes and"
+    warn "then fail preflight validation on FlagMustBeSetForRestore."
+    warn ""
+    warn "Purge it, and nothing is lost — it was deleted already:"
+    warn "  ./scripts/azure/destroy.sh --yes    if the environment it came from is gone"
+    warn "  az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
+    warn "    --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
+    die "nothing deployed."
+}
+
 # Name of this environment's container registry. Empty when the environment does
 # not exist yet, which is the case publish.sh has to report rather than trip over.
 registry_name() {
@@ -310,11 +417,13 @@ run_job() {
     printf 'execution    %s\n\n' "$execution"
 
     bold "▸ waiting"
-    # `job start` has no --wait, so this polls. Thirty tries at ten seconds covers
-    # the five minutes a cold image pull and the work itself take between them;
-    # each job's own replicaTimeout is the real limit.
+    # `job start` has no --wait, so this polls. Sixty tries at ten seconds: the
+    # five minutes this used to allow were measured on a laptop against a warm
+    # registry, and in the pipeline the image has just been pushed and is pulled
+    # cold every single time, on top of a replica start. Each job's own
+    # replicaTimeout is the real limit; this only decides when to stop looking.
     status="Running"
-    for _ in $(seq 1 30); do
+    for _ in $(seq 1 60); do
         status="$(az containerapp job execution show --name "$job" --resource-group "$GROUP" \
             --job-execution-name "$execution" --query properties.status -o tsv 2>/dev/null || echo Unknown)"
         [[ "$status" == "Running" || "$status" == "Unknown" ]] || break
@@ -351,6 +460,30 @@ run_job() {
     printf '\n'
     JOB_STATUS="$status"
     JOB_EXECUTION="$execution"
+
+    # The verdict on the wait is given here, by the function that did the
+    # waiting, rather than by each caller. Whether the wait worked is this
+    # function's own knowledge; the two callers only know what the job was for.
+    #
+    # It was the other way round, and both callers made the same mistake with
+    # it: a job still Running when the polling gave up printed a warning and
+    # **exited zero**. Read by a person that is fine — a person reads the
+    # warning. In the pipeline nobody reads anything, so bootstrap.sh would have
+    # reported success without having created the database role, and the failure
+    # would have surfaced one step later as a migration error blaming a bootstrap
+    # that had already claimed to work.
+    #
+    # A script that cannot tell whether it succeeded must not say that it did.
+    case "$status" in
+        Running | Unknown)
+            warn "Still ${status} after ten minutes. The job itself carries on; this script"
+            warn "cannot tell whether it worked, so it is not going to imply that it did."
+            warn ""
+            warn "  az containerapp job execution show --name ${job} \\"
+            warn "    --resource-group $GROUP --job-execution-name ${execution}"
+            die "gave up waiting for ${job}."
+            ;;
+    esac
 }
 
 # The deployment's own outputs, as written by deploy.sh.

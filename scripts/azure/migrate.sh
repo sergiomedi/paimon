@@ -39,9 +39,4 @@ case "$JOB_STATUS" in
         warn "    migration has to ask the catalogue and skip."
         die "migration failed."
         ;;
-    *)
-        warn "Still ${JOB_STATUS} after five minutes. The job keeps running; check it with:"
-        warn "  az containerapp job execution show --name cj-paimon-migrate-${ENVIRONMENT} \\"
-        warn "    --resource-group $GROUP --job-execution-name $JOB_EXECUTION"
-        ;;
 esac

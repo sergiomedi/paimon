@@ -33,9 +33,4 @@ case "$JOB_STATUS" in
         warn "    azure.extensions configuration in infrastructure/modules/data.bicep."
         die "bootstrap failed."
         ;;
-    *)
-        warn "Still ${JOB_STATUS} after five minutes. Check it with:"
-        warn "  az containerapp job execution show --name cj-paimon-bootstrap-${ENVIRONMENT} \\"
-        warn "    --resource-group $GROUP --job-execution-name $JOB_EXECUTION"
-        ;;
 esac

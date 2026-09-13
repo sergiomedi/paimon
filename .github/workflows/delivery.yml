@@ -12,8 +12,13 @@
 # agreed with the code they were meant to check. A pipeline that compiles the
 # template and builds the image would have been green for every one of them.
 #
-# It costs about twelve minutes and a few cents. That is the price of finding out
-# in CI rather than in an afternoon.
+# It costs a few cents and — on the evidence so far rather than on an estimate —
+# somewhere under half an hour. The figure that used to be written here was
+# "about twelve minutes", carried over from a phase where the environment already
+# half existed, and run 8 spent forty-five on a deployment that had failed at
+# thirteen. Neither number was measured; deploy.sh now writes down what it
+# actually waited for, and the artifact carries it off the runner even when the
+# job is killed. This line gets a real number when there is one.
 
 name: Delivery
 

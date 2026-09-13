@@ -52,5 +52,15 @@ evaluation/reports/*
 # committed for the same reason docs/measurements is.
 !evaluation/reports/azure-*.json
 
+# A deployment's running commentary, written by deploy.sh. It lives under
+# docs/measurements because that directory is what the delivery workflow uploads
+# as an artifact when a run ends — including a run GitHub killed, which is the
+# only case where this file is the sole surviving account of what happened.
+#
+# Not committed, though. The measurements beside it are findings: reproducing
+# them costs an environment and an afternoon, so they are kept. This is a
+# transcript of one run's waiting, superseded by the next one.
+docs/measurements/*-deploy.log
+
 # Personal development journal, not part of the repository
 NOTAS_DE_DESARROLLO.md
