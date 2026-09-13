@@ -21,8 +21,17 @@ source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
 require_az
 announce
-load_outputs
 
+# No load_outputs, and that is the point rather than an omission.
+#
+# This script needs two things: a resource group and an application name. Both
+# are derived from the environment's name, which is the one thing its caller
+# always has. Reading the deployment outputs would add a round trip — or, as it
+# did the first time this was run for real, an outright refusal — in exchange for
+# values it never uses.
+#
+# An emergency script's dependencies are part of its design. Everything it needs
+# before it can act is something that can be missing at the worst moment.
 APP="${AZURE_API_NAME:-ca-paimon-api-${ENVIRONMENT}}"
 CURRENT="$(live_revision)"
 TARGET="${1:-}"

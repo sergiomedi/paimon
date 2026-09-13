@@ -592,13 +592,50 @@ run_job() {
 # reading it is instant, where `az deployment sub show` is a round trip for
 # values that are already on disk. A script that needs it and cannot find it has
 # nothing to work with, so it says which command produces it.
+# Missing outputs are recovered from Azure rather than treated as fatal.
+#
+# The file is written by deploy.sh, on the machine that ran it. Once the pipeline
+# is what deploys, that machine is a GitHub runner which no longer exists, and
+# the file has never been on the operator's laptop at all — so every script that
+# reads it stopped working precisely when delivery started working.
+#
+# rollback.sh found this the first time it was ever run, which is the worst
+# possible moment for it: a rollback is what you reach for when production is
+# already wrong, and it refused to start over a file it does not even use. Its
+# own value proposition is "seconds, no rebuild" and it was asking for a
+# deployment first.
+#
+# Subscription-scope deployment history outlives both the runner and the
+# resource group — this repository has leant on that twice already to read errors
+# out of environments that no longer existed — so the outputs are still there to
+# be asked for. Ask the system that knows, and cache the answer where the file
+# was expected.
 load_outputs() {
-    local outputs="$INFRA/.env.${ENVIRONMENT}"
-    [[ -f "$outputs" ]] || die "$(printf '%s\n' \
-        "no deployment outputs at $outputs." \
-        "" \
-        "They are written by a successful deployment:" \
-        "  ./scripts/azure/deploy.sh")"
+    local outputs="$INFRA/.env.${ENVIRONMENT}" deployment
+    if [[ ! -f "$outputs" ]]; then
+        # The most recent deployment that succeeded, by name. `-validate` and
+        # `-preview` share the prefix and are not deployments: they are the
+        # what-if and the preflight, and neither has outputs.
+        deployment="$(az deployment sub list --query "
+            [?starts_with(name, 'paimon-${ENVIRONMENT}-')
+              && properties.provisioningState=='Succeeded'
+              && !ends_with(name, 'validate')
+              && !ends_with(name, 'preview')]
+            | sort_by(@, &properties.timestamp) | [-1].name" -o tsv 2>/dev/null || printf '')"
+
+        [[ -n "$deployment" ]] || die "$(printf '%s\n' \
+            "no deployment outputs at $outputs, and no successful deployment of" \
+            "'${ENVIRONMENT}' in this subscription's history to recover them from." \
+            "" \
+            "Either the environment was never deployed, or this is signed in to a" \
+            "different subscription:" \
+            "  ./scripts/azure/deploy.sh")"
+
+        warn "recovering the outputs of ${deployment} from the deployment history"
+        az deployment sub show --name "$deployment" --query properties.outputs -o json |
+            python3 "$SCRIPTS/outputs.py" > "$outputs"
+        printf '\n'
+    fi
     set -a
     # shellcheck disable=SC1090
     source "$outputs"
