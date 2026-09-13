@@ -104,6 +104,39 @@ for path in files:
         for step in job["steps"]:
             assert "uses" in step or "run" in step, f"{path.name}:{name}: a step does nothing"
 
+# A script that needs a token for a new audience must be preceded by a fresh
+# sign-in. Every workflow, not just the one where this was first noticed.
+#
+# GitHub's OIDC assertion is valid for about five minutes and the Azure CLI
+# cannot mint another. The access token it is exchanged for lasts an hour, so
+# everything that talks to ARM keeps working — which is why this looks like a
+# problem with the registry rather than with time. publish.sh needs the registry;
+# measure.sh needs Microsoft Graph and then the API itself. Both are audiences
+# the sign-in at the top of a job can no longer pay for once a deployment has
+# taken twelve minutes.
+#
+# delivery.yml was fixed when run 9 failed on it. promote.yml was not, because
+# the fix went where the failure was rather than everywhere the cause was, and
+# the first promotion ever attempted died at the same step with an environment
+# left standing. A rule asserted once, for all workflows, is the difference.
+NEEDS_A_FRESH_TOKEN = ("publish.sh", "measure.sh")
+
+for path in files:
+    workflow = yaml.safe_load(path.read_text(encoding="utf-8"))
+    for name, job in workflow["jobs"].items():
+        for index, step in enumerate(job["steps"]):
+            run = str(step.get("run", ""))
+            if not any(script in run for script in NEEDS_A_FRESH_TOKEN):
+                continue
+            assert index > 0, f"{path.name}:{name}: {run.strip()} cannot be the first step"
+            previous = job["steps"][index - 1]
+            assert "azure/login" in str(previous.get("uses", "")), (
+                f"{path.name}:{name}: '{run.strip()}' asks Entra for a new audience and the "
+                f"step before it is '{previous.get('name') or previous.get('uses')}' rather "
+                "than a fresh azure/login. The assertion from the job's first sign-in is "
+                "five minutes old at best by then — AADSTS700024."
+            )
+
 delivery = yaml.safe_load(pathlib.Path(".github/workflows/delivery.yml").read_text("utf-8"))
 
 # The two properties of this workflow that cost money to get wrong, checked here
@@ -225,6 +258,7 @@ for path in files:
             )
 
 print(f"  {len(files)} workflows, {jobs} jobs, {len(pinned)} actions pinned exactly")
+print("  a new audience is always preceded by a fresh sign-in")
 print("  the teardown cannot be skipped and only the job may decline to run")
 print("  promotion is gated, migrates first, destroys nothing")
 PYTHON

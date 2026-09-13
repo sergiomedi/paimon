@@ -170,6 +170,16 @@ explain() {
             warn "  No quota for that model in this deployment type and region. All three matter."
             warn "  az cognitiveservices usage list --location $LOCATION -o table"
             ;;
+        *MaxNumberOfRegionalEnvironmentsInSubExceeded*)
+            warn "  This subscription allows one Container Apps managed environment in"
+            warn "  $LOCATION, and one already exists — most likely the previous run's, still"
+            warn "  being deleted in the background: destroy.sh does not wait for ARM to"
+            warn "  finish, so a teardown returns long before the region is free again."
+            warn ""
+            warn "  preflight_region_capacity waits for that. Reaching this message means the"
+            warn "  environment holding the region is not being deleted at all."
+            warn "  az group list --query \"[?starts_with(name, 'rg-paimon-')]\" -o table"
+            ;;
         *ResourcesForSkuUnavailable*)
             warn "  Azure has no capacity for that SKU in $LOCATION right now. Try another region."
             ;;
@@ -340,6 +350,72 @@ preflight_cognitive_services() {
     warn "  az resource delete --ids \"\$(az cognitiveservices account list-deleted \\"
     warn "    --query \"[?starts_with(name, 'oai-paimon')].id\" -o tsv)\""
     die "nothing deployed."
+}
+
+# Wait for the region to have room, or say who is holding it.
+#
+# Sweden Central allows this subscription **one** Container Apps managed
+# environment, and one Azure OpenAI account. Those are separate quotas that say
+# the same thing: one Paimon environment at a time, full stop.
+#
+# The waiting is here, at the start, rather than at the end of the teardown —
+# and that is the whole point of the change. destroy.sh deletes the resource
+# group with --no-wait because waiting for it cost thirty-three minutes of every
+# run; ARM then keeps deleting for half an hour after the script has returned.
+# Two pushes a minute apart put the second run's deployment against the first
+# run's managed environment, and it failed validation in 74 seconds with
+# MaxNumberOfRegionalEnvironmentsInSubExceeded.
+#
+# Waiting at the end costs the full delay on every run. Waiting at the start
+# costs nothing on the runs that are minutes or hours apart, which is nearly all
+# of them, and costs exactly what is needed on the ones that are not.
+#
+# "Being deleted" and "standing" are answered differently on purpose. The first
+# is a matter of minutes and worth waiting out. The second is somebody's
+# decision — a promoted environment — and waiting for it would mean twenty idle
+# minutes before failing anyway.
+preflight_region_capacity() {
+    local groups standing deleting waited=0
+
+    groups() {
+        az group list \
+            --query "[?starts_with(name, 'rg-paimon-') && name != '${GROUP}'].{n:name, s:properties.provisioningState}" \
+            -o tsv 2>/dev/null || printf ''
+    }
+
+    standing="$(groups | awk '$2 != "Deleting" { print $1 }')"
+    if [[ -n "$standing" ]]; then
+        warn "Another Paimon environment is standing in ${LOCATION}:"
+        warn ""
+        printf '%s\n' "$standing" | sed 's/^/    /'
+        warn ""
+        warn "This subscription allows one Container Apps managed environment per region and"
+        warn "one Azure OpenAI account, so there is no room for a second. That is a property"
+        warn "of the subscription rather than of this template: verification and a promoted"
+        warn "environment cannot both exist here."
+        warn ""
+        warn "Destroy it, or wait until whoever promoted it does:"
+        warn "  AZURE_PAIMON_ENV=<name> ./scripts/azure/destroy.sh"
+        die "nothing deployed."
+    fi
+
+    deleting="$(groups | awk '$2 == "Deleting" { print $1 }')"
+    [[ -n "$deleting" ]] || return 0
+
+    bold "▸ waiting for the region"
+    while [[ -n "$deleting" ]] && ((waited < 1500)); do
+        printf '  %3dm  %s\n' "$((waited / 60))" "$(printf '%s' "$deleting" | tr '\n' ' ')"
+        sleep 60
+        waited=$((waited + 60))
+        deleting="$(groups | awk '$2 == "Deleting" { print $1 }')"
+    done
+
+    if [[ -n "$deleting" ]]; then
+        warn "  still being deleted after $((waited / 60)) minutes:"
+        printf '%s\n' "$deleting" | sed 's/^/    /'
+        die "the region has no room, and waiting longer is not this script's decision."
+    fi
+    printf '  %3dm  clear\n\n' "$((waited / 60))"
 }
 
 # Name of this environment's container registry. Empty when the environment does

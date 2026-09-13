@@ -30,6 +30,7 @@ if [[ -z "$AZURE_PAIMON_OPERATOR_ID" ]]; then
 fi
 
 preflight_cognitive_services
+preflight_region_capacity
 resolve_api_image
 
 # Whatever is serving keeps serving. A deployment is not a release: a release is

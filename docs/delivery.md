@@ -137,13 +137,25 @@ the job's own condition:
 | `DELIVERY_ENABLED=false` as a repository variable | Turns it off until somebody turns it back on. Unset means enabled: the safe default is that verification happens. |
 
 The variable is not a nicer marker — it is for a specific situation. **While a promoted
-environment exists, verification cannot run at all**: `OpenAI.S0.AccountCount` is 1 of 1 on
-this subscription, so a standing `prod` holds the only Azure OpenAI account there is, and
-every run here would provision for thirteen minutes and then fail preflight. Promotion and
-verification are mutually exclusive on a trial subscription, which is a property of the
-subscription rather than of the design — but it is the design's job to make it survivable,
-and remembering to type a marker on every commit for the length of a release window is not a
+environment exists, verification cannot run at all.** Two separate quotas say so: this
+subscription allows one Container Apps managed environment per region, and one Azure OpenAI
+account. A standing `prod` holds both, and a verification run would fail — on the first at
+validation, in about a minute, and on the second at preflight, thirteen minutes in.
+
+Promotion and verification are mutually exclusive here. That is a property of a trial
+subscription rather than of the design, but surviving it is the design's job, and
+remembering to type a marker on every commit for the length of a release window is not a
 plan.
+
+The same two quotas bite in a second way, between consecutive runs. `destroy.sh` deletes the
+resource group with `--no-wait`, because waiting for it cost thirty-three minutes of every
+run; ARM then keeps deleting for up to half an hour after the teardown has returned. Two
+pushes a minute apart put the second run's deployment against the first run's managed
+environment, and that is exactly how run 14 failed — `MaxNumberOfRegionalEnvironmentsInSubExceeded`,
+74 seconds in. So `deploy.sh` waits for the region at the *start* instead: a run minutes or
+hours after the last one waits for nothing, and only a run that genuinely overlaps pays. An
+environment that is being deleted is worth waiting out; one that is standing is somebody's
+decision, and it fails immediately rather than idling for twenty minutes to fail anyway.
 
 Neither applies to `workflow_dispatch`. Asking for a run by hand says explicitly that you
 want it.
