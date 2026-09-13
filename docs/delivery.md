@@ -125,6 +125,32 @@ derived from it, and the tight Azure limits are unforgiving — a PostgreSQL rol
 What `measure.sh` records is uploaded as an artifact before the teardown, because the
 environment stops existing a step later.
 
+### Saying "not this one"
+
+Verification on every merge is the default and the point. But it spends real money on every
+push that touches anything but documentation, so there are two ways to decline, both read in
+the job's own condition:
+
+| | |
+|---|---|
+| `[skip delivery]` in the commit message | Skips this run. GitHub's native `[skip ci]` also works and is still the right tool when you mean *every* workflow — but it stops the fast CI too, which should always run. |
+| `DELIVERY_ENABLED=false` as a repository variable | Turns it off until somebody turns it back on. Unset means enabled: the safe default is that verification happens. |
+
+The variable is not a nicer marker — it is for a specific situation. **While a promoted
+environment exists, verification cannot run at all**: `OpenAI.S0.AccountCount` is 1 of 1 on
+this subscription, so a standing `prod` holds the only Azure OpenAI account there is, and
+every run here would provision for thirteen minutes and then fail preflight. Promotion and
+verification are mutually exclusive on a trial subscription, which is a property of the
+subscription rather than of the design — but it is the design's job to make it survivable,
+and remembering to type a marker on every commit for the length of a release window is not a
+plan.
+
+Neither applies to `workflow_dispatch`. Asking for a run by hand says explicitly that you
+want it.
+
+Both conditions are on the **job**, and `scripts/check.sh` asserts they stay there. On a step,
+the same condition is a way to deploy an environment and skip destroying it.
+
 ### The subject GitHub actually presents
 
 The first three runs of this pipeline failed on an invented action version, and the fourth

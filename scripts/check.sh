@@ -125,6 +125,26 @@ assert "always()" in str(teardown[0].get("if", "")), (
 )
 assert steps.index(teardown[0]) == len(steps) - 1, "and it must be the last step"
 
+# The escape hatches may only be on the job.
+#
+# `[skip delivery]` and DELIVERY_ENABLED exist so that a push does not always
+# have to spend half an hour of trial credit. On the job they are safe: nothing
+# runs, so there is nothing to tear down. On a *step* the same condition would
+# skip the deployment and leave the teardown — or, the expensive way round, skip
+# the teardown and leave the deployment. So the marker is allowed to appear
+# exactly once in the file, in the job's own condition, and the variable with it.
+condition = str(delivery["jobs"]["verify"].get("if", ""))
+assert "skip delivery" in condition and "DELIVERY_ENABLED" in condition, (
+    "the delivery job must carry both escape hatches in its own `if`"
+)
+assert not any("skip delivery" in str(step.get("if", "")) for step in steps), (
+    "a step must not decide whether delivery happens; only the job may, or a run can "
+    "deploy an environment and skip destroying it"
+)
+assert not any("DELIVERY_ENABLED" in str(step.get("if", "")) for step in steps), (
+    "the same, for the repository variable"
+)
+
 # Cancelling between the deployment and the teardown is the same failure with a
 # person's finger on it.
 assert delivery["concurrency"]["cancel-in-progress"] is False, (
@@ -205,7 +225,8 @@ for path in files:
             )
 
 print(f"  {len(files)} workflows, {jobs} jobs, {len(pinned)} actions pinned exactly")
-print("  the teardown cannot be skipped; promotion is gated, migrates first, destroys nothing")
+print("  the teardown cannot be skipped and only the job may decline to run")
+print("  promotion is gated, migrates first, destroys nothing")
 PYTHON
 
     step "bicep invocation"

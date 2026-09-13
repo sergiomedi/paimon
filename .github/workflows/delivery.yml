@@ -52,6 +52,36 @@ permissions:
 jobs:
   verify:
     name: Deploy, exercise, destroy
+    # Two ways to say "not this one", and they exist because this job spends
+    # money — about twelve cents and half an hour of a trial subscription's
+    # credit — on every push that touches anything but documentation.
+    #
+    # `[skip delivery]` in the commit message skips this run and nothing else.
+    # GitHub's own `[skip ci]` would do it too, and is still there when that is
+    # what you want, but it skips *every* workflow for that commit — including
+    # the fast CI, which should always run. A marker of our own is the narrower
+    # instrument.
+    #
+    # `DELIVERY_ENABLED=false` as a repository variable turns it off until
+    # somebody turns it back on. That one is for the window in which a promoted
+    # environment exists: OpenAI.S0.AccountCount is 1 of 1 on this subscription,
+    # so while `prod` is standing it holds the only Azure OpenAI account, and
+    # every run here would provision for thirteen minutes and then fail
+    # preflight. Remembering to type a marker on every commit for the length of
+    # a release window is not a plan; a switch is.
+    #
+    # Unset means enabled: the safe default is that verification happens.
+    #
+    # Neither applies to workflow_dispatch — `github.event.head_commit` is null
+    # there and the comparison is false — which is correct. Asking for this run
+    # by hand is saying explicitly that you want it.
+    #
+    # This is on the *job*, and scripts/check.sh keeps it there. On a step it
+    # would be a way to deploy an environment and skip the teardown, which is the
+    # most expensive mistake this repository can make.
+    if: >-
+      !contains(github.event.head_commit.message, '[skip delivery]')
+      && vars.DELIVERY_ENABLED != 'false'
     runs-on: ubuntu-latest
     # Generous, and deliberately finite. The environment bills while the job
     # runs, so a hung step must end in a teardown rather than in a six-hour
