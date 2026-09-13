@@ -35,9 +35,19 @@ Thumbs.db
 # Local agent instructions, not shared
 CLAUDE.local.md
 
-# Hand-off files used while pairing; never part of a change
-_changes.patch
-_commit_msg.txt
+# Hand-off files used while pairing; never part of a change.
+#
+# Globs rather than the two exact names they used to be. A batch delivered as
+# `_changes_39.patch`, to avoid overwriting an earlier one still waiting to be
+# applied, fell straight through rules written as literals — and `git add -A`
+# committed the patch and its own commit message into the repository, and pushed
+# them. The second remote then refused the push outright, because those files
+# were sitting untracked in its working tree, which is where they are written.
+#
+# The names vary by definition: they are scratch, and scratch that is named after
+# what it contains will keep finding new names.
+_changes*.patch
+_commit_msg*.txt
 
 # Benchmark output. Runs against the local stack are cheap and repeatable, so the
 # report is not a source of truth and is not kept.
