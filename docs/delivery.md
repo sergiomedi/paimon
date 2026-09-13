@@ -11,13 +11,14 @@
 > is in this document, because the interesting part of a pipeline is not that it works — it
 > is what had to be true first.
 >
-> Promotion has run too, on the third attempt of its own. The first was refused by Entra at
-> the image step — the same expired assertion that had already cost the verification
-> workflow a run, in a file the fix had not been carried to. The second put a revision in
-> front of traffic through its own hostname, which is what this document's second half
-> describes. One thing is still outstanding and is marked where it belongs: **`rollback.sh`
-> has never been executed**, because the release that would have given it something to go
-> back to was the first ever made in that environment.
+> Promotion has run too, and so has the undoing of one. **Nothing in this document is
+> described as working that has not been observed working.** That took three promotions and
+> a rollback, and each of them found something: an expired assertion in a file the fix had
+> never been carried to, a first release with no previous revision to stand by, and an
+> emergency script that could not start on any machine but the one that had deployed.
+>
+> None of the three was visible to a linter, a type checker, or any gate in this
+> repository — which is the same sentence Phase 7 earned, arrived at twice.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -216,8 +217,8 @@ attempting it.
 
 ## How a release moves, and how it is undone
 
-> **This has run, except the undoing.** On 13 September 2026 a promotion to `prod` put a
-> revision in front of traffic the way this section describes:
+> **This has run.** On 13 September 2026 a promotion to `prod` put a revision in front of
+> traffic the way this section describes:
 >
 > ```
 >   green -> 5dcd77a
@@ -229,15 +230,20 @@ attempting it.
 > Thirty seconds between the check starting and the 200, through the label's own hostname,
 > with no traffic on the new revision until after it answered.
 >
-> What that run could not show is the half that matters most. It printed `Standing by
-> nothing`: the promotion before it had failed at the image, so nothing had ever served in
-> that environment, and this was the first revision to exist. A release with no previous
-> revision does not exercise the thing blue-green is for — an old version still answering
-> every request while the new one is checked — and **`rollback.sh` has not run at all**,
-> because there was nothing to go back to.
+> That first one printed `Standing by nothing` — the promotion before it had failed at the
+> image, so nothing had ever served in that environment and this was the first revision to
+> exist. A release with no previous revision does not exercise what blue-green is *for*, so
+> a third promotion followed, and it ended `Serving 8f5ccd8 / Standing by 5dcd77a`. Then:
 >
-> The next promotion from a different commit is what closes that, and this note stays until
-> it has.
+> ```
+> ▸ rolling back
+>   from   8f5ccd8
+>   to     5dcd77a
+> ▸ rolled back
+> Serving 5dcd77a
+> ```
+>
+> Seconds. No build, no deployment, no image to find.
 
 ```bash
 ./scripts/azure/release.sh      # the newest published image, checked before it serves
@@ -329,6 +335,35 @@ sign-in can no longer pay for.
 The second number is the one to quote. **Thirty seconds** is how long a version was reachable,
 running and answering before it was given a single request — which is the entire argument for
 labels, and the reason a release here is a weight rather than a deployment.
+
+### What running the rollback found
+
+`rollback.sh` was executed for the first time immediately after that release, and refused to
+start:
+
+```
+no deployment outputs at infrastructure/.env.prod
+```
+
+That file is written by `deploy.sh` on the machine that runs it. Once a pipeline is what
+deploys, that machine is a runner which no longer exists, and the file has never been on the
+operator's laptop at all. So every script that read it stopped working at exactly the moment
+delivery started working — and the one that found out was the one whose whole value is
+*seconds, no rebuild*, asking for a deployment first, at the moment production is wrong.
+
+It was reading that file for values it does not use: a rollback needs a resource group and an
+application name, and both come from the environment's name. It no longer reads it. And
+`load_outputs` no longer treats a missing file as fatal for the scripts that genuinely need
+it — subscription deployment history outlives the runner and the resource group, so the
+outputs are recovered from there and cached.
+
+The lesson is narrower than "test your scripts", and worth stating as what it is: **an
+emergency script's dependencies are part of its design.** Everything it needs before it can
+act is something that can be missing at the worst possible moment. This one had a dependency
+that was guaranteed to be missing, and the guarantee was created by the pipeline succeeding.
+
+With the rollback, every script and every workflow in this repository has now been executed
+against Azure at least once.
 
 ## The rule about migrations
 
