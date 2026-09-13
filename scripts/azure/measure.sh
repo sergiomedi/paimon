@@ -279,6 +279,7 @@ WORKSPACE="$(az monitor log-analytics workspace show --resource-group "$GROUP" \
     --workspace-name "log-paimon-${ENVIRONMENT}" --query customerId -o tsv 2>/dev/null || printf '')"
 TRACES="unknown"
 WAITED=0
+FIRST_SEEN=0
 if [[ -n "$WORKSPACE" ]]; then
     # Asked repeatedly rather than once after a fixed minute.
     #
@@ -289,27 +290,44 @@ if [[ -n "$WORKSPACE" ]]; then
     # what it meant.
     #
     # Polling collapses the ambiguity and costs almost nothing, because it stops
-    # the moment something arrives. How long it took is recorded, which makes
+    # as soon as the answer is stable. How long it took is recorded, which makes
     # this a measurement of ingestion latency rather than only a check.
-    for _ in $(seq 1 10); do
+    #
+    # And it stops when the count stops *growing*, not when it stops being zero.
+    # The first version of this broke on the first non-zero answer and reported
+    # "1" for a run that had made fifteen requests — a true statement about when
+    # a trace becomes readable, and a useless one about how many arrived. Two
+    # consecutive equal answers is the cheapest thing that distinguishes "the
+    # telemetry is here" from "the telemetry is arriving".
+    PREVIOUS="0"
+    for _ in $(seq 1 12); do
         sleep 30
         WAITED=$((WAITED + 30))
         TRACES="$(az monitor log-analytics query --workspace "$WORKSPACE" --analytics-query \
             "AppRequests | where TimeGenerated > ago(30m) | summarize n = count() | project n" \
             --query '[0].n' -o tsv 2>/dev/null || printf 'unknown')"
-        [[ "$TRACES" =~ ^[1-9] ]] && break
+        if [[ "$TRACES" =~ ^[1-9] ]]; then
+            if [[ "$FIRST_SEEN" -eq 0 ]]; then
+                FIRST_SEEN="$WAITED"
+            fi
+            if [[ "$TRACES" == "$PREVIOUS" ]]; then
+                break
+            fi
+        fi
+        PREVIOUS="$TRACES"
         printf '.'
     done
     printf '\n'
 fi
 
 if [[ "$TRACES" =~ ^[1-9] ]]; then
-    record "**Requests in Application Insights**: ${TRACES}, first visible ${WAITED}s after asking."
+    record "**Requests in Application Insights**: ${TRACES}, the first readable ${FIRST_SEEN}s"
+    record "after it was made and the count settled by ${WAITED}s."
     record ""
-    record "That number is the ingestion lag, not the application's latency. It is recorded"
-    record "because it is the only thing here that says how long after a request the trace of"
-    record "it can actually be read — which is what decides whether an environment that lives"
-    record "for twenty minutes can be observed at all."
+    record "Those two are ingestion lag, not the application's latency. They are recorded"
+    record "because they are the only thing here that says how long after a request the trace"
+    record "of it can be read — which is what decides whether an environment that lives for"
+    record "twenty minutes can be observed at all."
     record ""
 else
     record "**Requests in Application Insights**: none, after ${WAITED}s of asking."

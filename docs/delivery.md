@@ -9,10 +9,13 @@
 > It took ten attempts. Runs 1 to 6 never reached Azure; 7 and 8 died on the identity; 9
 > provisioned and then failed to authenticate to the registry. Every one of those failures
 > is in this document, because the interesting part of a pipeline is not that it works — it
-> is what had to be true first. Nothing is described here as working before it works, and
-> one thing still is not: the traces did not arrive in Application Insights within the
-> environment's lifetime, and until a run says otherwise that is an open question rather
-> than a feature.
+> is what had to be true first.
+>
+> Nothing is described here as working before it works — and by that standard **one half of
+> this document has not run**. Everything above "How a release moves" has, twelve times
+> now. The release and promotion path below it has never been executed against Azure: it is
+> written, gated, and checked by `scripts/check.sh`, which is exactly what the first nine
+> runs of the verification workflow also were. Its section says so where it starts.
 
 Continuous integration has been in place since Phase 1 and is not this phase
 ([ADR-0006](adr/0006-continuous-integration-from-phase-1.md)). This phase is what happens
@@ -173,6 +176,15 @@ attempting it.
 
 ## How a release moves, and how it is undone
 
+> **This has not run.** Everything from here to the end of the next section describes
+> scripts and a workflow that exist, compile, and are enforced by the gates — and that have
+> never once been executed against Azure. The verification workflow was in exactly this
+> state for nine runs, and each of those nine found something no gate could: an action
+> version that did not exist, a subject claim nobody writes down, a federated credential
+> matched by the wrong field, an OIDC assertion five minutes dead. There is no reason to
+> think this half is different, and the paragraphs below are written in the present tense
+> because that is how the design reads, not because it has been observed.
+
 ```bash
 ./scripts/azure/release.sh      # the newest published image, checked before it serves
 ./scripts/azure/rollback.sh     # back to the previous revision, in seconds
@@ -278,6 +290,16 @@ it waited, and uploaded whether the job passes, fails or is killed.
 | First grounded answer | 1.609s, 1 citation, 6 chunks retrieved, 656 tokens |
 | The same question again | 1.280s — an embedding cache, not an answer cache ([ADR-0039](adr/0039-the-cache-runs-beside-the-thing-that-uses-it.md)) |
 | Teardown | seconds, and then ARM's own time in the background |
+
+**What all of it cost: 1.48 EUR.** That is the whole subscription for the period — Phase 7's
+deployed-and-measured afternoon plus twelve delivery runs, each of which provisioned a
+managed PostgreSQL server, a vector search service, two model deployments, a container
+registry, a Container Apps environment and a Log Analytics workspace, exercised them, and
+deleted them. Per-service figures are in the measurement file, filled in by hand from Cost
+Management, because the invoice is the only authority on what something cost.
+
+The number is [ADR-0044](adr/0044-delivery-without-a-standing-environment.md) collected. A
+standing environment for the same period would have been roughly six euros a day.
 
 Two of those numbers are worth more than the rest.
 
