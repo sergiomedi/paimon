@@ -64,3 +64,7 @@ docs/measurements/*-deploy.log
 
 # Personal development journal, not part of the repository
 NOTAS_DE_DESARROLLO.md
+
+# The brief this project is built to. It is mine, it is written to an assistant
+# rather than to a reader, and it is not part of what the repository is for.
+CLAUDE_PROJECT_INSTRUCTIONS.md
