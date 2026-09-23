@@ -257,6 +257,44 @@ class VectorStoreContract:
 
         assert [item.chunk_id for item in chunks] == ["c1", "c2"]
 
+    async def test_a_long_document_comes_back_whole_and_in_order(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # Deliberately more chunks than one page of results. A store that hands
+        # its results back in instalments — Azure decides for itself how many
+        # documents to put in a response, and does not promise the number asked
+        # for — will return part of a document unless the caller follows the
+        # continuation. Half a runbook returned as a whole runbook is the exact
+        # failure this platform exists to avoid, and it is invisible: the
+        # passages that do come back are real, correctly ordered and correctly
+        # cited.
+        chunks = [
+            chunk(f"c{index:03d}", f"step {index} of the runbook", ordinal=index)
+            for index in range(40)
+        ]
+        await self._write(store, embedding_model, *chunks)
+
+        read = await store.list_chunks(TENANT, "doc-1", limit=100)
+
+        assert [item.chunk_id for item in read] == [item.chunk_id for item in chunks]
+
+    async def test_deleting_a_long_document_removes_all_of_it(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # The same hazard on the way out, and worse: a partial delete leaves
+        # orphaned chunks that still answer searches, so a document removed on
+        # request goes on being quoted.
+        chunks = [
+            chunk(f"c{index:03d}", f"step {index} of the runbook", ordinal=index)
+            for index in range(40)
+        ]
+        await self._write(store, embedding_model, *chunks)
+
+        removed = await store.delete_document(TENANT, "doc-1")
+
+        assert removed == 40
+        assert await store.list_chunks(TENANT, "doc-1") == []
+
     async def test_an_embedding_from_another_model_is_refused(
         self, store: VectorStore, embedding_model: EmbeddingModel
     ) -> None:
