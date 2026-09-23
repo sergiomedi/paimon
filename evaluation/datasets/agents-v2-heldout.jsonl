@@ -1,0 +1,48 @@
+// agents-v2-heldout — ten tasks, held out. Five multi-hop, four one-hop
+// controls, one refusal.
+//
+// WHAT THIS IS FOR. The Phase 9 measurement found that the investigator's
+// failures on agents-v1 are not mostly about hopping: 37 of 125 answerable
+// attempts were withdrawn by its own verify node because no citation resolved,
+// while the same model in the two simpler harnesses produced a resolvable
+// citation on 125 of 125. That points at how the investigator presents passages
+// rather than at what the model can do. A change to the prompt or the tool
+// descriptions is therefore a plausible fix — and a plausible fix measured on
+// the set that suggested it is not measured at all.
+//
+// So this set exists to be run ONCE, after such a change, and never to be
+// iterated against. Tuning against it turns it into agents-v1: a set the fix was
+// shaped to pass.
+//
+// HONEST LIMITATION, stated because it matters. These tasks were written by the
+// same author who would make the change, against a corpus that author also
+// wrote. That is weaker than a set held by somebody else. What it still buys is
+// that no per-task result from this set informs the change, because the change
+// is made before this set is ever run.
+//
+// Its corpus is evaluation/corpus/heldout, separate on purpose: adding
+// documents to evaluation/corpus/sample would change the retrieval landscape
+// agents-v1 was measured against and make those numbers unreproducible.
+//
+// COMPOSITION, counted rather than claimed. Five tasks span two documents: the
+// answer lives where the question's own words do not reach, named only by an
+// identifier or a pointer in the first document. Four are one-hop and one is a
+// refusal, and they are controls rather than filler — a prompt change that
+// bought multi-hop by breaking one-hop, or by making the agent answer things it
+// should decline, has not bought anything, and without controls that trade
+// would be invisible.
+//
+// The first draft of this file labelled nine of them multi-hop. Four were not:
+// their evidence sat in a single document. That is the same mistake agents-v1
+// shipped with and a test caught, made again by the same author within a day,
+// which is the argument for the test rather than for the author.
+{"id": "h001", "question": "CR-2311 rotated the mesh certificate authority. What does the step that decides whether a rotation is safe to start actually compare?", "expected": "answer", "category": "multi-hop", "supporting": [{"document_id": "change-2311-certificate-rotation", "quote": "The operator followed **RB-207** end to end and did not deviate."}, {"document_id": "runbook-rb-207-certificate-rotation", "quote": "Compare that lifetime against the rotation window.**"}], "reference": "The shortest remaining leaf lifetime against the rotation window. CR-2311 names RB-207 and refuses to restate the step; RB-207 has it."}
+{"id": "h002", "question": "What is the mesh rotation window that RB-207 step three compares against?", "expected": "answer", "category": "multi-hop", "supporting": [{"document_id": "runbook-rb-207-certificate-rotation", "quote": "The window is recorded in the platform limits reference and is not restated here."}, {"document_id": "platform-limits", "quote": "The mesh rotation window is **six hours**."}], "reference": "Six hours. RB-207 points at the limits reference rather than stating it."}
+{"id": "h003", "question": "CR-2311's pre-flight count reported 39 services. How many should it have reported?", "expected": "answer", "category": "multi-hop", "supporting": [{"document_id": "change-2311-certificate-rotation", "quote": "RB-207's pre-flight count reported 39 services rather than 41"}, {"document_id": "platform-limits", "quote": "The control plane counts 41 services."}], "reference": "41. The change record says the count was wrong; the limits reference says what the control plane counts."}
+{"id": "h004", "question": "A single service is serving an expired leaf certificate. Which runbook applies, and why not RB-207?", "expected": "answer", "category": "one-hop", "supporting": [{"document_id": "runbook-rb-207-certificate-rotation", "quote": "For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one."}], "reference": "RB-208. RB-207 is for root rotation and says so itself; a correct answer declines to apply the runbook it found."}
+{"id": "h005", "question": "Why did RB-207 step one tell the operator not to use the inventory label, and what happened in CR-2311 when it was used?", "expected": "answer", "category": "multi-hop", "supporting": [{"document_id": "runbook-rb-207-certificate-rotation", "quote": "Do not use the inventory label: a service missing its label is a service that will not be counted"}, {"document_id": "change-2311-certificate-rotation", "quote": "had been excluded from the mesh inventory by a label typo"}], "reference": "An unlabelled service is not counted and not rotated; in CR-2311 a label typo excluded two services, which then served expired leaves. The rule and the incident are in different documents."}
+{"id": "h006", "question": "In what size batches does RB-207 tell me to re-issue, and why that size?", "expected": "answer", "category": "multi-hop", "supporting": [{"document_id": "runbook-rb-207-certificate-rotation", "quote": "trigger re-issue in batches of ten services"}, {"document_id": "platform-limits", "quote": "Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service."}], "reference": "Ten. RB-207 gives the number; only the limits reference says why a larger batch is wrong."}
+{"id": "h007", "question": "Could the CR-2311 rotation have run inside the Thursday change window if it had taken the full rotation window?", "expected": "answer", "category": "one-hop", "supporting": [{"document_id": "platform-limits", "quote": "The mesh rotation window is **six hours**."}, {"document_id": "platform-limits", "quote": "The Thursday change window is four hours, 22:00 to 02:00 UTC."}], "reference": "No. Six hours of rotation does not fit a four-hour change window, so it would have needed the change advisory board. Requires combining two limits and the change record's window."}
+{"id": "h008", "question": "RB-207 says not to retire the old root too early. What does the failure look like if you do?", "expected": "answer", "category": "one-hop", "supporting": [{"document_id": "runbook-rb-207-certificate-rotation", "quote": "the failure looks like a network partition rather than a certificate problem"}], "reference": "Every mutual TLS handshake fails for any service that has not re-issued, and it presents as a network partition rather than a certificate problem."}
+{"id": "h009", "question": "How long are certificate issuance logs kept, and how does that compare with how long the root is valid?", "expected": "answer", "category": "one-hop", "supporting": [{"document_id": "platform-limits", "quote": "Certificate issuance logs are kept for 400 days"}, {"document_id": "platform-limits", "quote": "The root is valid for two years."}], "reference": "400 days, which is shorter than the root's two-year validity — the document claims the opposite, and a careful answer reports what it says rather than silently correcting it."}
+{"id": "h010", "question": "What is the escalation path for a suspected root key compromise outside a change window?", "expected": "refuse", "category": "out-of-corpus", "supporting": [], "reference": "RB-207 mentions emergency rotation after suspected compromise but nothing in the corpus gives an escalation path or who to contact. The adjacent material is the trap."}
