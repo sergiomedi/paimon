@@ -44,6 +44,8 @@ from paimon.evaluation import (
     run_answering_benchmark,
     run_benchmark,
 )
+from paimon.evaluation.agent_benchmark import RefusalVerdict, regrade
+from paimon.evaluation.judging import Judgement, RefusalJudge
 from paimon.evaluation.metrics import RetrievalMetrics
 from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
@@ -58,6 +60,7 @@ from paimon.interfaces.api.dependencies import (
 from paimon.interfaces.cli.evaluate_agents import (
     Bench,
     emit,
+    read_attempts,
     verify_corpus,
 )
 from paimon.interfaces.cli.evaluate_agents import (
@@ -547,6 +550,8 @@ def unusable(  # noqa: PLR0911  one refusal per mistake, each with its own expla
             "documents those are. Without it every citation is reported as pointing at an\n"
             "unknown document and a correct system scores zero."
         )
+    if args.regrade and not args.agents:
+        return "--regrade re-scores an agent report, so it needs --agents."
     if args.agents and args.trials < 1:
         return "--trials must be at least one: a task nobody attempted has no pass rate."
     if args.answers and args.against:
@@ -604,6 +609,27 @@ def judging_for(
     )
 
 
+def _refusal_verdict(judge: object) -> "RefusalVerdict | None":
+    """Adapt the configured judge to the one question the benchmark asks it.
+
+    None when no judge is configured, and the report then says its outcomes were
+    read from citations alone — which cannot see a refusal written in a model's
+    own words, so it understates refusal rather than guessing.
+
+    Takes ``object`` and asks, rather than declaring ``AnswerJudge``: classifying
+    a refusal is a separate capability from grading one, and a judge that does
+    the first and not the second should be usable for the first (ADR-0014's
+    pattern, applied to a judge).
+    """
+    if not isinstance(judge, RefusalJudge):
+        return None
+
+    async def verdict(question: str, answer: str) -> Judgement:
+        return await judge.judge_refusal(question, answer)
+
+    return verdict
+
+
 def _pricer(settings: "Settings", resources: Resources) -> Callable[[int, int], float | None]:
     """Price this run's tokens with the deployment's own table.
 
@@ -648,15 +674,31 @@ async def _run_agents(
         sys.stderr.write(f"\n{error}\n\n")
         return USAGE_ERROR
 
-    report = await run_agent_benchmark(
-        dataset,
-        system,
-        documents,
-        trials=args.trials,
-        configuration=args.label,
-        price=_pricer(settings, resources),
-        progress=progress_reporter(f"{args.agent} x{args.trials}"),
-    )
+    judge = build_answer_judge(resources)
+    verdict = _refusal_verdict(judge)
+    if args.regrade:
+        system_name, configuration, stored = read_attempts(args.regrade)
+        report = await regrade(
+            dataset,
+            stored,
+            documents,
+            system=system_name,
+            configuration=configuration,
+            judge_refusal=verdict,
+            price=_pricer(settings, resources),
+            progress=progress_reporter(f"regrading {system_name}"),
+        )
+    else:
+        report = await run_agent_benchmark(
+            dataset,
+            system,
+            documents,
+            trials=args.trials,
+            configuration=args.label,
+            price=_pricer(settings, resources),
+            judge_refusal=verdict,
+            progress=progress_reporter(f"{args.agent} x{args.trials}"),
+        )
     emit(render_agents(report))
     if args.against:
         emit(render_agent_comparison(report, load_agent_report(args.against)))
@@ -730,6 +772,14 @@ async def main(argv: list[str] | None = None) -> int:
         help=(
             "Attempts per task. Above one is what makes pass^k mean anything; "
             "at one it is not reported as a reliability."
+        ),
+    )
+    parser.add_argument(
+        "--regrade",
+        type=Path,
+        help=(
+            "Re-score the transcripts in an earlier agent report instead of "
+            "running anything. A grader change needs no re-run."
         ),
     )
     parser.add_argument(

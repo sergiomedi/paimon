@@ -13,9 +13,11 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
 from paimon.application.use_cases import AnswerQuestion, RetrieveChunks
 from paimon.domain.ports import AgentCheckpointer, AgentWorkflow, SearchFilters
+from paimon.domain.value_objects import Citation
 from paimon.evaluation import (
     AgentDataset,
     AgentReport,
@@ -26,6 +28,7 @@ from paimon.evaluation import (
 )
 from paimon.evaluation.agent_benchmark import TaskReport, TrajectoryReport
 from paimon.evaluation.agent_dataset import Outcome
+from paimon.evaluation.agent_grading import Attempt, Trajectory
 from paimon.evaluation.statistics import Estimate, Reliability
 
 #: Systems that exist to check the graders rather than to be measured. Named so
@@ -150,9 +153,9 @@ def render(report: AgentReport) -> str:
         [
             "",
             "  trajectory (reported, never scored)",
-            f"    tool calls per run    {trajectory.tool_calls.format()}",
-            f"    tool errors per run   {trajectory.tool_errors.format()}",
-            f"    repeated calls        {trajectory.repeated_calls.format()}",
+            f"    tool calls per run    {_or_na(trajectory.tool_calls)}",
+            f"    tool errors per run   {_or_na(trajectory.tool_errors)}",
+            f"    repeated calls        {_or_na(trajectory.repeated_calls)}",
             f"    tokens per run        {trajectory.total_tokens.format()}",
             f"    latency per run       {trajectory.latency_ms.mean / 1000:.2f} s",
         ]
@@ -207,9 +210,21 @@ def _repeated(stats: Reliability) -> list[str]:
     ]
 
 
+def _or_na(value: Estimate | None) -> str:
+    """Render a counter, or say this system has no such counter.
+
+    "n/a" and not "0.000". Zero is a measurement — it says the system made no
+    tool calls — and printing it for a system that cannot make one puts a
+    finding in a column where there is only an absence.
+    """
+    return value.format() if value is not None else "n/a  (this system has none)"
+
+
 def _histogram(counts: Mapping[str, int]) -> str:
-    """Render a small tally inline."""
-    return ", ".join(f"{name} {count}" for name, count in counts.items()) or "none"
+    """Render a small tally inline, or say there is nothing to tally."""
+    if not counts:
+        return "n/a  (this system does not stop for a reason)"
+    return ", ".join(f"{name} {count}" for name, count in counts.items())
 
 
 def render_comparison(report: AgentReport, baseline: AgentReport) -> str:
@@ -282,6 +297,71 @@ def write_report(report: AgentReport, path: Path) -> None:
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
+
+
+def read_attempts(path: Path) -> tuple[str, str, dict[str, list[Attempt]]]:
+    """Read the recorded attempts out of a report, for re-grading.
+
+    Returns:
+        The system's name, the configuration label, and every attempt by task
+        id — everything a grader reads, which is why a grader change needs no
+        re-run.
+
+    Raises:
+        ValueError: If the file carries no transcripts. An older report written
+            without them can be compared against and cannot be re-scored, and
+            saying so is better than silently re-grading nothing.
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    tasks = raw.get("tasks")
+    if not tasks or "attempts" not in tasks[0]:
+        msg = (
+            f"'{path}' carries no transcripts, so it cannot be re-graded. "
+            "Re-run the benchmark to produce one."
+        )
+        raise ValueError(msg)
+
+    stored: dict[str, list[Attempt]] = {}
+    for entry in tasks:
+        stored[str(entry["task_id"])] = [_attempt_from(item) for item in entry["attempts"]]
+    return str(raw.get("system", "unknown")), str(raw.get("configuration", "unnamed")), stored
+
+
+def _attempt_from(raw: Mapping[str, Any]) -> Attempt:
+    """Rebuild one recorded attempt."""
+    trajectory = raw.get("trajectory") or {}
+    return Attempt(
+        task_id=str(raw["task_id"]),
+        trial=int(raw["trial"]),
+        text=str(raw["text"]),
+        citations=tuple(_citation_from(item) for item in raw.get("citations", ())),
+        trajectory=Trajectory(
+            stop_reason=trajectory.get("stop_reason"),
+            tool_calls=trajectory.get("tool_calls"),
+            tool_errors=trajectory.get("tool_errors"),
+            repeated_calls=trajectory.get("repeated_calls"),
+            steps=tuple(trajectory.get("steps", ())),
+            input_tokens=int(trajectory.get("input_tokens", 0)),
+            output_tokens=int(trajectory.get("output_tokens", 0)),
+            latency_ms=float(trajectory.get("latency_ms", 0.0)),
+        ),
+        failed=str(raw.get("failed", "")),
+    )
+
+
+def _citation_from(raw: Mapping[str, Any]) -> Citation:
+    """Rebuild one recorded citation, offsets and all."""
+    return Citation(
+        marker=int(raw["marker"]),
+        document_id=str(raw["document_id"]),
+        chunk_id=str(raw["chunk_id"]),
+        source_uri=str(raw["source_uri"]),
+        title=str(raw["title"]),
+        heading_path=tuple(raw.get("heading_path", ())),
+        start_char=int(raw["start_char"]),
+        end_char=int(raw["end_char"]),
+        quote=str(raw["quote"]),
+    )
 
 
 def load_report(path: Path) -> AgentReport:
@@ -360,6 +440,7 @@ __all__ = [
     "emit",
     "load_dataset",
     "load_report",
+    "read_attempts",
     "render",
     "render_comparison",
     "verify_corpus",

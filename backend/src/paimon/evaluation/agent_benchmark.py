@@ -21,12 +21,14 @@ answer rather than a preference.
 """
 
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from inspect import isawaitable
 from typing import Protocol
 
 from paimon.evaluation.agent_dataset import AgentDataset, AgentTask, Outcome
 from paimon.evaluation.agent_grading import Attempt, AttemptOutcome, Grade, Trajectory, grade
+from paimon.evaluation.judging import Judgement, Verdict
 from paimon.evaluation.progress import Progress
 from paimon.evaluation.statistics import (
     Estimate,
@@ -37,6 +39,12 @@ from paimon.evaluation.statistics import (
     paired_difference,
     reliability,
 )
+
+#: How the benchmark asks for one refusal verdict. A callable rather than the
+#: whole :class:`~paimon.evaluation.judging.RefusalJudge` protocol, because this
+#: is all the benchmark needs and a narrower dependency is one a test can supply
+#: in a line.
+RefusalVerdict = Callable[[str, str], "Judgement | Awaitable[Judgement]"]
 
 
 class System(Protocol):
@@ -104,9 +112,9 @@ class TaskReport:
 class TrajectoryReport:
     """What the runs cost, and how they ended. Reported, never scored."""
 
-    tool_calls: Estimate
-    tool_errors: Estimate
-    repeated_calls: Estimate
+    tool_calls: Estimate | None
+    tool_errors: Estimate | None
+    repeated_calls: Estimate | None
     total_tokens: Estimate
     latency_ms: Estimate
     stop_reasons: Mapping[str, int] = field(default_factory=dict)
@@ -145,6 +153,37 @@ class AgentReport:
     tasks: tuple[TaskReport, ...]
     scores: Mapping[str, tuple[float, ...]] = field(default_factory=dict)
     clusters: tuple[str, ...] = ()
+    judged: bool = False
+    """Whether a model decided the outcomes. Every reliability number in a
+    judged report is a judged number, and the report says so rather than
+    presenting it beside the verified ones as though they were the same kind of
+    thing (ADR-0030)."""
+
+    @property
+    def judge_disagreements(self) -> tuple[tuple[str, int], ...]:
+        """Where the crude phrase probe read a response differently from the judge.
+
+        Reported in full rather than resolved silently in favour of either. The
+        probe is English-phrase matching against one model's idiom and the judge
+        is a model's opinion; the cases they disagree about are the cases worth
+        a person's eyes.
+        """
+        return tuple(
+            (task.task_id, attempt.trial)
+            for task in self.tasks
+            for attempt, mark in zip(task.attempts, task.grades, strict=True)
+            if mark.probe_agreed is False
+        )
+
+    @property
+    def undecided(self) -> int:
+        """Attempts the judge could not classify."""
+        return sum(
+            1
+            for task in self.tasks
+            for mark in task.grades
+            if mark.judged and not mark.judge_reasoning
+        )
 
     @property
     def flaky(self) -> tuple[TaskReport, ...]:
@@ -191,6 +230,7 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
     trials: int = 5,
     configuration: str = "unnamed",
     price: Callable[[int, int], float | None] | None = None,
+    judge_refusal: "RefusalVerdict | None" = None,
     progress: Progress | None = None,
 ) -> AgentReport:
     """Put every task to a system k times and grade what comes back.
@@ -204,6 +244,11 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
             something, few enough to finish against a local model.
         configuration: A label for what was measured. A number without the
             configuration that produced it cannot be compared with anything.
+        judge_refusal: Decides whether a response declines to answer. Without
+            it the outcome is read from citations and the platform's own refusal
+            sentences alone, which cannot see a refusal a model wrote in its own
+            words — so a run with no judge understates refusal and the report
+            says which it was.
         price: Turns an attempt's input and output token counts into money, or
             returns None for a model nobody has priced. A callable rather than a
             price list, so the per-million arithmetic stays in the one place
@@ -224,6 +269,12 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
     reports: list[TaskReport] = []
     for task in dataset:
         attempts = [await _attempt_once(system, task, trial) for trial in range(1, trials + 1)]
+        # The judge sees the question and the response and nothing else. Not
+        # the category, not the expected outcome, not the task id: a judge told
+        # that a refusal was expected is a judge told the answer.
+        verdicts = [
+            await _judge(judge_refusal, task.question, attempt.text) for attempt in attempts
+        ]
         reports.append(
             TaskReport(
                 task_id=task.task_id,
@@ -231,7 +282,10 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
                 category=task.category,
                 expected=task.expected,
                 attempts=tuple(attempts),
-                grades=tuple(grade(task, attempt, documents) for attempt in attempts),
+                grades=tuple(
+                    grade(task, attempt, documents, verdict)
+                    for attempt, verdict in zip(attempts, verdicts, strict=True)
+                ),
             )
         )
         if progress is not None:
@@ -250,7 +304,116 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
         tasks=tuple(reports),
         scores={"pass_rate": tuple(report.rate for report in reports)},
         clusters=tuple(clusters),
+        judged=judge_refusal is not None,
     )
+
+
+async def regrade(  # noqa: PLR0913  collaborators and a label, not flags
+    dataset: AgentDataset,
+    stored: Mapping[str, Sequence[Attempt]],
+    documents: Mapping[str, str],
+    *,
+    system: str,
+    configuration: str,
+    judge_refusal: "RefusalVerdict | None" = None,
+    price: Callable[[int, int], float | None] | None = None,
+    progress: Progress | None = None,
+) -> AgentReport:
+    """Score attempts that were recorded earlier, without running anything again.
+
+    A grader change does not need a re-run. The transcripts carry the response
+    text and its citations, which is everything the graders read, so a benchmark
+    that took two hours can be re-scored in the time the judge takes — and the
+    numbers before and after are comparable because they are the same attempts.
+
+    That is not a convenience. The first grader in this phase read a refusal
+    written in prose as an answer, and discovering it after 450 runs would have
+    meant either re-running them or shipping the wrong number. Keeping the
+    transcripts made it a re-score.
+
+    Args:
+        dataset: The golden set the attempts were made against.
+        stored: The recorded attempts, by task id.
+        documents: The corpus as indexed, for following citations.
+        system: The name the attempts were produced by.
+        configuration: The label of the run that produced them.
+        judge_refusal: The judge, when re-grading with one.
+        price: Turns token counts into money.
+        progress: Notified per task.
+
+    Returns:
+        A report over the same attempts, graded afresh.
+
+    Raises:
+        ValueError: If the dataset and the stored attempts do not line up. A
+            re-grade against a different dataset would score answers to
+            questions nobody asked.
+    """
+    missing = [task.task_id for task in dataset if task.task_id not in stored]
+    if missing:
+        listed = ", ".join(missing[:5])
+        msg = (
+            f"{len(missing)} task(s) of '{dataset.name}' have no recorded attempts "
+            f"({listed}); this report was produced from a different dataset"
+        )
+        raise ValueError(msg)
+
+    reports: list[TaskReport] = []
+    for task in dataset:
+        attempts = tuple(stored[task.task_id])
+        verdicts = [
+            await _judge(judge_refusal, task.question, attempt.text) for attempt in attempts
+        ]
+        reports.append(
+            TaskReport(
+                task_id=task.task_id,
+                question=task.question,
+                category=task.category,
+                expected=task.expected,
+                attempts=attempts,
+                grades=tuple(
+                    grade(task, attempt, documents, verdict)
+                    for attempt, verdict in zip(attempts, verdicts, strict=True)
+                ),
+            )
+        )
+        if progress is not None:
+            progress(done=len(reports), total=len(dataset), case_id=task.task_id)
+
+    clusters = _clusters(dataset)
+    return AgentReport(
+        dataset=dataset.name,
+        system=system,
+        configuration=configuration,
+        trials=min((len(report.attempts) for report in reports), default=0),
+        reliability=reliability([list(report.outcomes) for report in reports], clusters),
+        categories=_by_category(dataset, reports),
+        trajectory=_trajectory(reports, price),
+        tasks=tuple(reports),
+        scores={"pass_rate": tuple(report.rate for report in reports)},
+        clusters=tuple(clusters),
+        judged=judge_refusal is not None,
+    )
+
+
+async def _judge(judge: "RefusalVerdict | None", question: str, answer: str) -> Judgement | None:
+    """Ask the judge to classify one response, surviving whatever it does.
+
+    A judge that cannot be reached is not evidence about the response, so a
+    failure becomes an abstention and the outcome falls back to what code can
+    see — reported as undecided rather than as a refusal or an answer.
+    """
+    if judge is None:
+        return None
+    try:
+        result = judge(question, answer)
+        return await result if isawaitable(result) else result
+    except Exception as error:  # noqa: BLE001  the judge is a model over a network
+        return Judgement(
+            verdict=Verdict.UNDECIDED,
+            reasoning=f"the judge could not be reached: {error}",
+            model_id="unreachable",
+        )
 
 
 async def _attempt_once(system: System, task: AgentTask, trial: int) -> Attempt:
@@ -331,9 +494,14 @@ def _trajectory(
     every run cost something.
     """
     attempts = [attempt for report in reports for attempt in report.attempts]
+    # Paired with the grades, because what an attempt *did* is the graded
+    # outcome — which a judge may have decided — and not the code-only reading
+    # on the attempt itself. Reporting the latter would say "answered" for every
+    # prose refusal the judge had just recognised.
+    graded = [mark for report in reports for mark in report.grades]
     if not attempts:
         nothing = Estimate(mean=0.0, standard_error=0.0, n=0)
-        return TrajectoryReport(nothing, nothing, nothing, nothing, nothing)
+        return TrajectoryReport(None, None, None, nothing, nothing)
 
     # Clustered by task: five attempts at one task are five samples of one
     # question's difficulty, not five independent observations of cost.
@@ -342,18 +510,31 @@ def _trajectory(
     def over(values: list[float]) -> Estimate:
         return clustered_estimate(values, tasks)
 
+    def counted(name: str) -> Estimate | None:
+        """Aggregate a counter, or report that this system has no such counter.
+
+        None when **no** attempt recorded it: the system does not do the thing.
+        A partial absence is a different matter and is summed as zero, because
+        an agent that made no tool calls on one task did make none.
+        """
+        values = [getattr(item.trajectory, name) for item in attempts]
+        if all(value is None for value in values):
+            return None
+        return over([float(value or 0) for value in values])
+
     stop_reasons: dict[str, int] = {}
     outcomes: dict[str, int] = {}
-    for attempt in attempts:
-        reason = attempt.trajectory.stop_reason or "unreported"
-        stop_reasons[reason] = stop_reasons.get(reason, 0) + 1
-        label = "crashed" if attempt.failed else attempt.outcome.value
+    for attempt, mark in zip(attempts, graded, strict=True):
+        if attempt.trajectory.stop_reason is not None:
+            reason = attempt.trajectory.stop_reason or "unreported"
+            stop_reasons[reason] = stop_reasons.get(reason, 0) + 1
+        label = "crashed" if attempt.failed else mark.outcome.value
         outcomes[label] = outcomes.get(label, 0) + 1
 
     return TrajectoryReport(
-        tool_calls=over([float(item.trajectory.tool_calls) for item in attempts]),
-        tool_errors=over([float(item.trajectory.tool_errors) for item in attempts]),
-        repeated_calls=over([float(item.trajectory.repeated_calls) for item in attempts]),
+        tool_calls=counted("tool_calls"),
+        tool_errors=counted("tool_errors"),
+        repeated_calls=counted("repeated_calls"),
         total_tokens=over([float(item.trajectory.total_tokens) for item in attempts]),
         latency_ms=over([item.trajectory.latency_ms for item in attempts]),
         stop_reasons=dict(sorted(stop_reasons.items())),
@@ -391,5 +572,6 @@ __all__ = [
     "System",
     "TaskReport",
     "TrajectoryReport",
+    "regrade",
     "run_agent_benchmark",
 ]

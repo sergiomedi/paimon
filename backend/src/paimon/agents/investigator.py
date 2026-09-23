@@ -192,7 +192,6 @@ def build_investigator_graph(
     *,
     max_turns: int = DEFAULT_MAX_TURNS,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
-    step_limit: int = 25,
 ) -> GraphSpec:
     """Assemble the investigator.
 
@@ -202,19 +201,13 @@ def build_investigator_graph(
             platform that cannot degrade gracefully without that.
         max_turns: Model turns one run may take.
         token_budget: Tokens one run may spend, checked before each turn.
-        step_limit: The orchestrator's own limit on node executions, so this can
-            refuse a configuration that would hit it.
 
     Returns:
-        A validated graph specification.
+        A validated graph specification, declaring what its loop can cost so the
+        adapter does not have to be told separately.
 
     Raises:
         UnsupportedModelError: If the configured model cannot call tools.
-        ValueError: If the turn budget could outlast the orchestrator's step
-            limit. Checked here rather than left to fail at runtime, because the
-            failure it prevents is a *framework* recursion error — which ends the
-            run as FAILED with no stop reason and no answer, hours after somebody
-            raised the turn budget and days before anybody connects the two.
     """
     chat_model = collaborators.chat_model
     if not isinstance(chat_model, ToolCallingChatModel):
@@ -225,19 +218,13 @@ def build_investigator_graph(
         )
         raise UnsupportedModelError(msg)
 
-    needed = worst_case_steps(max_turns)
-    if needed >= step_limit:
-        affordable = (step_limit - CLOSING_NODES - 1) // NODES_PER_TURN
-        msg = (
-            f"'{AGENT_NAME}' with {max_turns} turns can execute {needed} nodes, "
-            f"and the orchestrator stops a run at {step_limit}. Raise "
-            f"agents.step_limit above {needed}, or lower "
-            f"agents.investigator_max_turns to {affordable}."
-        )
-        raise ValueError(msg)
-
     return GraphSpec(
         name=AGENT_NAME,
+        # What this loop can cost, declared rather than left for a deployment to
+        # work out. Raising the turn budget now raises the ceiling with it; it
+        # used to require editing agents.step_limit as well, and forgetting
+        # turned a configured budget into a framework recursion error.
+        worst_case_steps=worst_case_steps(max_turns),
         entry="act",
         nodes=[
             NodeSpec(

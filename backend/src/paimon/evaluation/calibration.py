@@ -51,6 +51,12 @@ class HumanLabel:
     faithfulness: Verdict | None = None
     completeness: Verdict | None = None
     relevance: Verdict | None = None
+    refusal: Verdict | None = None
+    """Whether the response declined to answer. The fourth rubric, added when
+    the agent benchmark found that deciding this in code scored a system that
+    refused perfectly as one that never refused. ``yes`` it declined, ``no`` it
+    answered, ``partial`` it declined the thing asked while giving context."""
+
     note: str = ""
 
 
@@ -220,7 +226,9 @@ def load_labels(path: Path) -> list[HumanLabel]:
         if not isinstance(raw, dict):
             msg = f"{path}:{number} is not an object"
             raise ValueError(msg)
-        if not any(raw.get(field) for field in ("faithfulness", "completeness", "relevance")):
+        if not any(
+            raw.get(field) for field in ("faithfulness", "completeness", "relevance", "refusal")
+        ):
             # An unlabelled row, left in the template. Skipped rather than
             # refused, so a partly finished file still measures what it covers.
             continue
@@ -228,6 +236,7 @@ def load_labels(path: Path) -> list[HumanLabel]:
             HumanLabel(
                 case_id=str(raw["case_id"]),
                 faithfulness=_verdict(raw, "faithfulness", f"{path}:{number}"),
+                refusal=_verdict(raw, "refusal", f"{path}:{number}"),
                 completeness=_verdict(raw, "completeness", f"{path}:{number}"),
                 relevance=_verdict(raw, "relevance", f"{path}:{number}"),
                 note=str(raw.get("note", "")),

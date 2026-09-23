@@ -59,10 +59,10 @@ class AnsweringSystem:
             text=answer.text,
             citations=tuple(answer.citations),
             trajectory=Trajectory(
-                # One retrieval and one generation, always. Recorded as a stop
-                # reason so this system appears in the same histogram as the
-                # others rather than as a gap in it.
-                stop_reason="answered" if answer.grounded else "no_material",
+                # No stop reason and no tool calls, and neither is zero. This
+                # system retrieves once and generates once; it does not choose
+                # to stop and it does not call tools, so the honest entry is
+                # that the question does not apply to it.
                 steps=("retrieve", "generate"),
                 input_tokens=usage.input_tokens if usage else 0,
                 output_tokens=usage.output_tokens if usage else 0,
@@ -114,13 +114,16 @@ class WorkflowSystem:
 def _from_run(task: AgentTask, trial: int, run: AgentRun) -> Attempt:
     """Read an attempt out of a finished run record."""
     details = _last_details(run)
+    # Absent, not zero. A fixed graph records none of these, and defaulting them
+    # would report that incident-triage made no tool calls and stopped because
+    # it "succeeded" — two statements in a vocabulary it does not have.
     return Attempt(
         task_id=task.task_id,
         trial=trial,
         text=run.answer,
         citations=tuple(run.citations),
         trajectory=Trajectory(
-            stop_reason=details.get(_STOP_REASON, str(run.status)),
+            stop_reason=details.get(_STOP_REASON),
             tool_calls=_number(details.get(_TOOL_CALLS)),
             tool_errors=_number(details.get(_TOOL_ERRORS)),
             repeated_calls=_number(details.get(_REPEATED)),
@@ -142,12 +145,14 @@ def _last_details(run: AgentRun) -> Mapping[str, str]:
     return {}
 
 
-def _number(raw: str | None) -> int:
-    """Read a count a step recorded as text, treating absence as zero."""
+def _number(raw: str | None) -> int | None:
+    """Read a count a step recorded as text, treating absence as absence."""
+    if raw is None:
+        return None
     try:
-        return int(raw) if raw is not None else 0
+        return int(raw)
     except ValueError:  # pragma: no cover - the agent writes these itself
-        return 0
+        return None
 
 
 class Oracle:
@@ -193,7 +198,6 @@ class Oracle:
             trial=trial,
             text=f"{task.reference} {markers}",
             citations=citations,
-            trajectory=Trajectory(stop_reason="answered"),
         )
 
 
@@ -238,8 +242,52 @@ class AlwaysAnswersUncited:
                 f"Based on our operational documentation, {task.question.rstrip('?')} "
                 "is handled by the standard procedure, which applies in all cases."
             ),
-            trajectory=Trajectory(stop_reason="answered"),
         )
+
+
+#: A real refusal, copied from a measured run rather than invented. The `answers`
+#: system produced it for a024 — "What is the escalation path for a security
+#: incident involving customer data?" — and then cited the eight sources it had
+#: just called irrelevant.
+#:
+#: It is here because the first grader scored this as a failure to refuse, on
+#: all twenty-five such attempts, and none of the three stand-ins caught it:
+#: every one of them refuses in the platform's canned words, so the grader was
+#: only ever tested against refusals it was guaranteed to recognise.
+REAL_PROSE_REFUSAL = (
+    "The provided sources do not contain specific information about the escalation "
+    "path for a security incident involving customer data. Therefore, I cannot "
+    "provide an answer based on the given documentation.  [1][2][3][4][5][6][7][8]"
+)
+
+
+class RefusesInItsOwnWords:
+    """A system that declines clearly, in prose, while citing what it read.
+
+    The stand-in the first three were missing. It must be classified as a
+    **refusal** — so it scores one on the out-of-corpus tasks and zero on the
+    answerable ones, exactly like :class:`AlwaysRefuses` — even though it cites
+    eight sources and matches none of the platform's canned refusal sentences.
+
+    A grader that reads it as an answer is the grader this phase shipped first,
+    and it reported a system refusing perfectly as refusing never.
+    """
+
+    name = "refuses-in-prose"
+
+    def __init__(self, documents: Mapping[str, str]) -> None:
+        """Build it against the corpus, so its citations resolve like any other."""
+        self._documents = documents
+
+    async def attempt(self, task: AgentTask, trial: int) -> Attempt:
+        """Decline, in its own words, citing what it looked at."""
+        cited = tuple(
+            _cite(marker, document_id, text[:120], self._documents)
+            for marker, (document_id, text) in enumerate(
+                sorted(self._documents.items())[:8], start=1
+            )
+        )
+        return Attempt(task_id=task.task_id, trial=trial, text=REAL_PROSE_REFUSAL, citations=cited)
 
 
 def _cite(marker: int, document_id: str, quote: str, documents: Mapping[str, str]) -> Citation:
@@ -281,15 +329,22 @@ def _locate(text: str, quote: str) -> int:
 
 
 def refusal_systems(documents: Mapping[str, str], refusal: str) -> Sequence[object]:
-    """The three stand-ins, for a suite that wants to watch its graders fail."""
-    return (Oracle(documents, refusal), AlwaysRefuses(refusal), AlwaysAnswersUncited())
+    """The four stand-ins, for a suite that wants to watch its graders fail."""
+    return (
+        Oracle(documents, refusal),
+        AlwaysRefuses(refusal),
+        AlwaysAnswersUncited(),
+        RefusesInItsOwnWords(documents),
+    )
 
 
 __all__ = [
+    "REAL_PROSE_REFUSAL",
     "AlwaysAnswersUncited",
     "AlwaysRefuses",
     "AnsweringSystem",
     "Oracle",
+    "RefusesInItsOwnWords",
     "WorkflowSystem",
     "refusal_systems",
 ]

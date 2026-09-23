@@ -481,3 +481,85 @@ class TestWhatTheRunRecords:
         run = await checkpointer.load("t-3")
         assert run is not None
         assert run.citations == ()
+
+
+class TestAGraphThatKnowsItsOwnCost:
+    """A graph declares what its loop can cost; the adapter takes the larger.
+
+    Before this, an agent with a turn budget had to be told the deployment's
+    step limit in order to check itself against it — an agent knowing about the
+    framework, which is the one thing ADR-0015 exists to prevent. Worse, getting
+    the pair out of step turned a configured budget into a framework recursion
+    error: a FAILED run with no stop reason, hours after somebody raised the
+    budget and days before anybody connected the two.
+    """
+
+    @staticmethod
+    def _loop(rounds: int, *, declares: int) -> GraphSpec:
+        async def act(state: AgentState) -> StateUpdate:
+            return {"notes": state.notes + "x"}
+
+        async def tools(_state: AgentState) -> StateUpdate:
+            return {}
+
+        async def finalize(state: AgentState) -> StateUpdate:
+            return {"draft": f"done after {len(state.notes)}"}
+
+        return GraphSpec(
+            name="looper",
+            entry="act",
+            worst_case_steps=declares,
+            nodes=[
+                NodeSpec(name="act", run=act, summary="acted"),
+                NodeSpec(name="tools", run=tools, summary="ran tools"),
+                NodeSpec(name="finalize", run=finalize, summary="finished"),
+            ],
+            edges=[("tools", "act"), ("finalize", END)],
+            branches=[
+                Branch(
+                    source="act",
+                    decide=lambda state: "tools" if len(state.notes) < rounds else "finalize",
+                    targets={"tools": "tools", "finalize": "finalize"},
+                )
+            ],
+        )
+
+    async def _run(self, spec: GraphSpec, *, step_limit: int) -> AgentRun:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer, step_limit=step_limit)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        return run
+
+    async def test_a_declared_worst_case_beats_a_smaller_default(self) -> None:
+        # Eight rounds is seventeen node executions. The deployment's limit says
+        # five; the graph says it needs seventeen, and the graph is the one that
+        # knows.
+        run = await self._run(self._loop(8, declares=17), step_limit=5)
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert run.answer == "done after 8"
+
+    async def test_a_graph_with_no_opinion_gets_the_default(self) -> None:
+        # Zero means "I do not know", not "zero steps". A graph without a loop
+        # has nothing to declare and the default still governs it.
+        with pytest.raises(AgentRunError):
+            await self._run(self._loop(50, declares=0), step_limit=6)
+
+    async def test_the_larger_of_the_two_wins_either_way(self) -> None:
+        # A generous deployment limit is not cut down by a modest declaration.
+        run = await self._run(self._loop(8, declares=4), step_limit=40)
+
+        assert run.status is RunStatus.SUCCEEDED
+
+    async def test_a_runaway_loop_is_still_stopped(self) -> None:
+        # The declaration raises the ceiling; it does not remove it. A graph
+        # that under-declares still hits a wall rather than running forever.
+        with pytest.raises(AgentRunError, match="could not complete run"):
+            await self._run(self._loop(500, declares=12), step_limit=5)
+
+    def test_a_negative_declaration_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="negative worst case"):
+            self._loop(4, declares=-1).validate()

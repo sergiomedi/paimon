@@ -63,7 +63,6 @@ def build_all(
     review_postmortems: bool = False,
     max_turns: int = investigator.DEFAULT_MAX_TURNS,
     token_budget: int = investigator.DEFAULT_TOKEN_BUDGET,
-    step_limit: int = 25,
 ) -> dict[str, GraphSpec]:
     """Build every agent this deployment can run, applying its options.
 
@@ -78,8 +77,6 @@ def build_all(
             finalised.
         max_turns: Model turns the investigator may take in one run.
         token_budget: Tokens the investigator may spend in one run.
-        step_limit: The orchestrator's limit on node executions, so a turn
-            budget that could outlast it is refused at startup.
 
     Returns:
         Each available agent's validated graph, by name. The investigator is
@@ -104,7 +101,6 @@ def build_all(
             collaborators,
             max_turns=max_turns,
             token_budget=token_budget,
-            step_limit=step_limit,
         )
     return built
 

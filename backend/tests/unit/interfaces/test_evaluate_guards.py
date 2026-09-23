@@ -32,6 +32,7 @@ def command(**overrides: object) -> argparse.Namespace:
         "against": None,
         "agents": False,
         "trials": 5,
+        "regrade": None,
     }
     return argparse.Namespace(**{**defaults, **overrides})
 
@@ -214,6 +215,24 @@ class TestTheAgentBenchmarksRefusals:
         assert (
             unusable(
                 command(agents=True, corpus=Path("corpus"), against=Path("baseline.json")),
+                judge_enabled=False,
+            )
+            is None
+        )
+
+
+class TestRegrading:
+    def test_regrading_without_agents_is_refused(self) -> None:
+        # --regrade re-scores an agent report; there is no retrieval equivalent.
+        refusal = unusable(command(regrade=Path("old.json")), judge_enabled=False)
+
+        assert refusal is not None
+        assert "needs --agents" in refusal
+
+    def test_regrading_an_agent_report_is_allowed(self) -> None:
+        assert (
+            unusable(
+                command(agents=True, corpus=Path("corpus"), regrade=Path("old.json")),
                 judge_enabled=False,
             )
             is None

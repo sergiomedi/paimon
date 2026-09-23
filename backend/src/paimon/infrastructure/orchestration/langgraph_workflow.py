@@ -102,7 +102,10 @@ class LangGraphWorkflow:
                 (ADR-0017): one is this platform's record of what happened, the
                 other is the framework's record of where it stopped. Without it
                 the workflow runs normally and simply cannot be resumed.
-            step_limit: Most nodes one run may execute.
+            step_limit: Most nodes one run may execute, for a graph that does
+                not declare its own worst case. A graph that declares a larger
+                one gets that instead: see ``worst_case_steps`` on
+                :class:`~paimon.domain.agents.GraphSpec`.
 
         Raises:
             ValueError: If the spec does not describe a runnable graph.
@@ -110,7 +113,13 @@ class LangGraphWorkflow:
         spec.validate()
         self._spec = spec
         self._checkpointer = checkpointer
-        self._step_limit = step_limit
+        # The graph's own bound wins when it is larger. A deployment's step
+        # limit is a default for graphs that have no opinion; a graph with a
+        # loop has computed what its own budget costs, and letting the default
+        # cut it short would turn a configured turn budget into a framework
+        # recursion error — a FAILED run with no stop reason, hours after
+        # somebody raised the budget and days before anybody connects the two.
+        self._step_limit = max(step_limit, spec.worst_case_steps)
         self._resumable = saver is not None
         self._graph = self._compile(spec, saver)
 

@@ -19,6 +19,7 @@ route would be scoring the author's idea of how the problem should be solved,
 which is the thing an autonomous agent exists not to be told.
 """
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -28,6 +29,7 @@ from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.domain.value_objects import Citation
 from paimon.evaluation.agent_dataset import AgentTask, Outcome
 from paimon.evaluation.attribution import AttributionReport, check_answer
+from paimon.evaluation.judging import Judgement, Verdict
 
 #: Every sentence this platform says instead of an answer. Collected from the
 #: modules that define them rather than restated, so a reworded refusal cannot
@@ -78,12 +80,20 @@ class Trajectory:
     folded any of these into the score would be rewarding systems for being
     cheap rather than for being right — and the interesting question this phase
     asks is exactly what the extra cost buys.
+
+    **None is not zero.** Only an agent that calls tools has a tool-call count;
+    a fixed graph that retrieves inside its nodes has no such notion, and
+    reporting it as ``0.000 ± 0.000`` states that it made no tool calls — a
+    measurement of something it does not do, sitting in a column beside a
+    system where the same number would be a finding. The same goes for a stop
+    reason: a workflow that always runs to the end did not stop for a reason,
+    and printing its run status there borrows a vocabulary it does not have.
     """
 
-    stop_reason: str = ""
-    tool_calls: int = 0
-    tool_errors: int = 0
-    repeated_calls: int = 0
+    stop_reason: str | None = None
+    tool_calls: int | None = None
+    tool_errors: int | None = None
+    repeated_calls: int | None = None
     steps: tuple[str, ...] = ()
     input_tokens: int = 0
     output_tokens: int = 0
@@ -117,12 +127,68 @@ class Attempt:
 
     @property
     def outcome(self) -> AttemptOutcome:
-        """What this attempt did, by the platform's own rules."""
-        if self.citations:
-            return AttemptOutcome.ANSWERED
-        if self.text.strip() in REFUSALS:
-            return AttemptOutcome.REFUSED
-        return AttemptOutcome.UNGROUNDED
+        """What this attempt did, judging nothing.
+
+        The code-only reading, kept for the stand-ins and for a run with no
+        judge. It cannot see a refusal written in a model's own words, which is
+        why :func:`classify` exists and why every number derived from it is
+        labelled judged.
+        """
+        return classify(self, None)
+
+
+#: Phrases a response uses when it declines. A deliberately crude probe, kept as
+#: a **cross-check on the judge** and never as the grader: it is English-phrase
+#: matching against one model's idiom and would mis-grade a different one in
+#: silence. Every place the probe and the judge disagree is listed in the
+#: report, which is the only way either of them stays honest.
+_DISCLAIMER = re.compile(
+    r"do(?:es)? not (?:contain|cover|include|specify|mention)"
+    r"|cannot provide an answer"
+    r"|not specified in the (?:given|provided|available)"
+    r"|no information (?:about|on|regarding)"
+    r"|(?:sources|documentation|corpus) (?:do|does) not",
+    re.IGNORECASE,
+)
+
+
+def probes_as_refusal(text: str) -> bool:
+    """Whether the crude phrase probe reads this as a refusal."""
+    return bool(_DISCLAIMER.search(text))
+
+
+def classify(attempt: "Attempt", refusal: Judgement | None) -> AttemptOutcome:
+    """Decide what an attempt did, given the judge's reading of its intent.
+
+    Two layers, and the split is the point. **The judge decides intent** — does
+    this text answer the question or decline it — because that is not a lookup.
+    **Code decides support** — does it cite anything, and does the text match a
+    refusal the platform itself wrote — because those are.
+
+    The judge is consulted first and wins. A refusal that cites the eight
+    sources it just called irrelevant is a refusal, and the citations are not
+    evidence against that.
+
+    Args:
+        attempt: What came back.
+        refusal: The judge's verdict on whether it declines, or None for a run
+            with no judge, which falls back to recognising the platform's own
+            refusal sentences and nothing else.
+    """
+    if refusal is not None and refusal.verdict in _DECLINED:
+        return AttemptOutcome.REFUSED
+    if attempt.citations:
+        return AttemptOutcome.ANSWERED
+    if attempt.text.strip() in REFUSALS:
+        return AttemptOutcome.REFUSED
+    return AttemptOutcome.UNGROUNDED
+
+
+#: The verdicts that mean "it did not answer the question". ``PARTIAL`` is in
+#: here deliberately: a response that describes the rotation and then says the
+#: current engineer is not named has declined the thing that was asked, and
+#: grading it as an answer would mark a careful system down for being careful.
+_DECLINED = frozenset({Verdict.YES, Verdict.PARTIAL})
 
 
 @dataclass(frozen=True, slots=True)
@@ -141,12 +207,25 @@ class Grade:
             being opened at the offsets they claim.
         attribution: The full per-citation report behind that number, kept so a
             disagreement can be settled by reading rather than by re-running.
+        outcome: What the attempt was read as doing.
+        judged: Whether a model decided the outcome. **Every number derived from
+            a judged outcome is a judged number** and the report says so; the
+            coverage and precision beside it are verified either way.
+        judge_reasoning: Why the judge said what it said, in its words. Kept
+            because a judged number nobody can audit is a number nobody should
+            act on.
+        probe_agreed: Whether the crude phrase probe read the text the same way
+            the judge did. None when there was no judge.
     """
 
     outcome_correct: bool
     support_coverage: float
     citation_precision: float
     attribution: AttributionReport | None = None
+    outcome: AttemptOutcome = AttemptOutcome.UNGROUNDED
+    judged: bool = False
+    judge_reasoning: str = ""
+    probe_agreed: bool | None = None
 
     @property
     def passed(self) -> bool:
@@ -185,8 +264,13 @@ def support_coverage(task: AgentTask, citations: Sequence[Citation]) -> float:
     return covered / len(task.supporting)
 
 
-def grade(task: AgentTask, attempt: Attempt, documents: Mapping[str, str]) -> Grade:
-    """Grade one attempt against one task, with no model involved.
+def grade(
+    task: AgentTask,
+    attempt: Attempt,
+    documents: Mapping[str, str],
+    refusal: Judgement | None = None,
+) -> Grade:
+    """Grade one attempt against one task.
 
     Args:
         task: What was asked, and what a right outcome is.
@@ -195,30 +279,56 @@ def grade(task: AgentTask, attempt: Attempt, documents: Mapping[str, str]) -> Gr
             text a parser produced, not the file on disk: a citation's offsets
             are into the former, and checking against the latter would report
             every citation as broken for every document the parser touched.
+        refusal: The judge's reading of whether this attempt declines to answer.
+            None for a run with no judge, which can then only recognise the
+            platform's own refusal sentences.
 
     Returns:
-        The three code-grader results, and the evidence for the third.
+        The grader results, with the outcome marked judged when a model decided
+        it. Coverage and precision are verified either way.
     """
     if attempt.failed:
         # A run that crashed answered nothing and refused nothing. Grading it as
         # a refusal would let an unreliable system score well on the tasks whose
         # right answer is "I cannot".
-        return Grade(outcome_correct=False, support_coverage=0.0, citation_precision=0.0)
+        return Grade(
+            outcome_correct=False,
+            support_coverage=0.0,
+            citation_precision=0.0,
+            outcome=AttemptOutcome.UNGROUNDED,
+        )
 
-    outcome = attempt.outcome
+    outcome = classify(attempt, refusal)
+    marks = {
+        "outcome": outcome,
+        "judged": refusal is not None,
+        "judge_reasoning": refusal.reasoning if refusal is not None else "",
+        "probe_agreed": (
+            probes_as_refusal(attempt.text) == (outcome is AttemptOutcome.REFUSED)
+            if refusal is not None
+            else None
+        ),
+    }
+
     if task.expected is Outcome.REFUSE:
         correct = outcome is AttemptOutcome.REFUSED
         return Grade(
             outcome_correct=correct,
             support_coverage=1.0,
-            # Nothing was cited, so there is nothing to have got wrong. Reporting
-            # zero here would punish a correct refusal on a metric about
-            # citations it rightly did not make.
+            # Nothing had to be cited, so there is nothing to have got wrong.
+            # Reporting zero here would punish a correct refusal on a metric
+            # about citations it rightly did not make.
             citation_precision=1.0 if correct else 0.0,
+            **marks,  # type: ignore[arg-type]
         )
 
     if outcome is not AttemptOutcome.ANSWERED:
-        return Grade(outcome_correct=False, support_coverage=0.0, citation_precision=0.0)
+        return Grade(
+            outcome_correct=False,
+            support_coverage=0.0,
+            citation_precision=0.0,
+            **marks,  # type: ignore[arg-type]
+        )
 
     attribution = check_answer(attempt.text, attempt.citations, documents)
     return Grade(
@@ -226,6 +336,7 @@ def grade(task: AgentTask, attempt: Attempt, documents: Mapping[str, str]) -> Gr
         support_coverage=support_coverage(task, attempt.citations),
         citation_precision=attribution.citation_accuracy,
         attribution=attribution,
+        **marks,  # type: ignore[arg-type]
     )
 
 
@@ -235,6 +346,8 @@ __all__ = [
     "AttemptOutcome",
     "Grade",
     "Trajectory",
+    "classify",
     "grade",
+    "probes_as_refusal",
     "support_coverage",
 ]

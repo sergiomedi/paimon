@@ -555,7 +555,6 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
             review_postmortems=resources.settings.agents.review_postmortems,
             max_turns=resources.settings.agents.investigator_max_turns,
             token_budget=resources.settings.agents.investigator_token_budget,
-            step_limit=resources.settings.agents.step_limit,
         ).items()
     }
 

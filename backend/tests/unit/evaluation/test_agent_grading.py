@@ -22,11 +22,20 @@ from paimon.evaluation.agent_grading import (
     Attempt,
     AttemptOutcome,
     Trajectory,
+    classify,
     grade,
+    probes_as_refusal,
     support_coverage,
 )
-from paimon.evaluation.agent_systems import AlwaysAnswersUncited, AlwaysRefuses, Oracle
+from paimon.evaluation.agent_systems import (
+    REAL_PROSE_REFUSAL,
+    AlwaysAnswersUncited,
+    AlwaysRefuses,
+    Oracle,
+    RefusesInItsOwnWords,
+)
 from paimon.evaluation.dataset import SupportingPassage
+from paimon.evaluation.judging import Judgement, Verdict
 
 CORPUS = Path(__file__).resolve().parents[4] / "evaluation" / "corpus" / "sample"
 DATASET = Path(__file__).resolve().parents[4] / "evaluation" / "datasets" / "agents-v1.jsonl"
@@ -254,3 +263,118 @@ class TestTheGradersCanFail:
 
         assert refuser.trajectory.outcomes == {"refused": len(TASKS)}
         assert inventor.trajectory.outcomes == {"ungrounded": len(TASKS)}
+
+
+def judged(verdict: Verdict, reasoning: str = "because") -> Judgement:
+    return Judgement(verdict=verdict, reasoning=reasoning, model_id="judge-under-test")
+
+
+class TestARefusalWrittenInProse:
+    """The case the first grader got wrong on every one of twenty-five attempts.
+
+    A correct refusal that cites the sources it has just called irrelevant. Code
+    read the citations and called it an answer; the judge reads the claim.
+    """
+
+    def test_the_judge_overrules_the_citations(self) -> None:
+        declined = attempt(REAL_PROSE_REFUSAL, cited())
+
+        assert classify(declined, judged(Verdict.YES)) is AttemptOutcome.REFUSED
+
+    def test_without_a_judge_the_code_still_gets_it_wrong(self) -> None:
+        # Stated rather than hidden. A run with no judge cannot see a refusal
+        # written in a model's own words, and this is the limit of what the
+        # verified-only path can claim.
+        assert attempt(REAL_PROSE_REFUSAL, cited()).outcome is AttemptOutcome.ANSWERED
+
+    def test_declining_the_thing_asked_counts_as_declining(self) -> None:
+        # "The handbook describes the rotation, but does not name the current
+        # engineer" has not answered the question it was asked.
+        partial = attempt("The handbook describes the rotation [1].", cited())
+
+        assert classify(partial, judged(Verdict.PARTIAL)) is AttemptOutcome.REFUSED
+
+    def test_an_answer_is_still_an_answer(self) -> None:
+        answered = attempt("Cordon the node first [1].", cited())
+
+        assert classify(answered, judged(Verdict.NO)) is AttemptOutcome.ANSWERED
+
+    def test_an_undecided_judge_falls_back_to_what_code_can_see(self) -> None:
+        # The judge breaking is not evidence about the response.
+        answered = attempt("Cordon the node first [1].", cited())
+
+        assert classify(answered, judged(Verdict.UNDECIDED)) is AttemptOutcome.ANSWERED
+
+    def test_a_judged_grade_says_it_was_judged(self) -> None:
+        result = grade(refusable(), attempt(REAL_PROSE_REFUSAL), DOCUMENTS, judged(Verdict.YES))
+
+        assert result.passed
+        assert result.judged
+        assert result.judge_reasoning == "because"
+
+    def test_an_unjudged_grade_says_it_was_not(self) -> None:
+        result = grade(answerable(), attempt("Cordon it [1].", cited()), DOCUMENTS)
+
+        assert not result.judged
+        assert result.probe_agreed is None
+
+
+class TestTheCrudeProbe:
+    """Kept as a cross-check on the judge, never as the grader."""
+
+    def test_it_reads_the_real_refusal_as_one(self) -> None:
+        assert probes_as_refusal(REAL_PROSE_REFUSAL)
+
+    def test_it_does_not_flag_an_ordinary_answer(self) -> None:
+        assert not probes_as_refusal("Cordon the node first, then drain it [1].")
+
+    def test_agreement_with_the_judge_is_recorded(self) -> None:
+        result = grade(refusable(), attempt(REAL_PROSE_REFUSAL), DOCUMENTS, judged(Verdict.YES))
+
+        assert result.probe_agreed is True
+
+    def test_disagreement_with_the_judge_is_recorded(self) -> None:
+        # The probe sees no disclaimer phrase; the judge says it declines. That
+        # is exactly the case worth reading, so it is recorded rather than
+        # resolved silently in favour of either.
+        result = grade(
+            refusable(),
+            attempt("That is outside what I was given."),
+            DOCUMENTS,
+            judged(Verdict.YES),
+        )
+
+        assert result.probe_agreed is False
+
+
+class TestTheFourthStandIn:
+    """The stand-in the first three were missing.
+
+    All three of the originals refuse in the platform's canned words, so the
+    grader was only ever tested against refusals it was guaranteed to
+    recognise. This one refuses the way a model actually does.
+    """
+
+    async def test_it_scores_like_a_refuser_when_judged(self) -> None:
+        report = await run_agent_benchmark(
+            TASKS,
+            RefusesInItsOwnWords(DOCS),
+            DOCS,
+            trials=1,
+            judge_refusal=lambda _q, _a: judged(Verdict.YES),
+        )
+
+        by_category = {item.category: item.reliability.pass_at_1.mean for item in report.categories}
+        assert by_category["out-of-corpus"] == 1.0
+        assert by_category["one-hop"] == 0.0
+
+    async def test_it_is_reported_as_refusing_not_answering(self) -> None:
+        report = await run_agent_benchmark(
+            TASKS,
+            RefusesInItsOwnWords(DOCS),
+            DOCS,
+            trials=1,
+            judge_refusal=lambda _q, _a: judged(Verdict.YES),
+        )
+
+        assert report.trajectory.outcomes == {"refused": len(TASKS)}

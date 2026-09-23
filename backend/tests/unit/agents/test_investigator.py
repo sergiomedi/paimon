@@ -110,24 +110,31 @@ class TestBuilding:
         with pytest.raises(UnsupportedModelError, match="rest of the platform is unaffected"):
             build_investigator_graph(harness.collaborators())
 
-    def test_a_turn_budget_that_outlasts_the_orchestrator_is_refused(self) -> None:
-        # Without this the failure is a framework recursion error: a FAILED run
-        # with no stop reason and no answer, hours after somebody raised the
-        # turn budget and days before anybody connects the two.
+    def test_the_graph_declares_what_its_loop_can_cost(self) -> None:
+        # Declared rather than checked against a limit the agent was told. An
+        # agent that had to know the framework's step limit in order to validate
+        # itself would be an agent that knows about the framework (ADR-0015).
         harness = Harness()
         harness.chat_model = ScriptedToolCallingChatModel()  # type: ignore[assignment]
-        with pytest.raises(ValueError, match="can execute 43 nodes"):
-            build_investigator_graph(harness.collaborators(), max_turns=20, step_limit=25)
 
-    def test_the_refusal_says_what_would_fit(self) -> None:
+        spec = build_investigator_graph(harness.collaborators(), max_turns=8)
+
+        assert spec.worst_case_steps == worst_case_steps(8)
+
+    def test_a_bigger_turn_budget_declares_a_bigger_cost(self) -> None:
+        # The coupling that used to need two settings edited together: raising
+        # the turn budget now raises the ceiling with it.
         harness = Harness()
         harness.chat_model = ScriptedToolCallingChatModel()  # type: ignore[assignment]
-        with pytest.raises(ValueError, match="investigator_max_turns to 10"):
-            build_investigator_graph(harness.collaborators(), max_turns=20, step_limit=25)
+
+        spec = build_investigator_graph(harness.collaborators(), max_turns=20)
+
+        assert spec.worst_case_steps == 43
 
     def test_the_default_turn_budget_fits_the_default_step_limit(self) -> None:
-        # The pair that ships. If this ever fails, one of the two defaults moved
-        # and the other did not.
+        # Now a property rather than a requirement: the adapter takes the larger
+        # of the two, so this failing would mean the default limit is doing no
+        # work for this agent, not that the agent is broken.
         assert worst_case_steps(8) < 25
 
     def test_the_worst_case_counts_the_closing_nodes(self) -> None:
@@ -138,7 +145,7 @@ class TestBuilding:
     def test_a_graph_that_fits_builds(self) -> None:
         harness = Harness()
         harness.chat_model = ScriptedToolCallingChatModel()  # type: ignore[assignment]
-        spec = build_investigator_graph(harness.collaborators(), max_turns=8, step_limit=25)
+        spec = build_investigator_graph(harness.collaborators(), max_turns=8)
         assert spec.name == AGENT_NAME
         spec.validate()
 
@@ -259,7 +266,7 @@ class TestStoppingAtTheTurnLimit:
         harness = Harness()
         await harness.index()
 
-        run = await investigate(harness, *searching(3), max_turns=3, step_limit=25)
+        run = await investigate(harness, *searching(3), max_turns=3)
 
         assert stop_reason(run) == "step_limit"
         assert run.answer == OUT_OF_STEPS
@@ -271,7 +278,7 @@ class TestStoppingAtTheTurnLimit:
         harness = Harness()
         await harness.index()
 
-        run = await investigate(harness, *searching(3), max_turns=3, step_limit=25)
+        run = await investigate(harness, *searching(3), max_turns=3)
 
         assert run.status is RunStatus.SUCCEEDED
 
@@ -279,7 +286,7 @@ class TestStoppingAtTheTurnLimit:
         harness = Harness()
         await harness.index()
 
-        await investigate(harness, *searching(3), max_turns=3, step_limit=25)
+        await investigate(harness, *searching(3), max_turns=3)
 
         # Three turns that called a model, and a fourth that declined to.
         assert model_of(harness).calls_made == 3
@@ -290,9 +297,7 @@ class TestStoppingAtTheTokenBudget:
         harness = Harness()
         await harness.index()
 
-        run = await investigate(
-            harness, *searching(8, tokens=500), token_budget=600, max_turns=8, step_limit=25
-        )
+        run = await investigate(harness, *searching(8, tokens=500), token_budget=600, max_turns=8)
 
         assert stop_reason(run) == "token_budget"
         assert run.answer == OUT_OF_BUDGET
@@ -307,7 +312,7 @@ class TestStoppingAtTheTokenBudget:
         per_turn = 500
 
         run = await investigate(
-            harness, *searching(8, tokens=per_turn), token_budget=600, max_turns=8, step_limit=25
+            harness, *searching(8, tokens=per_turn), token_budget=600, max_turns=8
         )
 
         assert run.total_tokens >= 600
@@ -759,7 +764,7 @@ class TestTheNodesInIsolation:
         # have raised.
         harness = Harness()
         harness.chat_model = ScriptedToolCallingChatModel(turns=())  # type: ignore[assignment]
-        spec = build_investigator_graph(harness.collaborators(), max_turns=1, step_limit=25)
+        spec = build_investigator_graph(harness.collaborators(), max_turns=1)
         act = next(node for node in spec.nodes if node.name == "act")
 
         spent = (
@@ -774,7 +779,7 @@ class TestTheNodesInIsolation:
     async def test_the_token_guard_also_runs_before_the_model(self) -> None:
         harness = Harness()
         harness.chat_model = ScriptedToolCallingChatModel(turns=())  # type: ignore[assignment]
-        spec = build_investigator_graph(harness.collaborators(), token_budget=100, step_limit=25)
+        spec = build_investigator_graph(harness.collaborators(), token_budget=100)
         act = next(node for node in spec.nodes if node.name == "act")
 
         update = await act.run(AgentState(question="why?", tenant_id=TENANT, usage=(90, 30)))

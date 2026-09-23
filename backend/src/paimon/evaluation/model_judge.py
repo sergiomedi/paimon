@@ -34,6 +34,7 @@ from paimon.domain.ports import ChatModel, Message
 from paimon.evaluation.judging import (
     COMPLETENESS_RUBRIC,
     FAITHFULNESS_RUBRIC,
+    REFUSAL_RUBRIC,
     RELEVANCE_RUBRIC,
     Judgement,
     Verdict,
@@ -111,6 +112,16 @@ class ModelAnswerJudge:
         """Decide whether the answer addresses the question."""
         prompt = f"Question:\n{question}\n\nAnswer to grade:\n{answer}"
         return await self._ask(RELEVANCE_RUBRIC, prompt)
+
+    async def judge_refusal(self, question: str, answer: str) -> Judgement:
+        """Decide whether a response declines to answer.
+
+        The prompt carries the question and the response and nothing else. No
+        category, no expected outcome, no task id: a judge told that a refusal
+        was expected is a judge told the answer.
+        """
+        prompt = f"Question:\n{question}\n\nResponse to classify:\n{answer}"
+        return await self._ask(REFUSAL_RUBRIC, prompt)
 
     async def _ask(self, rubric: str, prompt: str) -> Judgement:
         """Put one question to the judge, as many times as configured."""
