@@ -15,6 +15,7 @@ from paimon.interfaces.api.dependencies import (
     AgentCheckpointerDep,
     AgentWorkflowsDep,
     CurrentPrincipal,
+    UnavailableAgentsDep,
 )
 from paimon.interfaces.api.schemas import ErrorResponse
 from paimon.interfaces.api.schemas_agents import (
@@ -52,15 +53,28 @@ async def list_agents(
     ]
 
 
-def _workflow(workflows: dict[str, AgentWorkflow], name: str) -> AgentWorkflow:
+def _workflow(
+    workflows: dict[str, AgentWorkflow], name: str, unavailable: dict[str, str] | None = None
+) -> AgentWorkflow:
+    """Find an agent, or explain as precisely as possible why there isn't one.
+
+    An agent can be missing for two quite different reasons, and collapsing them
+    is how somebody spends an afternoon looking for a typo. Either the name is
+    wrong, or the name is right and this deployment cannot run that agent — on
+    the local backend, usually because the configured model cannot call tools.
+    The second is a configuration answer and the caller can act on it.
+    """
     workflow = workflows.get(name)
-    if workflow is None:
-        known = ", ".join(sorted(workflows))
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"no agent named '{name}'; this deployment offers: {known}",
-        )
-    return workflow
+    if workflow is not None:
+        return workflow
+    reason = (unavailable or {}).get(name)
+    known = ", ".join(sorted(workflows))
+    detail = (
+        f"agent '{name}' is not available in this deployment: {reason}"
+        if reason
+        else f"no agent named '{name}'; this deployment offers: {known}"
+    )
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=detail)
 
 
 @router.post(
@@ -78,6 +92,7 @@ async def start_run(
     request: StartRunRequest,
     principal: CurrentPrincipal,
     workflows: AgentWorkflowsDep,
+    unavailable: UnavailableAgentsDep,
 ) -> StreamingResponse:
     """Run an agent, emitting each step as it completes.
 
@@ -87,7 +102,7 @@ async def start_run(
     later even if the client disconnects mid-stream — the steps are checkpointed
     as they happen, so a dropped connection loses the stream, not the record.
     """
-    workflow = _workflow(workflows, agent)
+    workflow = _workflow(workflows, agent, unavailable)
     thread_id = str(uuid.uuid4())
 
     async def stream() -> AsyncIterator[bytes]:

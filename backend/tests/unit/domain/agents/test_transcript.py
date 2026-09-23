@@ -169,3 +169,18 @@ class TestImmutability:
     def test_it_cannot_be_written_to(self) -> None:
         with pytest.raises(AttributeError):
             Transcript().turns = 4  # type: ignore[misc]
+
+
+class TestConcluding:
+    def test_it_overwrites_a_reason_ended_would_have_kept(self) -> None:
+        # The one case: a loop that believes it answered but gathered nothing
+        # did not answer. Deciding that needs the evidence, which the loop never
+        # looks at, so it cannot be decided while the loop is running.
+        transcript = Transcript().ended(StopReason.ANSWERED)
+
+        assert transcript.concluded(StopReason.NO_MATERIAL).stop is StopReason.NO_MATERIAL
+
+    def test_ending_afterwards_still_does_nothing(self) -> None:
+        transcript = Transcript().concluded(StopReason.NO_MATERIAL)
+
+        assert transcript.ended(StopReason.ANSWERED).stop is StopReason.NO_MATERIAL

@@ -21,7 +21,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from paimon.agents import AgentCollaborators, build_all
+from paimon.agents import AgentCollaborators, build_all, unavailable
 from paimon.agents.tools import CorpusAccess
 from paimon.application.use_cases import (
     AnswerQuestion,
@@ -518,6 +518,17 @@ async def get_current_principal(
     return await identity_provider.authenticate(credentials.credentials)
 
 
+def _agent_collaborators(resources: Resources) -> AgentCollaborators:
+    """The ports and use cases every agent's nodes call, for this deployment."""
+    return AgentCollaborators(
+        retrieve=build_retrieve_chunks(resources),
+        chat_model=resources.chat_model,
+        repository=resources.document_repository,
+        token_counter=resources.token_counter,
+        store=resources.vector_store,
+    )
+
+
 def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
     """Compile every registered agent once.
 
@@ -531,12 +542,7 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
     Returns:
         Each agent's runnable workflow, by name.
     """
-    collaborators = AgentCollaborators(
-        retrieve=build_retrieve_chunks(resources),
-        chat_model=resources.chat_model,
-        repository=resources.document_repository,
-        token_counter=resources.token_counter,
-    )
+    collaborators = _agent_collaborators(resources)
     return {
         name: LangGraphWorkflow(
             spec,
@@ -547,6 +553,9 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
         for name, spec in build_all(
             collaborators,
             review_postmortems=resources.settings.agents.review_postmortems,
+            max_turns=resources.settings.agents.investigator_max_turns,
+            token_budget=resources.settings.agents.investigator_token_budget,
+            step_limit=resources.settings.agents.step_limit,
         ).items()
     }
 
@@ -562,6 +571,16 @@ def build_corpus_access(resources: Resources) -> CorpusAccess:
         repository=resources.document_repository,
         store=resources.vector_store,
     )
+
+
+def build_unavailable_agents(resources: Resources) -> dict[str, str]:
+    """Which agents this deployment cannot run, and why.
+
+    Kept beside the compiled graphs so the API can explain an absence. "No agent
+    named 'investigator'" is true and useless — it reads as a typo, and whoever
+    sent the request will go looking for one.
+    """
+    return unavailable(_agent_collaborators(resources))
 
 
 def build_mcp_gateway(
@@ -589,6 +608,12 @@ def get_agent_workflows(request: Request) -> dict[str, AgentWorkflow]:
     """Return the workflows compiled at startup."""
     workflows: dict[str, AgentWorkflow] = request.app.state.agent_workflows
     return workflows
+
+
+def get_unavailable_agents(request: Request) -> dict[str, str]:
+    """Return why each unavailable agent is unavailable, decided at startup."""
+    reasons: dict[str, str] = getattr(request.app.state, "unavailable_agents", {})
+    return reasons
 
 
 def get_checkpointer(resources: ResourcesDep) -> AgentCheckpointer:
@@ -673,6 +698,7 @@ def get_answer_question(resources: ResourcesDep) -> AnswerQuestion:
 
 
 AgentWorkflowsDep = Annotated[dict[str, AgentWorkflow], Depends(get_agent_workflows)]
+UnavailableAgentsDep = Annotated[dict[str, str], Depends(get_unavailable_agents)]
 AgentCheckpointerDep = Annotated[AgentCheckpointer, Depends(get_checkpointer)]
 AnswerQuestionDep = Annotated[AnswerQuestion, Depends(get_answer_question)]
 CheckReadinessDep = Annotated[CheckReadiness, Depends(get_check_readiness)]

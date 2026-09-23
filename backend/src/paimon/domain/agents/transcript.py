@@ -185,6 +185,19 @@ class Transcript:
         """Whether repetition has gone past being worth another reminder."""
         return self.repeated_calls > self.TOLERATED_REPEATS
 
+    def concluded(self, reason: StopReason) -> "Transcript":
+        """Overwrite the stop reason with the one the record should carry.
+
+        The exception to :meth:`ended`'s first-reason-wins rule, and the reason
+        the two are separate methods rather than a flag. ``ended`` is called by
+        the loop while it is still running and must not let a later condition
+        rewrite history. This is called once, by the node that composes the
+        answer, and exists for one case: a loop that believes it answered but
+        gathered no evidence did not answer, whatever it believed. Deciding that
+        needs the evidence, which the loop does not look at.
+        """
+        return replace(self, stop=reason)
+
     def ended(self, reason: StopReason) -> "Transcript":
         """Fix the reason this loop stopped.
 

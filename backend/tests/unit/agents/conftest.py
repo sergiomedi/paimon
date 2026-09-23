@@ -113,6 +113,7 @@ class Harness:
             chat_model=self.chat_model,
             repository=self.repository,
             token_counter=self.token_counter,
+            store=self.store,
         )
 
     async def index(self) -> None:

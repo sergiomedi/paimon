@@ -34,6 +34,7 @@ from paimon.interfaces.api.dependencies import (
     build_document_sources,
     build_mcp_gateway,
     build_resources,
+    build_unavailable_agents,
 )
 from paimon.interfaces.api.middleware import CorrelationIdMiddleware
 from paimon.interfaces.api.routers import agents, health, identity, knowledge
@@ -153,6 +154,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # of surfacing as a 500 to whoever first asks for that agent.
             workflows = build_agent_workflows(resources)
             app.state.agent_workflows = workflows
+            # Why an agent this build offers is nonetheless not running here.
+            # Decided once, at startup, for the same reason the graphs are
+            # compiled once: it depends on configuration, not on the request.
+            app.state.unavailable_agents = build_unavailable_agents(resources)
             # Assembled at startup for the same reason the graphs are: a source
             # is built from configuration, so a misconfigured one is a startup
             # problem, and finding out at synchronisation time is finding out late.
