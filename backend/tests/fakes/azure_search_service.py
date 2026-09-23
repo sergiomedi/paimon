@@ -142,6 +142,18 @@ class FakeAzureSearchService:
             scored = [(1.0, document) for document in documents]
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
+        # An explicit ordering wins over the score, which is what the service
+        # does and what a caller asking for reading order is relying on.
+        # Without this the fake returned insertion order for every request and
+        # an adapter that never sent `orderby` at all would have passed — the
+        # Phase 7 lesson about stand-ins written by the author of the adapter
+        # they are meant to check.
+        if orderby := payload.get("orderby"):
+            field, _, direction = str(orderby).partition(" ")
+            scored.sort(
+                key=lambda pair: pair[1].get(field, 0),
+                reverse=direction.strip().lower() == "desc",
+            )
         selected = payload.get("select")
         value = []
         for score, document in scored[:top]:

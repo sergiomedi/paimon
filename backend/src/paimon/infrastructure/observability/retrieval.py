@@ -18,6 +18,7 @@ from typing import Protocol, runtime_checkable
 
 from opentelemetry.trace import Span
 
+from paimon.domain.entities import Chunk
 from paimon.domain.ports import (
     ChunkRecord,
     IndexDescriptor,
@@ -103,6 +104,21 @@ class TracedVectorStore:
     async def delete_document(self, tenant_id: str, document_id: str) -> int:
         """Remove a document's chunks, untraced for the same reason."""
         return await self._inner.delete_document(tenant_id, document_id)
+
+    async def list_chunks(
+        self, tenant_id: str, document_id: str, *, limit: int = 100
+    ) -> list[Chunk]:
+        """Return a document's chunks, recording the read.
+
+        Traced, unlike upsert and delete, because this one is on a *query* path:
+        an agent reading a whole document pays a round trip for it and can do it
+        several times in one run, so a trace that showed only the searches would
+        account for part of what a run spent looking things up.
+        """
+        with self._span("document", limit) as span:
+            chunks = await self._inner.list_chunks(tenant_id, document_id, limit=limit)
+            span.set_attribute(HITS_RETURNED, len(chunks))
+            return chunks
 
     async def search_dense(
         self, embedding: Embedding, *, top_k: int, filters: SearchFilters
