@@ -7,7 +7,11 @@ from dataclasses import dataclass
 from paimon.domain.entities import Chunk, Document
 from paimon.domain.value_objects import Citation
 
-_MARKER = re.compile(r"\[(\d+)\]")
+#: What a citation marker looks like. Public and defined once: the resolver, the
+#: attribution checker and the agent that counts what a withdrawn draft tried to
+#: cite must agree about this, and three copies of one regex is three chances to
+#: disagree about it silently.
+MARKER = re.compile(r"\[(\d+)\]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +61,7 @@ def resolve_citations(
     used: list[int] = []
     dropped: list[int] = []
 
-    for match in _MARKER.finditer(answer):
+    for match in MARKER.finditer(answer):
         marker = int(match.group(1))
         if 1 <= marker <= len(sources):
             if marker not in used:
@@ -69,7 +73,7 @@ def resolve_citations(
         marker = int(match.group(1))
         return match.group(0) if 1 <= marker <= len(sources) else ""
 
-    cleaned = _MARKER.sub(strip_unresolvable, answer)
+    cleaned = MARKER.sub(strip_unresolvable, answer)
     # Removing a marker can leave a doubled space or a space before punctuation.
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\s+([.,;:!?])", r"\1", cleaned).strip()

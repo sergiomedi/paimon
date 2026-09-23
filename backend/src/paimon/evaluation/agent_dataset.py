@@ -24,6 +24,16 @@ from pathlib import Path
 
 from paimon.evaluation.dataset import SupportingPassage
 
+#: A hop goes between documents, so a multi-hop task needs at least two.
+_TWO_DOCUMENTS = 2
+
+
+#: The category whose name is a claim about the evidence rather than a label.
+#: A task called multi-hop whose supporting quotes all come from one document is
+#: a one-hop task with an ambitious name, and a benchmark full of them reports a
+#: multi-hop score for something else entirely.
+MULTI_HOP = "multi-hop"
+
 
 class Outcome(StrEnum):
     """What a system is supposed to do with a task.
@@ -73,7 +83,8 @@ class AgentTask:
         Raises:
             ValueError: If the task has no id, question or category; if an
                 answerable task names no supporting passage; if a refusal task
-                names one; or if it carries no reference solution.
+                names one; if a multi-hop task's evidence sits in a single
+                document; or if it carries no reference solution.
         """
         for name in ("task_id", "question", "category"):
             if not str(getattr(self, name)).strip():
@@ -89,6 +100,17 @@ class AgentTask:
             msg = (
                 f"task '{self.task_id}' expects a refusal and names supporting "
                 "passages; if the corpus supports an answer, the expectation is wrong"
+            )
+            raise ValueError(msg)
+        if self.category == MULTI_HOP and len(self.documents) < _TWO_DOCUMENTS:
+            # Caught by a test twice: once in agents-v1, where seven of nine
+            # were mislabelled, and again in the held-out set written a day
+            # later by the same author. Twice is a rule, not a slip.
+            listed = ", ".join(self.documents) or "none"
+            msg = (
+                f"task '{self.task_id}' is '{MULTI_HOP}' but every supporting passage "
+                f"comes from {listed}. A hop is between documents; relabel it or give "
+                "it the passage from the second one."
             )
             raise ValueError(msg)
         if not self.reference.strip():
@@ -201,4 +223,4 @@ def _task_from(raw: object, where: str) -> AgentTask:
         raise ValueError(msg) from error
 
 
-__all__ = ["AgentDataset", "AgentTask", "Outcome"]
+__all__ = ["MULTI_HOP", "AgentDataset", "AgentTask", "Outcome"]

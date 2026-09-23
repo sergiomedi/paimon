@@ -28,6 +28,7 @@ from paimon.agents.investigator import (
     OUT_OF_BUDGET,
     OUT_OF_STEPS,
     RETRIEVAL_FAILED,
+    SOURCES_HEADER,
     SYSTEM_PROMPT,
     UNSUPPORTED,
     WENT_IN_CIRCLES,
@@ -37,8 +38,9 @@ from paimon.agents.investigator import (
 )
 from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.domain.agents import AgentState, StopReason, Transcript
-from paimon.domain.entities import AgentRun, RunStatus
+from paimon.domain.entities import AgentRun, Chunk, RunStatus
 from paimon.domain.ports import Message, ToolCall
+from paimon.rag.prompting import render_source
 
 
 def searching(count: int, *, tokens: int = 100) -> tuple[Turn, ...]:
@@ -227,8 +229,8 @@ class TestAnsweringInTwoHops:
 
         first_results = model_of(harness).seen[1][-1].content
         second_results = model_of(harness).seen[2][-1].content
-        assert "[1] document: runbook" in first_results
-        assert "[1] document: runbook" in second_results
+        assert "[1] runbook" in first_results
+        assert "[1] runbook" in second_results
 
     async def test_a_citation_written_on_a_later_turn_still_resolves(self) -> None:
         harness = Harness()
@@ -351,7 +353,7 @@ class TestStoppingOnRepetition:
         first = model_of(harness).seen[1][-1].content
         reminder = model_of(harness).seen[2][-1].content
         # Whatever the first call returned, the reminder names exactly those.
-        returned = re.findall(r"\[(\d+)\] document:", first)
+        returned = re.findall(r"\[(\d+)\] \w", first)
         assert returned
         assert ALREADY_HAVE in reminder
         for marker in returned:
@@ -793,3 +795,102 @@ class TestTheNodesInIsolation:
         verify = next(node for node in spec.nodes if node.name == "verify")
 
         assert await verify.run(AgentState(question="why?", tenant_id=TENANT)) == {}
+
+
+class TestHowPassagesAreShown:
+    """The one difference between this agent and the paths that cite reliably.
+
+    In the first measured run, `answers` and `incident-triage` produced a
+    resolvable citation on 250 of 250 answerable attempts. This agent, showing
+    the same passages from the same corpus to the same model in its own format,
+    failed to on 37 of 125. The format is now the one they use.
+    """
+
+    async def test_passages_arrive_under_the_same_header_the_prompt_uses(self) -> None:
+        harness = Harness()
+        await harness.index()
+
+        await investigate(
+            harness,
+            Turn(calls=(search("draining"),)),
+            Turn(text="Cordon the node first [1]."),
+        )
+
+        assert SOURCES_HEADER in model_of(harness).seen[1][-1].content
+
+    async def test_a_passage_is_rendered_the_way_the_prompt_renders_a_source(self) -> None:
+        # Byte for byte, through the same function, so the two cannot drift.
+        harness = Harness()
+        await harness.index_chunks(chunk("c1", "runbook", "Cordon the node first."))
+
+        await investigate(
+            harness,
+            Turn(calls=(search("cordon"),)),
+            Turn(text="Cordon it [1]."),
+            question="what first?",
+        )
+
+        shown = model_of(harness).seen[1][-1].content
+        expected = render_source(1, chunk("c1", "runbook", "Cordon the node first."))
+        assert expected in shown
+
+    async def test_the_heading_trail_is_carried(self) -> None:
+        # Dropped by the old format. It is how a reader tells step three of a
+        # runbook from its "Related" section, which is the distinction a
+        # measured failure turned on.
+        harness = Harness()
+        indexed = Chunk(
+            chunk_id="c1",
+            document_id="runbook",
+            tenant_id=TENANT,
+            ordinal=0,
+            text="Compare the product against the ceiling.",
+            start_char=0,
+            end_char=40,
+            token_count=8,
+            heading_path=("RB-114", "Steps"),
+        )
+        await harness.index_chunks(indexed)
+
+        await investigate(
+            harness,
+            Turn(calls=(search("ceiling"),)),
+            Turn(text="Compare it [1]."),
+            question="what does step three say?",
+        )
+
+        assert "RB-114" in model_of(harness).seen[1][-1].content
+
+    async def test_it_is_still_a_tool_message(self) -> None:
+        # Only the formatting changed. Document text reaching the model
+        # anywhere else is the boundary that makes an injected instruction
+        # inert, and no measurement is worth moving it.
+        harness = Harness()
+        await harness.index_chunks(chunk("inj", "vendor-notes", INJECTION))
+
+        await investigate(
+            harness,
+            Turn(calls=(search("vendor"),)),
+            Turn(text="A vendor document attempts an override [1]."),
+        )
+
+        carriers = [
+            message
+            for message in model_of(harness).seen[-1]
+            if "Ignore all previous instructions" in message.content
+        ]
+        assert carriers
+        assert all(message.role == "tool" for message in carriers)
+
+    async def test_an_empty_result_still_says_so_without_a_header(self) -> None:
+        harness = Harness()
+
+        await investigate(
+            harness,
+            Turn(calls=(search("quantum tunnelling"),)),
+            Turn(text="Nothing covers this."),
+        )
+
+        shown = model_of(harness).seen[1][-1].content
+        assert "Do not answer from memory" in shown
+        assert SOURCES_HEADER not in shown

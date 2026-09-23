@@ -66,7 +66,7 @@ def build_prompt(
     spent = 0
 
     for chunk in chunks:
-        block = _render(len(included) + 1, chunk)
+        block = render_source(len(included) + 1, chunk)
         cost = count.count(block)
         if included and spent + cost > max_context_tokens:
             break
@@ -86,7 +86,13 @@ def build_prompt(
     )
 
 
-def _render(marker: int, chunk: Chunk) -> str:
-    """Render one numbered source block."""
+def render_source(marker: int, chunk: Chunk) -> str:
+    """Render one numbered source block.
+
+    Public because more than one caller needs sources to look the same. The
+    single-pass path builds a prompt out of these; the autonomous agent shows
+    the passages its tools returned, and the two presenting them differently is
+    a difference nobody chose and one that turned out to matter.
+    """
     heading = f" — {chunk.heading_trail}" if chunk.heading_path else ""
     return f"[{marker}] {chunk.document_id}{heading}\n{chunk.text}"

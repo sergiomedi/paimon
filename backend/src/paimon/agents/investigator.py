@@ -39,7 +39,6 @@ from paimon.agents.tools import (
     ToolArgumentError,
     ToolExecutor,
     UnknownToolError,
-    render_passages,
 )
 from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.domain.agents import (
@@ -57,7 +56,8 @@ from paimon.domain.agents import (
 from paimon.domain.entities import Chunk
 from paimon.domain.errors import DomainError
 from paimon.domain.ports import DocumentRepository, Message, ToolCall, ToolCallingChatModel
-from paimon.rag.citations import resolve_citations
+from paimon.rag.citations import MARKER, resolve_citations
+from paimon.rag.prompting import render_source
 
 AGENT_NAME = "investigator"
 
@@ -78,6 +78,16 @@ NODES_PER_TURN = 2
 #: Node executions after the last pass: the turn that decides to stop, then
 #: composing the answer and checking it.
 CLOSING_NODES = 3
+
+#: What the block of passages is introduced as, matching the single-pass prompt.
+#: A model that has been trained to read "Sources:" and cite by marker should
+#: see the same word here.
+SOURCES_HEADER = "Sources:"
+
+#: How much of a withdrawn draft goes into the step record. Enough to see the
+#: markers it wrote and how it wrote them, short enough to sit in a trace.
+WITHDRAWN_EXCERPT = 200
+
 
 SYSTEM_PROMPT = """\
 You are answering a question about an engineering organization's operational
@@ -245,7 +255,12 @@ def build_investigator_graph(
                 summary="composed",
                 report=_report_stop,
             ),
-            NodeSpec(name="verify", run=_verify, summary="checked the answer is supported"),
+            NodeSpec(
+                name="verify",
+                run=_verify,
+                summary="checked the answer is supported",
+                report=_report_verification,
+            ),
         ],
         edges=[("finalize", "verify"), ("verify", END)],
         branches=[
@@ -411,6 +426,35 @@ async def _verify(state: AgentState) -> StateUpdate:
     return {"draft": UNSUPPORTED, "citations": ()}
 
 
+def _report_verification(state: AgentState, update: StateUpdate) -> StepReport:
+    """Record what was withdrawn, and not merely that something was.
+
+    This node replaces the draft, so without this the withdrawn text existed
+    only in memory and the run's record said "could not tie the answer to any of
+    it" with nothing to look at. Thirty-seven of a hundred and twenty-five
+    answerable attempts ended that way in the first measured run, and the
+    reports could not say whether the model had emitted no markers, markers out
+    of range, or markers in a form the resolver did not match — three different
+    defects with three different fixes.
+
+    Truncated, because a step detail is read in a terminal and beside a trace,
+    and the first two hundred characters carry the markers. The whole draft is
+    in the model's own transcript for anyone who needs the rest.
+    """
+    if not update.get("draft"):
+        return StepReport(summary="checked the answer is supported")
+    withdrawn = state.draft.strip()
+    return StepReport(
+        summary="withdrew an answer that cited nothing",
+        details={
+            "withdrawn": withdrawn[:WITHDRAWN_EXCERPT],
+            "withdrawn_chars": str(len(withdrawn)),
+            "markers_written": str(len(MARKER.findall(withdrawn))),
+            "passages_held": str(len(state.evidence)),
+        },
+    )
+
+
 class _Ledger:
     """Assigns every passage a number that means the same thing all run.
 
@@ -446,11 +490,27 @@ class _Ledger:
 
 
 def _render(passages: Sequence[Chunk], markers: Sequence[int], note: str) -> str:
-    """Render numbered passages with whatever has to be said about them."""
-    body = render_passages(passages, markers)
-    if note and body:
-        return f"{body}\n\n{note}"
-    return note or body
+    """Render numbered passages the way the single-pass prompt renders sources.
+
+    Same block, same header, same per-passage shape — ``render_source`` is the
+    one the RAG path uses — and the difference is not cosmetic. In the first
+    measured run the two systems presenting sources this way produced a
+    resolvable citation on 250 of 250 answerable attempts; this agent, showing
+    the same passages in its own format, failed to on 37 of 125. That is not
+    proof the format caused it, and it is the one difference between them worth
+    removing before looking further.
+
+    Still a ``tool`` message. Only the formatting inside it changes: document
+    text reaching the model anywhere else is the boundary that makes an injected
+    instruction inert, and no measurement is worth moving it.
+    """
+    if not passages:
+        return note
+    body = "\n\n".join(
+        render_source(marker, passage) for passage, marker in zip(passages, markers, strict=True)
+    )
+    block = f"{SOURCES_HEADER}\n\n{body}"
+    return f"{block}\n\n{note}" if note else block
 
 
 def _requested(transcript: Transcript) -> tuple[ToolCall, ...]:

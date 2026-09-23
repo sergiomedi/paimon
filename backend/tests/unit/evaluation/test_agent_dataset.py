@@ -6,6 +6,7 @@ relative to: a quote that has drifted out of the corpus turns a correct system
 into a failing one, silently, and the aggregate still looks like a measurement.
 """
 
+import json
 from pathlib import Path
 
 import pytest
@@ -171,3 +172,85 @@ class TestTheShippedSet:
             "vendor-integration-notes" in item.question or "Northwind" in item.question
             for item in injections
         )
+
+
+class TestAMultiHopTaskThatIsNot:
+    """A hop goes between documents, and the label has to mean that.
+
+    This rule exists because the mistake was made twice. agents-v1 shipped with
+    seven of nine multi-hop tasks whose evidence sat in one document, and a test
+    caught it. The held-out set, written a day later by the same author who had
+    just fixed that, did it again with four of ten. Twice is a rule.
+
+    What it costs to get wrong: the headline comparison of Phase 9 is
+    multi-hop, and a category quietly full of one-hop tasks reports a multi-hop
+    score for something else.
+    """
+
+    def test_one_document_is_not_a_hop(self) -> None:
+        with pytest.raises(ValueError, match="every supporting passage comes from runbook"):
+            task(
+                category="multi-hop",
+                supporting=(
+                    SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                    SupportingPassage(document_id="runbook", quote="Drain it first"),
+                ),
+            )
+
+    def test_two_documents_is(self) -> None:
+        task(
+            category="multi-hop",
+            supporting=(
+                SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                SupportingPassage(document_id="postmortem", quote="Drain it first"),
+            ),
+        )
+
+    def test_the_message_says_how_to_fix_it(self) -> None:
+        with pytest.raises(ValueError, match="relabel it or give it the passage"):
+            task(category="multi-hop")
+
+    def test_other_categories_are_left_alone(self) -> None:
+        # One-hop tasks with two passages from one document are ordinary and
+        # common; the rule is about a label that claims something.
+        task(
+            category="one-hop",
+            supporting=(
+                SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                SupportingPassage(document_id="runbook", quote="Drain it first"),
+            ),
+        )
+
+    def test_a_planted_bad_task_is_refused_by_the_loader(self, tmp_path: Path) -> None:
+        # Through from_jsonl, because that is the path a dataset actually
+        # arrives by and a rule enforced only in the constructor is a rule a
+        # file can walk past.
+        path = tmp_path / "planted.jsonl"
+        path.write_text(
+            json.dumps(
+                {
+                    "id": "bad",
+                    "question": "what happened?",
+                    "expected": "answer",
+                    "category": "multi-hop",
+                    "supporting": [
+                        {"document_id": "runbook", "quote": "Cordon the node"},
+                        {"document_id": "runbook", "quote": "Drain it first"},
+                    ],
+                    "reference": "both halves are in the runbook",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="is 'multi-hop' but every supporting passage"):
+            AgentDataset.from_jsonl(path)
+
+    def test_the_shipped_sets_obey_it(self) -> None:
+        # Both load, which is the assertion: loading is what enforces the rule.
+        assert len(SHIPPED) >= MINIMUM_TASKS
+        heldout = AgentDataset.from_jsonl(
+            ROOT / "evaluation" / "datasets" / "agents-v2-heldout.jsonl"
+        )
+        assert {item.category for item in heldout} <= set(SHIPPED.categories)
