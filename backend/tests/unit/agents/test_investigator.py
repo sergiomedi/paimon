@@ -10,6 +10,8 @@ the thing under test and a loop tested by calling its nodes in the order the
 author intended is a loop tested against its author's intentions.
 """
 
+import re
+
 import pytest
 from tests.fakes import (
     ScriptedToolCallingChatModel,
@@ -326,10 +328,33 @@ class TestStoppingAtTheTokenBudget:
 
 
 class TestStoppingOnRepetition:
-    async def test_the_first_repeat_is_answered_with_a_reminder(self) -> None:
-        # Not stopped. A model that repeated itself once may simply have lost
-        # track, and telling it what it already holds is cheaper than throwing
-        # away everything it found.
+    async def test_the_first_repeat_is_told_which_passages_it_already_has(self) -> None:
+        # Not stopped, and not scolded either. A model that repeats a search has
+        # lost track of which passages came from where; "you have already run
+        # that" leaves it to work out the very thing it has just demonstrated it
+        # cannot, so the reminder carries the numbers.
+        harness = Harness()
+        await harness.index()
+
+        await investigate(
+            harness,
+            Turn(calls=(search("draining"),)),
+            Turn(calls=(search("draining", call_id="call-2"),)),
+            Turn(text="Cordon the node first [1]."),
+        )
+
+        first = model_of(harness).seen[1][-1].content
+        reminder = model_of(harness).seen[2][-1].content
+        # Whatever the first call returned, the reminder names exactly those.
+        returned = re.findall(r"\[(\d+)\] document:", first)
+        assert returned
+        assert ALREADY_HAVE in reminder
+        for marker in returned:
+            assert f"[{marker}]" in reminder
+
+    async def test_after_the_first_repeat_the_run_carries_on(self) -> None:
+        # The half that matters as much: a reminder is not a stop. The run has
+        # to be able to spend its remaining turns on something useful.
         harness = Harness()
         await harness.index()
 
@@ -337,13 +362,31 @@ class TestStoppingOnRepetition:
             harness,
             Turn(calls=(search("draining"),)),
             Turn(calls=(search("draining", call_id="call-2"),)),
-            Turn(text="Cordon the node first [1]."),
+            Turn(calls=(read("incident", call_id="call-3"),)),
+            Turn(text="The drain stalled on a disruption budget [1][2]."),
         )
 
-        assert ALREADY_HAVE in model_of(harness).seen[2][-1].content
         assert stop_reason(run) == "answered"
+        assert model_of(harness).calls_made == 4
+        assert "[1]" in run.answer
 
-    async def test_the_second_repeat_ends_the_run(self) -> None:
+    async def test_a_repeat_of_a_search_that_found_nothing_says_so(self) -> None:
+        # There are no numbers to name, so the reminder has to say the useful
+        # thing instead: running it again will not help either.
+        harness = Harness()
+
+        await investigate(
+            harness,
+            Turn(calls=(search("quantum tunnelling"),)),
+            Turn(calls=(search("quantum tunnelling", call_id="call-2"),)),
+            Turn(text="The corpus does not cover this."),
+        )
+
+        reminder = model_of(harness).seen[2][-1].content
+        assert ALREADY_HAVE in reminder
+        assert "returned nothing then" in reminder
+
+    async def test_the_second_repeat_ends_the_run_with_repeated_call(self) -> None:
         harness = Harness()
         await harness.index()
 

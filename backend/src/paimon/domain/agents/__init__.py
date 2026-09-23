@@ -30,7 +30,12 @@ from paimon.domain.agents.state import (
     combine_failures,
     merge_evidence,
 )
-from paimon.domain.agents.transcript import StopReason, Transcript, fingerprint
+from paimon.domain.agents.transcript import (
+    SeenCall,
+    StopReason,
+    Transcript,
+    fingerprint,
+)
 
 __all__ = [
     "END",
@@ -40,6 +45,7 @@ __all__ = [
     "GraphSpec",
     "Node",
     "NodeSpec",
+    "SeenCall",
     "StateUpdate",
     "StepReport",
     "StopReason",

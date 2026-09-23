@@ -145,16 +145,33 @@ REFUSALS: dict[StopReason, str] = {
     StopReason.REPEATED_CALL: WENT_IN_CIRCLES,
 }
 
-ALREADY_HAVE = (
-    "You have already run this exact call in this investigation, and its passages "
-    "are above under the numbers they were given. Use them, search for something "
-    "different, or answer."
+ALREADY_HAVE = "You have already run this exact call in this investigation."
+
+FOUND_NOTHING_BEFORE = (
+    "It returned nothing then and would return nothing now. Search for something "
+    "different, or say the corpus does not cover this."
 )
+
+USE_THEM = "Use them, search for something different, or answer."
 
 ENOUGH = (
     "You have now asked for the same material twice after being told you already "
     "had it. This investigation is over."
 )
+
+
+def already_have(markers: Sequence[int]) -> str:
+    """Tell a model what a call it just repeated had already given it.
+
+    The numbers, not a scolding. A model that repeats a search has lost track of
+    which passages came from where; "you have already run that" leaves it to
+    work out the very thing it has just demonstrated it cannot, while "you
+    already have [3] and [4]" is something it can act on this turn.
+    """
+    if not markers:
+        return f"{ALREADY_HAVE} {FOUND_NOTHING_BEFORE}"
+    listed = "".join(f"[{marker}]" for marker in markers)
+    return f"{ALREADY_HAVE} It returned {listed}, which you already have. {USE_THEM}"
 
 
 def worst_case_steps(max_turns: int) -> int:
@@ -340,10 +357,13 @@ async def _run_one(
     one short function rather than a paragraph of a long one.
     """
     if transcript.is_repeat(call):
+        # The markers are read before recording, because recording a repeat
+        # deliberately does not overwrite the first occurrence's markers.
+        earlier = transcript.markers_for(call)
         transcript = transcript.with_call(call)
         if transcript.repeating():
             return transcript.ended(StopReason.REPEATED_CALL), _reply(call, ENOUGH)
-        return transcript, _reply(call, ALREADY_HAVE)
+        return transcript, _reply(call, already_have(earlier))
 
     try:
         found = await executor.execute(call)
@@ -364,7 +384,11 @@ async def _run_one(
             _reply(call, f"The corpus could not be searched: {error}"),
         )
 
-    return transcript.with_call(call), _reply(call, ledger.render(found.passages, found.note))
+    markers = ledger.number(found.passages)
+    return (
+        transcript.with_call(call, markers),
+        _reply(call, _render(found.passages, markers, found.note)),
+    )
 
 
 def _finalize_node(repository: DocumentRepository) -> Node:
@@ -419,13 +443,9 @@ class _Ledger:
         self._next = len(self._markers) + 1
         self.added: tuple[Chunk, ...] = ()
 
-    def render(self, passages: Sequence[Chunk], note: str) -> str:
-        """Number these passages and render them for the model."""
-        markers = [self._marker(passage) for passage in passages]
-        body = render_passages(passages, markers)
-        if note and body:
-            return f"{body}\n\n{note}"
-        return note or body
+    def number(self, passages: Sequence[Chunk]) -> tuple[int, ...]:
+        """Assign each passage its number for this run, minting new ones as needed."""
+        return tuple(self._marker(passage) for passage in passages)
 
     def _marker(self, passage: Chunk) -> int:
         existing = self._markers.get(passage.chunk_id)
@@ -436,6 +456,14 @@ class _Ledger:
         self._next += 1
         self.added = (*self.added, passage)
         return marker
+
+
+def _render(passages: Sequence[Chunk], markers: Sequence[int], note: str) -> str:
+    """Render numbered passages with whatever has to be said about them."""
+    body = render_passages(passages, markers)
+    if note and body:
+        return f"{body}\n\n{note}"
+    return note or body
 
 
 def _requested(transcript: Transcript) -> tuple[ToolCall, ...]:

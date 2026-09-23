@@ -90,6 +90,25 @@ def fingerprint(call: ToolCall) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class SeenCall:
+    """A tool call already made, and the passages it produced.
+
+    The markers are carried rather than recomputed, and that is the whole reason
+    this is a type instead of a string. Telling a model that repeated itself
+    "you already have passages [3] and [4]" is advice it can act on; telling it
+    "you have already run that" leaves it to work out which of the numbers on
+    its screen came from where, which is the thing it just demonstrated it had
+    lost track of.
+
+    Empty markers are ordinary: a call that found nothing, or one whose
+    arguments were wrong, produced no passages and is still a call that was made.
+    """
+
+    fingerprint: str
+    markers: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class Transcript:
     """The conversation a loop is holding, and what it has cost so far.
 
@@ -104,7 +123,8 @@ class Transcript:
             because an assistant turn that asks for two tools produces three
             messages and one turn, and conflating them would make the budget
             depend on how many tools a model happened to batch.
-        seen_calls: Fingerprints of every tool call already made.
+        seen_calls: Every distinct tool call already made, with the passages it
+            produced.
         tool_calls: How many tool calls have been executed.
         tool_errors: Calls that came back as an error the model was asked to
             correct. Reported rather than fatal — Anthropic's guidance is that a
@@ -119,7 +139,7 @@ class Transcript:
 
     messages: tuple[Message, ...] = ()
     turns: int = 0
-    seen_calls: tuple[str, ...] = ()
+    seen_calls: tuple[SeenCall, ...] = ()
     tool_calls: int = 0
     tool_errors: int = 0
     repeated_calls: int = 0
@@ -163,19 +183,33 @@ class Transcript:
 
     def is_repeat(self, call: ToolCall) -> bool:
         """Whether this exact request has already been made in this run."""
-        return fingerprint(call) in self.seen_calls
+        return self._earlier(call) is not None
 
-    def with_call(self, call: ToolCall, *, failed: bool = False) -> "Transcript":
-        """Record that a tool call was executed, and how it went.
+    def markers_for(self, call: ToolCall) -> tuple[int, ...]:
+        """The passages an earlier identical call produced, if there was one."""
+        earlier = self._earlier(call)
+        return earlier.markers if earlier is not None else ()
+
+    def _earlier(self, call: ToolCall) -> SeenCall | None:
+        wanted = fingerprint(call)
+        return next((seen for seen in self.seen_calls if seen.fingerprint == wanted), None)
+
+    def with_call(
+        self, call: ToolCall, markers: Sequence[int] = (), *, failed: bool = False
+    ) -> "Transcript":
+        """Record that a tool call was executed, what it produced, and how it went.
 
         A repeat is counted and its fingerprint is *not* added twice, so the
         ledger stays a set of distinct requests while the counter stays a count
-        of events.
+        of events. The markers of the first occurrence are kept: they are what a
+        repeat is answered with, and the second attempt produced nothing new by
+        definition.
         """
         repeat = self.is_repeat(call)
+        recorded = SeenCall(fingerprint=fingerprint(call), markers=tuple(markers))
         return replace(
             self,
-            seen_calls=self.seen_calls if repeat else (*self.seen_calls, fingerprint(call)),
+            seen_calls=self.seen_calls if repeat else (*self.seen_calls, recorded),
             tool_calls=self.tool_calls + 1,
             tool_errors=self.tool_errors + (1 if failed else 0),
             repeated_calls=self.repeated_calls + (1 if repeat else 0),
