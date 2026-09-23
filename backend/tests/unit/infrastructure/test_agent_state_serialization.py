@@ -15,8 +15,8 @@ from typing import Any
 
 import pytest
 
-from paimon.domain.agents import StopReason, Transcript
-from paimon.domain.entities import AgentStep, Chunk
+from paimon.domain.agents import SeenCall, StopReason, Transcript
+from paimon.domain.entities import AgentStep, Chunk, RunStatus
 from paimon.domain.ports import Message, ToolCall
 from paimon.domain.value_objects import Citation
 from paimon.infrastructure.orchestration import build_serializer
@@ -116,40 +116,145 @@ class TestTranscript:
         )
 
 
-class TestWhatACheckpointDoesNotPreserve:
-    """A property of the framework, recorded so nobody rediscovers it.
+#: One live instance of every type on the allowlist, built with its tuple
+#: fields populated — the fields an encoding with a single sequence type is
+#: exactly what breaks. Keyed by the (module, name) pair the allowlist uses, so
+#: the catalogue test below can prove it covers all of them rather than claiming
+#: to.
+SPECIMENS: dict[tuple[str, str], object] = {
+    ("paimon.domain.entities.document", "Chunk"): CHUNK,
+    ("paimon.domain.entities.agent", "AgentStep"): AgentStep(
+        name="act",
+        summary="called the model",
+        started_at=datetime(2026, 9, 23, 10, 0, tzinfo=UTC),
+        finished_at=datetime(2026, 9, 23, 10, 0, 1, tzinfo=UTC),
+        input_tokens=100,
+        output_tokens=20,
+        details={"turn": "1", "requested": "search_corpus"},
+    ),
+    ("paimon.domain.entities.agent", "RunStatus"): RunStatus.AWAITING_INPUT,
+    ("paimon.domain.value_objects.citation", "Citation"): Citation(
+        marker=1,
+        document_id="doc-1",
+        chunk_id="doc-1:0",
+        source_uri="doc-1.md",
+        title="Node maintenance",
+        heading_path=("Node maintenance", "Draining"),
+        start_char=0,
+        end_char=22,
+        quote="Cordon the node first.",
+    ),
+    ("paimon.domain.ports.chat", "ToolCall"): ToolCall(
+        call_id="call-1", name="search_corpus", arguments={"query": "drain", "limit": 5}
+    ),
+    ("paimon.domain.ports.chat", "Message"): Message(
+        role="assistant",
+        content="looking",
+        tool_calls=(
+            ToolCall(call_id="call-1", name="search_corpus", arguments={"query": "drain"}),
+        ),
+    ),
+    ("paimon.domain.agents.transcript", "SeenCall"): SeenCall(fingerprint="{}", markers=(3, 4)),
+    ("paimon.domain.agents.transcript", "StopReason"): StopReason.REPEATED_CALL,
+    ("paimon.domain.agents.transcript", "Transcript"): (
+        Transcript()
+        .opened("rules", "why did the drain stall?")
+        .with_turn(
+            Message(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    ToolCall(call_id="c1", name="search_corpus", arguments={"query": "drain"}),
+                ),
+            )
+        )
+        .with_call(
+            ToolCall(call_id="c1", name="search_corpus", arguments={"query": "drain"}), (1, 2)
+        )
+        .with_results([Message(role="tool", content="[1] a passage", tool_call_id="c1")])
+        .ended(StopReason.ANSWERED)
+    ),
+}
 
-    The serializer revives a tuple as a **list**. The dataclasses here declare
-    tuples and the type checker believes them, so a revived value is a type the
-    annotation says it is not, and ``revived == original`` is false for reasons
-    that have nothing to do with the data.
 
-    This is not new and it is not ours — it is true of ``evidence``, ``steps``
-    and ``heading_path`` as much as of a conversation. It matters here only
-    because the transitions on :class:`Transcript` all rebuild their containers
-    with ``(*existing, new)``, which produces a tuple whatever it was handed. So
-    the type heals on the first write after a resume, and nothing downstream
-    depends on the container's identity. That is the property being pinned.
+class TestTheWholeCatalogue:
+    """Every type on the allowlist, stored and read back, required to be equal.
+
+    A catalogue rather than a test per type, because the failure this guards
+    against is *omission*: a type added to the state and to the allowlist, and
+    never round-tripped, which then comes back subtly different on the first
+    resumed run in production.
+
+    Equality is the assertion, not "the fields I remembered to check". JSON has
+    one sequence type, so every tuple on these types was coming back a list —
+    ``Chunk.heading_path`` most consequentially — and a revived chunk therefore
+    compared unequal to the chunk that was stored. Nothing shallow would have
+    caught it.
     """
 
-    def test_a_tuple_comes_back_as_a_list(self) -> None:
-        revived = round_trip(Transcript().opened("rules", "question"))
+    @pytest.mark.parametrize("entry", ALLOWED_MODULES, ids=lambda entry: f"{entry[0]}.{entry[1]}")
+    def test_every_allowlisted_type_survives_exactly(self, entry: tuple[str, str]) -> None:
+        specimen = SPECIMENS[entry]
 
-        assert isinstance(revived, Transcript)
-        # mypy calls this unreachable, and it is right to: the annotation says
-        # tuple and a list cannot be one. That disagreement between the
-        # annotation and the runtime value *is* the finding, so the ignore is
-        # the assertion rather than a way around it.
-        assert isinstance(revived.messages, list)  # type: ignore[unreachable]
+        assert round_trip(specimen) == specimen
 
-    def test_the_next_transition_restores_the_tuple(self) -> None:
-        revived = round_trip(Transcript().opened("rules", "question"))
-        assert isinstance(revived, Transcript)
+    @pytest.mark.parametrize("entry", ALLOWED_MODULES, ids=lambda entry: f"{entry[0]}.{entry[1]}")
+    def test_every_allowlisted_type_keeps_its_own_type(self, entry: tuple[str, str]) -> None:
+        specimen = SPECIMENS[entry]
 
-        continued = revived.with_turn(Message(role="assistant", content="looking"))
+        assert type(round_trip(specimen)) is type(specimen)
 
-        assert isinstance(continued.messages, tuple)
-        assert len(continued.messages) == 3
+    def test_the_catalogue_covers_the_allowlist(self) -> None:
+        # The assertion that keeps the two tests above honest. Without it,
+        # adding a type to the allowlist and forgetting to add a specimen would
+        # silently test one fewer type than the allowlist claims to protect.
+        assert set(SPECIMENS) == set(ALLOWED_MODULES)
+
+
+class TestTheTuplesComeBack:
+    """The specific repair, named, because it was a real defect.
+
+    Checked on the two types whose tuple field is load-bearing rather than
+    incidental: a heading path is what a citation is displayed under, and a
+    conversation is what a resumed loop continues from.
+    """
+
+    def test_a_chunks_heading_path_is_a_tuple_again(self) -> None:
+        revived = round_trip(CHUNK)
+
+        assert isinstance(revived.heading_path, tuple)
+        assert revived.heading_path == CHUNK.heading_path
+
+    def test_a_citations_heading_path_is_a_tuple_again(self) -> None:
+        citation = SPECIMENS[("paimon.domain.value_objects.citation", "Citation")]
+
+        revived = round_trip(citation)
+
+        assert isinstance(revived.heading_path, tuple)
+
+    def test_a_transcript_is_restored_all_the_way_down(self) -> None:
+        # Three levels: the transcript's messages, a message's tool calls, and a
+        # seen call's markers. A repair that stopped at the top level would put
+        # the outer tuple back and leave the inner ones lists.
+        transcript = SPECIMENS[("paimon.domain.agents.transcript", "Transcript")]
+
+        revived = round_trip(transcript)
+
+        assert isinstance(revived.messages, tuple)
+        assert isinstance(revived.messages[2].tool_calls, tuple)
+        assert isinstance(revived.seen_calls, tuple)
+        assert isinstance(revived.seen_calls[0].markers, tuple)
+
+    def test_a_list_that_was_always_a_list_is_left_alone(self) -> None:
+        # Nothing in the payload says whether a bare sequence was written as a
+        # list or a tuple, so guessing would turn every list the platform
+        # legitimately stores into something else.
+        assert round_trip(["a", "b"]) == ["a", "b"]
+
+    def test_a_mapping_field_is_not_turned_into_anything(self) -> None:
+        step = SPECIMENS[("paimon.domain.entities.agent", "AgentStep")]
+
+        assert round_trip(step).details == {"turn": "1", "requested": "search_corpus"}
 
 
 class TestWhatAChannelActuallyHolds:
