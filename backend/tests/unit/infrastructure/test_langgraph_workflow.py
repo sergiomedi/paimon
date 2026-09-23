@@ -246,6 +246,109 @@ class TestFailure:
         with pytest.raises(AgentRunError, match="could not complete run"):
             await steps_of(workflow)
 
+    async def test_the_step_limit_leaves_a_failed_run_with_the_steps_it_managed(self) -> None:
+        # What the limit costs, stated rather than assumed. An agent that loops
+        # until the framework stops it does not produce a result: it produces a
+        # FAILED run. That is the whole reason an agent with a loop has to own a
+        # budget of its own and stop before this fires — this is the backstop,
+        # not the mechanism.
+        checkpointer = InMemoryCheckpointer()
+        spec = GraphSpec(
+            name="looper",
+            entry="retrieve",
+            nodes=[NodeSpec(name="retrieve", run=retrieve)],
+            edges=[("retrieve", "retrieve")],
+        )
+        workflow = LangGraphWorkflow(spec, checkpointer, step_limit=3)
+        with pytest.raises(AgentRunError):
+            await steps_of(workflow)
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.FAILED
+        assert len(run.steps) == 3
+
+
+class TestCycles:
+    """A branch that leads back to an earlier node, run for real.
+
+    The shape every tool-calling agent has, and until Phase 9 nothing here ran
+    one. The existing step-limit test proves a runaway loop is stopped; these
+    prove a *terminating* loop does what its author meant, which is the
+    different and more useful claim.
+    """
+
+    @staticmethod
+    def _counting_loop(rounds: int) -> GraphSpec:
+        """A graph that goes act -> tools -> act until it has looped enough."""
+
+        async def act(state: AgentState) -> StateUpdate:
+            return {"notes": state.notes + "x", "usage": (3, 1)}
+
+        async def tools(_state: AgentState) -> StateUpdate:
+            return {}
+
+        async def finalize(state: AgentState) -> StateUpdate:
+            return {"draft": f"answered after {len(state.notes)} turns"}
+
+        return GraphSpec(
+            name="looper",
+            entry="act",
+            nodes=[
+                NodeSpec(name="act", run=act, summary="called the model"),
+                NodeSpec(name="tools", run=tools, summary="ran the tools"),
+                NodeSpec(name="finalize", run=finalize, summary="answered"),
+            ],
+            edges=[("tools", "act"), ("finalize", END)],
+            branches=[
+                Branch(
+                    source="act",
+                    decide=lambda state: "tools" if len(state.notes) < rounds else "finalize",
+                    targets={"tools": "tools", "finalize": "finalize"},
+                )
+            ],
+        )
+
+    async def test_a_node_reached_twice_runs_twice(self) -> None:
+        workflow = LangGraphWorkflow(self._counting_loop(3), InMemoryCheckpointer())
+        assert await steps_of(workflow) == ["act", "tools", "act", "tools", "act", "finalize"]
+
+    async def test_every_pass_leaves_its_own_step(self) -> None:
+        # The append reducer, doing the thing it exists for. Replacement would
+        # leave a three-turn run remembering one turn, which is the trace an
+        # operator would be asked to investigate an overspend with.
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(3), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.SUCCEEDED
+        assert [step.name for step in run.steps].count("act") == 3
+
+    async def test_usage_accumulates_across_passes(self) -> None:
+        # What makes a token budget expressible as a branch: state.usage is the
+        # running total, not the last node's share.
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(3), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.total_tokens == 12
+
+    async def test_a_loop_that_stops_reaches_its_answer(self) -> None:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(2), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.answer == "answered after 2 turns"
+
 
 async def test_the_workflow_satisfies_the_port() -> None:
     workflow = LangGraphWorkflow(two_step(), InMemoryCheckpointer())
