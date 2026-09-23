@@ -22,6 +22,15 @@ ALLOWED_MODULES: tuple[tuple[str, ...], ...] = (
     ("paimon.domain.entities.agent", "AgentStep"),
     ("paimon.domain.entities.agent", "RunStatus"),
     ("paimon.domain.value_objects.citation", "Citation"),
+    # An agent that chooses its own next step carries its conversation in the
+    # state, so a checkpoint of such a run contains the conversation. These four
+    # are what that is made of. Message and ToolCall are the only types here
+    # that hold text a *model* produced rather than text the platform wrote,
+    # which is worth knowing when deciding who may read a checkpoint.
+    ("paimon.domain.agents.transcript", "Transcript"),
+    ("paimon.domain.agents.transcript", "StopReason"),
+    ("paimon.domain.ports.chat", "Message"),
+    ("paimon.domain.ports.chat", "ToolCall"),
 )
 
 
