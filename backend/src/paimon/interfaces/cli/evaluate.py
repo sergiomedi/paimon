@@ -624,8 +624,8 @@ def _refusal_verdict(judge: object) -> "RefusalVerdict | None":
     if not isinstance(judge, RefusalJudge):
         return None
 
-    async def verdict(question: str, answer: str) -> Judgement:
-        return await judge.judge_refusal(question, answer)
+    async def verdict(answer: str) -> Judgement:
+        return await judge.judge_refusal(answer)
 
     return verdict
 

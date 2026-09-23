@@ -184,11 +184,12 @@ def classify(attempt: "Attempt", refusal: Judgement | None) -> AttemptOutcome:
     return AttemptOutcome.UNGROUNDED
 
 
-#: The verdicts that mean "it did not answer the question". ``PARTIAL`` is in
-#: here deliberately: a response that describes the rotation and then says the
-#: current engineer is not named has declined the thing that was asked, and
-#: grading it as an answer would mark a careful system down for being careful.
-_DECLINED = frozenset({Verdict.YES, Verdict.PARTIAL})
+#: The verdicts that mean "this text did not answer". Only ``YES``. The rubric
+#: offers two labels; ``PARTIAL`` arrives only from a judge that ignored it, and
+#: the first version folded that middle into "declined" — so every answer the
+#: judge found unsatisfying became a refusal, and nineteen correct answers
+#: became failures. An off-rubric verdict is an abstention.
+_DECLINED = frozenset({Verdict.YES})
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +212,12 @@ class Grade:
         judged: Whether a model decided the outcome. **Every number derived from
             a judged outcome is a judged number** and the report says so; the
             coverage and precision beside it are verified either way.
+        judge_verdict: What the judge actually returned, before any mapping.
+            **Stored always.** The first version kept only the outcome it had
+            been mapped to, so testing a different mapping meant re-judging
+            every attempt — an hour a system — which is precisely the cost
+            keeping transcripts was supposed to remove. A mapping is a decision
+            and a decision should be re-examinable for free.
         judge_reasoning: Why the judge said what it said, in its words. Kept
             because a judged number nobody can audit is a number nobody should
             act on.
@@ -224,6 +231,7 @@ class Grade:
     attribution: AttributionReport | None = None
     outcome: AttemptOutcome = AttemptOutcome.UNGROUNDED
     judged: bool = False
+    judge_verdict: Verdict | None = None
     judge_reasoning: str = ""
     probe_agreed: bool | None = None
 
@@ -302,6 +310,7 @@ def grade(
     marks = {
         "outcome": outcome,
         "judged": refusal is not None,
+        "judge_verdict": refusal.verdict if refusal is not None else None,
         "judge_reasoning": refusal.reasoning if refusal is not None else "",
         "probe_agreed": (
             probes_as_refusal(attempt.text) == (outcome is AttemptOutcome.REFUSED)

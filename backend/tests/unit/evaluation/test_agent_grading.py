@@ -11,6 +11,7 @@ behind it must not be graded as a cautious refusal, or the worst possible system
 would be reported as the safest one.
 """
 
+from inspect import signature
 from pathlib import Path
 
 from paimon.application.use_cases.answer_question import NO_MATERIAL
@@ -35,7 +36,7 @@ from paimon.evaluation.agent_systems import (
     RefusesInItsOwnWords,
 )
 from paimon.evaluation.dataset import SupportingPassage
-from paimon.evaluation.judging import Judgement, Verdict
+from paimon.evaluation.judging import Judgement, RefusalJudge, Verdict
 
 CORPUS = Path(__file__).resolve().parents[4] / "evaluation" / "corpus" / "sample"
 DATASET = Path(__file__).resolve().parents[4] / "evaluation" / "datasets" / "agents-v1.jsonl"
@@ -287,12 +288,13 @@ class TestARefusalWrittenInProse:
         # verified-only path can claim.
         assert attempt(REAL_PROSE_REFUSAL, cited()).outcome is AttemptOutcome.ANSWERED
 
-    def test_declining_the_thing_asked_counts_as_declining(self) -> None:
-        # "The handbook describes the rotation, but does not name the current
-        # engineer" has not answered the question it was asked.
-        partial = attempt("The handbook describes the rotation [1].", cited())
+    def test_an_off_rubric_middle_verdict_is_an_abstention(self) -> None:
+        # The rubric offers two labels. A judge that returns the middle anyway
+        # has not followed it, and folding that middle into "declined" is what
+        # turned nineteen correct answers into failures.
+        middle = attempt("The handbook describes the rotation [1].", cited())
 
-        assert classify(partial, judged(Verdict.PARTIAL)) is AttemptOutcome.REFUSED
+        assert classify(middle, judged(Verdict.PARTIAL)) is AttemptOutcome.ANSWERED
 
     def test_an_answer_is_still_an_answer(self) -> None:
         answered = attempt("Cordon the node first [1].", cited())
@@ -361,7 +363,7 @@ class TestTheFourthStandIn:
             RefusesInItsOwnWords(DOCS),
             DOCS,
             trials=1,
-            judge_refusal=lambda _q, _a: judged(Verdict.YES),
+            judge_refusal=lambda _a: judged(Verdict.YES),
         )
 
         by_category = {item.category: item.reliability.pass_at_1.mean for item in report.categories}
@@ -374,7 +376,62 @@ class TestTheFourthStandIn:
             RefusesInItsOwnWords(DOCS),
             DOCS,
             trials=1,
-            judge_refusal=lambda _q, _a: judged(Verdict.YES),
+            judge_refusal=lambda _a: judged(Verdict.YES),
         )
 
         assert report.trajectory.outcomes == {"refused": len(TASKS)}
+
+
+class TestTheJudgeSeesOnlyTheText:
+    """The design that stops a judge grading the wrong thing.
+
+    Shown the question, llama3.1:8b classified
+
+        "According to the documentation, a node must be drained before any
+        kernel upgrade. [1]"
+
+    as not-an-answer to "What has to happen to a node before a kernel upgrade?",
+    on all five trials, reasoning that it "does not directly answer the question
+    of what happens to the node". It had started grading completeness. Nineteen
+    correct answers became failures — more damage than the twenty-five refusals
+    the judge was added to catch.
+
+    Whether a text declines is a property of the text alone.
+    """
+
+    A001 = "According to the documentation, a node must be drained before any kernel upgrade.  [1]"
+
+    def test_the_protocol_takes_the_text_and_nothing_else(self) -> None:
+        # Structural, not a convention: there is no parameter to pass a
+        # question through, so no caller can reintroduce the failure.
+        assert list(signature(RefusalJudge.judge_refusal).parameters) == ["self", "answer"]
+
+    def test_a_short_correct_answer_is_an_answer(self) -> None:
+        answered = attempt(self.A001, cited())
+
+        assert classify(answered, judged(Verdict.NO)) is AttemptOutcome.ANSWERED
+
+    def test_and_it_passes_an_answerable_task(self) -> None:
+        result = grade(answerable(), attempt(self.A001, cited()), DOCUMENTS, judged(Verdict.NO))
+
+        assert result.passed
+
+    def test_the_raw_verdict_is_kept(self) -> None:
+        # So a mapping can be re-examined offline. Keeping only the mapped
+        # outcome meant testing a different mapping cost an hour per system —
+        # the exact cost that keeping transcripts was supposed to remove.
+        result = grade(answerable(), attempt(self.A001, cited()), DOCUMENTS, judged(Verdict.NO))
+
+        assert result.judge_verdict is Verdict.NO
+
+    def test_an_unjudged_grade_keeps_no_verdict(self) -> None:
+        assert grade(answerable(), attempt(self.A001, cited()), DOCUMENTS).judge_verdict is None
+
+    def test_only_an_explicit_decline_is_a_refusal(self) -> None:
+        for verdict, expected in (
+            (Verdict.YES, AttemptOutcome.REFUSED),
+            (Verdict.NO, AttemptOutcome.ANSWERED),
+            (Verdict.PARTIAL, AttemptOutcome.ANSWERED),
+            (Verdict.UNDECIDED, AttemptOutcome.ANSWERED),
+        ):
+            assert classify(attempt(self.A001, cited()), judged(verdict)) is expected

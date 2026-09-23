@@ -27,11 +27,11 @@ from tests.unit.evaluation.test_agent_grading import DOCS, TASKS
 NO_MATERIAL_TEXT = "I have no indexed material that bears on that question, so I cannot answer it."
 
 
-def declines(_question: str, _answer: str) -> Judgement:
+def declines(_answer: str) -> Judgement:
     return Judgement(verdict=Verdict.YES, reasoning="it declines", model_id="judge")
 
 
-def answers(_question: str, _answer: str) -> Judgement:
+def answers(_answer: str) -> Judgement:
     return Judgement(verdict=Verdict.NO, reasoning="it answers", model_id="judge")
 
 

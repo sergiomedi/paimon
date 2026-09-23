@@ -134,10 +134,26 @@ class RefusalJudge(Protocol):
     twenty-five such attempts. A benchmark that reports 0% for a system
     refusing perfectly is worse than no benchmark.
 
-    **The judge is deliberately blind.** It sees the question and the response
-    and nothing else — not the category, not whether the corpus was supposed to
-    cover it, not the task id. Telling it that a refusal was expected is telling
-    it the answer, and a judge that has been told the answer is a formality.
+    **The judge sees the response and nothing else** — not the question, not the
+    category, not whether the corpus was supposed to cover it. Showing it the
+    question was the first design and it was wrong: a judge holding the question
+    starts grading *completeness*, and llama3.1:8b duly classified
+
+        "According to the documentation, a node must be drained before any
+        kernel upgrade. [1]"
+
+    as not-an-answer to "What has to happen to a node before a kernel upgrade?",
+    on all five trials, reasoning that it "does not directly answer the question
+    of what happens to the node". That turned nineteen correct answers into
+    failures — more damage than the twenty-five refusals the judge was added to
+    catch.
+
+    Whether a text declines is a property of the text. Withholding the question
+    makes the easy question the only one it can answer.
+
+    **Two labels and no third.** A middle label is where a judge puts everything
+    it is unsure about, and the first version mapped that middle onto "declined"
+    — so every answer the judge found unsatisfying became a refusal.
     """
 
     @property
@@ -145,21 +161,19 @@ class RefusalJudge(Protocol):
         """Which model judges. Recorded on every judgement it produces."""
         ...
 
-    async def judge_refusal(self, question: str, answer: str) -> Judgement:
-        """Decide whether a response declines to answer.
+    async def judge_refusal(self, answer: str) -> Judgement:
+        """Decide whether a piece of text declines to answer.
 
         Args:
-            question: The question, as asked. The response cannot be classified
-                without it: "the sources do not say" is a refusal, while "the
-                sources do not say who is on call, but here is the rotation" may
-                be an answer to a different question than the one asked.
-            answer: The response to classify, and nothing about where it came
-                from.
+            answer: The text to classify, and nothing about where it came from
+                or what it was answering.
 
         Returns:
-            ``YES`` when it declines, ``NO`` when it answers, ``PARTIAL`` when it
-            answers around the question while declining the thing asked, and
-            ``UNDECIDED`` when the judge could not be read.
+            ``YES`` when it declines and ``NO`` when it answers. ``UNDECIDED``
+            when the judge could not be read **or returned the middle label the
+            rubric does not offer** — a judge that did not follow the rubric has
+            not given a verdict, and treating its middle as either extreme is
+            how a grader acquires a bias nobody chose.
         """
         ...
 
@@ -256,37 +270,37 @@ Reply with JSON only, in this order:
 
 Write the reasoning first and the verdict after it."""
 
-REFUSAL_RUBRIC = """You are deciding one thing about a response: does it answer the question, \
-or does it decline to?
+REFUSAL_RUBRIC = """You are deciding one thing about a piece of text: does it answer a \
+question, or does it decline to?
 
-You will be given a question and a response. You will not be told where the \
-response came from or what the right outcome was. Decide only what the response \
-itself does.
+You will be given only the text. You will not be told what was asked, where the \
+text came from, or what the right outcome was. That is deliberate — you are not \
+judging whether the answer is good, complete or correct, and you could not, \
+because you cannot see the question.
 
-- "yes"     — it declines. It says the sources, the documentation or the corpus \
-do not cover the question, or that it cannot answer from what it was given.
-- "partial" — it declines the thing that was asked while giving related \
-context. Saying "the handbook describes the rotation, but it does not name the \
-current engineer" is "partial": the question was not answered.
-- "no"      — it answers. It states the fact, the procedure or the conclusion \
-the question asked for.
+- "yes" — it declines. It says the sources, the documentation or the corpus do \
+not cover what was asked, or that it cannot answer from what it was given.
+- "no"  — it answers. It states a fact, a procedure, a conclusion or a \
+recommendation.
 
 Rules:
 
-1. Citations do not make a response an answer. A refusal that lists the sources \
-it looked at is still a refusal — judge the claim, not the markers.
-2. Hedging is not declining. "The procedure is probably to cordon the node \
-first" answers the question; it is "no".
-3. Declining part of a multi-part question while answering the rest is \
-"partial".
-4. Do not decide whether the answer is correct. A confidently wrong answer is \
-still an answer, and is "no".
-5. Do not guess whether the corpus ought to have covered the question. You are \
-not being asked whether declining was right.
+1. Citations do not make a text an answer. A refusal that lists the sources it \
+looked at is still a refusal.
+2. A short answer is an answer. Brevity is not declining.
+3. A hedged answer is an answer. "The procedure is probably to cordon the node \
+first" is "no".
+4. An answer you suspect is incomplete is still an answer. You cannot see the \
+question, so you cannot know what would have been complete.
+5. Text that states something and then notes one detail is missing is an \
+answer: it answered.
+
+There are two labels and no third. If you cannot tell, choose the one the text \
+is closer to.
 
 Reply with JSON only, in this order:
 
-{"reasoning": "<one sentence>", "verdict": "yes" | "partial" | "no"}
+{"reasoning": "<one sentence>", "verdict": "yes" | "no"}
 
 Write the reasoning first and the verdict after it."""
 

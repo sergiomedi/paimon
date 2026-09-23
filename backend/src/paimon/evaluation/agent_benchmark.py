@@ -40,11 +40,16 @@ from paimon.evaluation.statistics import (
     reliability,
 )
 
-#: How the benchmark asks for one refusal verdict. A callable rather than the
-#: whole :class:`~paimon.evaluation.judging.RefusalJudge` protocol, because this
-#: is all the benchmark needs and a narrower dependency is one a test can supply
-#: in a line.
-RefusalVerdict = Callable[[str, str], "Judgement | Awaitable[Judgement]"]
+#: How the benchmark asks for one refusal verdict: the response text in, a
+#: verdict out. A callable rather than the whole
+#: :class:`~paimon.evaluation.judging.RefusalJudge` protocol, because this is all
+#: the benchmark needs and a narrower dependency is one a test can supply in a
+#: line.
+#:
+#: It takes the text alone. The question is deliberately not passed — not as an
+#: oversight but as the fix for a measured failure, where a judge holding the
+#: question graded completeness and called a correct answer a refusal.
+RefusalVerdict = Callable[[str], "Judgement | Awaitable[Judgement]"]
 
 
 class System(Protocol):
@@ -269,12 +274,9 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
     reports: list[TaskReport] = []
     for task in dataset:
         attempts = [await _attempt_once(system, task, trial) for trial in range(1, trials + 1)]
-        # The judge sees the question and the response and nothing else. Not
-        # the category, not the expected outcome, not the task id: a judge told
-        # that a refusal was expected is a judge told the answer.
-        verdicts = [
-            await _judge(judge_refusal, task.question, attempt.text) for attempt in attempts
-        ]
+        # The judge sees the response and nothing else — not the question, not
+        # the category, not the expected outcome.
+        verdicts = [await _judge(judge_refusal, attempt.text) for attempt in attempts]
         reports.append(
             TaskReport(
                 task_id=task.task_id,
@@ -361,9 +363,7 @@ async def regrade(  # noqa: PLR0913  collaborators and a label, not flags
     reports: list[TaskReport] = []
     for task in dataset:
         attempts = tuple(stored[task.task_id])
-        verdicts = [
-            await _judge(judge_refusal, task.question, attempt.text) for attempt in attempts
-        ]
+        verdicts = [await _judge(judge_refusal, attempt.text) for attempt in attempts]
         reports.append(
             TaskReport(
                 task_id=task.task_id,
@@ -396,7 +396,7 @@ async def regrade(  # noqa: PLR0913  collaborators and a label, not flags
     )
 
 
-async def _judge(judge: "RefusalVerdict | None", question: str, answer: str) -> Judgement | None:
+async def _judge(judge: "RefusalVerdict | None", answer: str) -> Judgement | None:
     """Ask the judge to classify one response, surviving whatever it does.
 
     A judge that cannot be reached is not evidence about the response, so a
@@ -406,7 +406,7 @@ async def _judge(judge: "RefusalVerdict | None", question: str, answer: str) -> 
     if judge is None:
         return None
     try:
-        result = judge(question, answer)
+        result = judge(answer)
         return await result if isawaitable(result) else result
     except Exception as error:  # noqa: BLE001  the judge is a model over a network
         return Judgement(
