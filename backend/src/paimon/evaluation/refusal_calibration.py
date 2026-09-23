@@ -13,6 +13,14 @@ disagreement is, at the cost of a sample that does not mirror the population —
 which is the right trade, because kappa is about the raters and not about the
 dataset's shape.
 
+**Distinct texts, and no canned refusals.** At temperature zero the same task
+produces the same answer five times, so a sample drawn from attempts is mostly
+repeats: a person labels the same paragraph over and over and kappa counts one
+judgement five times. And the platform's own refusal sentences are graded by
+code, by equality against the constants that define them, so a judge classifying
+them is measured on work it was never given — and a labeller who recognises one
+knows which harness produced it.
+
 **The labeller is shown the response and nothing else** — not the question, not
 the judge's verdict, not which system produced it. The verdict would anchor
 them, which is the documented way to turn an independent measurement into an
@@ -22,7 +30,7 @@ thing, and the judge is shown the text alone.
 """
 
 import json
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from random import Random
@@ -57,6 +65,42 @@ class SampledAttempt:
     the verdict under test must not choose or annotate the cases that test it."""
 
 
+def distinct_texts(attempts: Sequence[SampledAttempt]) -> list[SampledAttempt]:
+    """Keep one attempt per distinct response, in the order they appear.
+
+    At temperature zero a system answers the same task the same way five times,
+    so a sample of sixty attempts held forty-one distinct texts. The twenty-nine
+    repeats cost a person their attention and buy no information: kappa over a
+    text labelled five times counts one judgement five times and reports an
+    agreement narrower than the evidence supports.
+    """
+    seen: set[str] = set()
+    kept: list[SampledAttempt] = []
+    for item in attempts:
+        fingerprint = " ".join(item.answer.split())
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        kept.append(item)
+    return kept
+
+
+def without_canned_refusals(
+    attempts: Sequence[SampledAttempt], canned: Collection[str]
+) -> list[SampledAttempt]:
+    """Drop the responses the platform wrote rather than a model.
+
+    Two reasons, and the second is the stronger one. Code already grades these
+    exactly — they are matched by equality against the constants that define
+    them — so a judge classifying them is being measured on the one part of the
+    job it was never given. And they give the system away: only the two agents
+    emit them, so a labeller who recognises one knows which harness produced it
+    and is no longer rating the text alone.
+    """
+    exact = {" ".join(text.split()) for text in canned}
+    return [item for item in attempts if " ".join(item.answer.split()) not in exact]
+
+
 def stratified_sample(
     attempts: Sequence[SampledAttempt],
     *,
@@ -77,7 +121,8 @@ def stratified_sample(
             others, and a kappa computed over cases rated with two different
             levels of care measures the labeller's attention rather than the
             judge.
-        size: Trim to this many after the strata and the named cases are in.
+        size: Trim to this many. Only the strata fill is trimmed — the named
+            cases always survive, or the trim would quietly undo them.
         seed: Which attempts are taken and in what order, so somebody else can
             rebuild exactly this sample and label it independently.
 
@@ -98,11 +143,29 @@ def stratified_sample(
         for item in found[seed % step :: step][:per_cell]:
             chosen.setdefault(item.case_id, item)
 
-    picked = list(chosen.values())
-    # Seeded, not secure: this decides reading order for a person, and being
-    # reproducible matters here while being unguessable does not.
-    Random(seed).shuffle(picked)  # noqa: S311
-    return picked[:size] if size is not None else picked
+    wanted = set(must_include)
+    required = [item for item in chosen.values() if item.case_id in wanted]
+    rest = [item for item in chosen.values() if item.case_id not in wanted]
+
+    # Seeded, not secure: this decides which cases a person reads and in what
+    # order, and being reproducible matters here while being unguessable does
+    # not.
+    shuffle = Random(seed).shuffle  # noqa: S311
+    # Shuffled *before* the trim, not after. The cells are visited in sorted
+    # order, so trimming the fill as it stands drops whole systems off the end
+    # — the first version left three investigator rows in sixty, having filled
+    # the budget alphabetically from "answers".
+    shuffle(rest)
+    if size is not None:
+        # Trim the fill, never the required. A sample that dropped the cases it
+        # was built around would measure agreement on the easy ones and say
+        # nothing about the contested ones, which is the whole reason they were
+        # named.
+        rest = rest[: max(size - len(required), 0)]
+
+    picked = required + rest
+    shuffle(picked)
+    return picked
 
 
 def attempts_from_report(raw: Mapping[str, Any]) -> list[SampledAttempt]:
@@ -252,5 +315,6 @@ __all__ = [
     "opaque_ids",
     "stratified_sample",
     "template",
+    "without_canned_refusals",
     "write_template",
 ]

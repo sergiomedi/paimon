@@ -13,7 +13,7 @@ The mesh rotation window is **six hours**. A rotation may not begin if the
 shortest remaining leaf lifetime is below it.
 
 Leaf certificates are issued for 72 hours and re-issued at one third of
-remaining life. The root is valid for two years.
+remaining life. The root is valid for one year.
 
 ## Mesh
 

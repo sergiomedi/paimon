@@ -8,10 +8,12 @@ sample would mostly miss it.
 """
 
 import json
+from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 
 from paimon.evaluation.agent_benchmark import run_agent_benchmark
+from paimon.evaluation.agent_grading import REFUSALS
 from paimon.evaluation.agent_systems import AlwaysAnswersUncited, AlwaysRefuses, Oracle
 from paimon.evaluation.calibration import ACCEPTABLE_KAPPA, HumanLabel, load_labels
 from paimon.evaluation.judging import Judgement, Verdict
@@ -20,10 +22,12 @@ from paimon.evaluation.refusal_calibration import (
     attempt_id,
     attempts_from_report,
     calibrate,
+    distinct_texts,
     instructions,
     opaque_ids,
     stratified_sample,
     template,
+    without_canned_refusals,
     write_template,
 )
 from tests.unit.evaluation.test_agent_grading import DOCS, TASKS
@@ -295,3 +299,83 @@ class TestScoringTheJudge:
         result = calibrate(sample, labels)
 
         assert result.compared == 5
+
+
+class TestWhatIsWorthLabelling:
+    """Two filters, because sixty rows of a person's attention is the budget."""
+
+    async def test_repeated_texts_are_collapsed(self) -> None:
+        # At temperature zero a system answers the same task the same way five
+        # times. A sample of sixty attempts held forty-one distinct texts, and
+        # kappa over a text labelled five times counts one judgement five times.
+        everything = await pool()
+
+        unique = distinct_texts(everything)
+
+        rendered = {" ".join(item.answer.split()) for item in unique}
+        assert len(rendered) == len(unique)
+        assert len(unique) < len(everything)
+
+    async def test_the_first_occurrence_is_the_one_kept(self) -> None:
+        everything = await pool()
+
+        unique = distinct_texts(everything)
+
+        assert unique[0].case_id == everything[0].case_id
+
+    async def test_canned_refusals_are_dropped(self) -> None:
+        # Code grades these by equality against the constants that define them,
+        # so a judge classifying them is measured on work it was never given.
+        everything = await pool()
+
+        kept = without_canned_refusals(everything, REFUSALS)
+
+        assert all(item.answer.strip() not in REFUSALS for item in kept)
+        assert len(kept) < len(everything)
+
+    async def test_dropping_them_also_hides_which_system_it_was(self) -> None:
+        # Only the agents emit them. A labeller who recognises one is no longer
+        # rating the text alone.
+        everything = await pool()
+
+        rendered = template(without_canned_refusals(everything, REFUSALS))
+
+        assert NO_MATERIAL_TEXT not in rendered
+
+    async def test_a_named_case_survives_the_trim(self) -> None:
+        # A sample that dropped the cases it was built around would measure
+        # agreement on the easy ones and say nothing about the contested ones.
+        everything = distinct_texts(await pool())
+        wanted = [everything[3].case_id, everything[30].case_id]
+
+        sample = stratified_sample(everything, per_cell=6, must_include=wanted, size=5)
+
+        assert len(sample) == 5
+        assert set(wanted) <= {item.case_id for item in sample}
+
+    async def test_a_sample_of_distinct_texts_stays_distinct(self) -> None:
+        everything = distinct_texts(await pool())
+
+        sample = stratified_sample(everything, per_cell=6, size=20)
+
+        assert len({" ".join(item.answer.split()) for item in sample}) == len(sample)
+
+    async def test_the_trim_does_not_favour_the_alphabet(self) -> None:
+        # The cells are visited in sorted order, so trimming the fill as it
+        # stands empties the end of the alphabet: the first version of this
+        # left three `investigator` rows in sixty of the real sample, having
+        # filled the budget from `answers` and `incident-triage` first.
+        #
+        # Asserted as a share of what was available rather than as a count,
+        # because a system with few distinct texts should contribute few rows —
+        # that is the sample working, not the trim misbehaving.
+        everything = distinct_texts(await pool())
+        available = Counter(item.system for item in everything)
+
+        sample = stratified_sample(everything, per_cell=6, size=30)
+
+        taken = Counter(item.system for item in sample)
+        for system, count in available.items():
+            pool_share = count / len(everything)
+            sample_share = taken[system] / len(sample)
+            assert sample_share >= pool_share / 2, f"{system} under-represented"

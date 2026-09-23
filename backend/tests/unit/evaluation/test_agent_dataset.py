@@ -210,14 +210,71 @@ class TestAMultiHopTaskThatIsNot:
         with pytest.raises(ValueError, match="relabel it or give it the passage"):
             task(category="multi-hop")
 
-    def test_other_categories_are_left_alone(self) -> None:
-        # One-hop tasks with two passages from one document are ordinary and
-        # common; the rule is about a label that claims something.
+    def test_two_passages_from_one_document_is_still_one_hop(self) -> None:
+        # Ordinary and common: a question whose answer is two sentences of one
+        # runbook. The rule is about documents, not about passages.
         task(
             category="one-hop",
             supporting=(
                 SupportingPassage(document_id="runbook", quote="Cordon the node"),
                 SupportingPassage(document_id="runbook", quote="Drain it first"),
+            ),
+        )
+
+    def test_two_documents_is_not_one_hop(self) -> None:
+        # The other direction, and the one that hides work rather than
+        # inventing it: a genuinely two-document task filed as one-hop is a
+        # multi-hop task that will never be counted as one.
+        with pytest.raises(ValueError, match="is 'one-hop' but its supporting passages come"):
+            task(
+                category="one-hop",
+                supporting=(
+                    SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                    SupportingPassage(document_id="postmortem", quote="Drain it first"),
+                ),
+            )
+
+    def test_the_one_hop_message_says_how_to_fix_it(self) -> None:
+        with pytest.raises(ValueError, match="relabel it 'multi-hop' or"):
+            task(
+                category="one-hop",
+                supporting=(
+                    SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                    SupportingPassage(document_id="postmortem", quote="Drain it first"),
+                ),
+            )
+
+    def test_a_planted_two_document_one_hop_is_refused_by_the_loader(self, tmp_path: Path) -> None:
+        path = tmp_path / "planted-one-hop.jsonl"
+        path.write_text(
+            json.dumps(
+                {
+                    "id": "bad",
+                    "question": "what happened?",
+                    "expected": "answer",
+                    "category": "one-hop",
+                    "supporting": [
+                        {"document_id": "runbook", "quote": "Cordon the node"},
+                        {"document_id": "postmortem", "quote": "Drain it first"},
+                    ],
+                    "reference": "the halves are in different documents",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="is 'one-hop' but its supporting passages"):
+            AgentDataset.from_jsonl(path)
+
+    def test_categories_that_claim_nothing_are_left_alone(self) -> None:
+        # "exact-identifier" and "injection" describe what is being tested, not
+        # where the evidence is, so there is nothing to check them against.
+        task(
+            category="exact-identifier",
+            supporting=(
+                SupportingPassage(document_id="runbook", quote="Cordon the node"),
+                SupportingPassage(document_id="postmortem", quote="Drain it first"),
             ),
         )
 

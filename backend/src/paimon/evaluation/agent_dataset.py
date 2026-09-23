@@ -28,11 +28,15 @@ from paimon.evaluation.dataset import SupportingPassage
 _TWO_DOCUMENTS = 2
 
 
-#: The category whose name is a claim about the evidence rather than a label.
-#: A task called multi-hop whose supporting quotes all come from one document is
-#: a one-hop task with an ambitious name, and a benchmark full of them reports a
-#: multi-hop score for something else entirely.
+#: The two categories whose names are claims about the evidence rather than
+#: labels, and are therefore checkable. A task called multi-hop whose supporting
+#: quotes all come from one document is a one-hop task with an ambitious name;
+#: a task called one-hop that needs two documents is a multi-hop task filed
+#: where it will not be counted. Both directions matter, because the headline
+#: comparison of Phase 9 is the difference between those two columns and either
+#: mistake moves it.
 MULTI_HOP = "multi-hop"
+ONE_HOP = "one-hop"
 
 
 class Outcome(StrEnum):
@@ -84,7 +88,8 @@ class AgentTask:
             ValueError: If the task has no id, question or category; if an
                 answerable task names no supporting passage; if a refusal task
                 names one; if a multi-hop task's evidence sits in a single
-                document; or if it carries no reference solution.
+                document or a one-hop task's does not; or if it carries no
+                reference solution.
         """
         for name in ("task_id", "question", "category"):
             if not str(getattr(self, name)).strip():
@@ -111,6 +116,17 @@ class AgentTask:
                 f"task '{self.task_id}' is '{MULTI_HOP}' but every supporting passage "
                 f"comes from {listed}. A hop is between documents; relabel it or give "
                 "it the passage from the second one."
+            )
+            raise ValueError(msg)
+        if self.category == ONE_HOP and len(self.documents) != 1:
+            # The other direction, and the one that hides work rather than
+            # inventing it: a genuinely two-document task filed as one-hop is a
+            # multi-hop task that will never be counted as one.
+            listed = ", ".join(self.documents) or "none"
+            msg = (
+                f"task '{self.task_id}' is '{ONE_HOP}' but its supporting passages come "
+                f"from {listed}. One hop is one document; relabel it '{MULTI_HOP}' or "
+                "drop the passages that are not from the document it answers out of."
             )
             raise ValueError(msg)
         if not self.reference.strip():
@@ -223,4 +239,4 @@ def _task_from(raw: object, where: str) -> AgentTask:
         raise ValueError(msg) from error
 
 
-__all__ = ["MULTI_HOP", "AgentDataset", "AgentTask", "Outcome"]
+__all__ = ["MULTI_HOP", "ONE_HOP", "AgentDataset", "AgentTask", "Outcome"]
