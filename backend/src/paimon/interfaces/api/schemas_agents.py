@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from paimon.domain.entities import AgentRun, AgentStep
+from paimon.interfaces.api.schemas import CitationResponse
 
 
 class AgentSummaryResponse(BaseModel):
@@ -61,6 +62,11 @@ class AgentRunResponse(BaseModel):
     watches; this is how it finds out what happened, including after the stream
     it was watching was interrupted.
 
+    ``citations`` is what the answer rests on. Reusing the same shape the
+    answering endpoint returns, because it is the same thing: a client that can
+    render one can render the other, and a second shape for the same value would
+    be a second thing to keep in step.
+
     ``total_tokens`` is on the run rather than left to the caller to add up:
     cost per run is the number anyone asks for first.
     """
@@ -69,6 +75,7 @@ class AgentRunResponse(BaseModel):
     agent: str
     status: str
     answer: str
+    citations: list[CitationResponse]
     started_at: datetime
     total_tokens: int
     steps: list[AgentStepResponse]
@@ -81,6 +88,7 @@ class AgentRunResponse(BaseModel):
             agent=run.agent,
             status=str(run.status),
             answer=run.answer,
+            citations=[CitationResponse.from_citation(item) for item in run.citations],
             started_at=run.started_at,
             total_tokens=run.total_tokens,
             steps=[AgentStepResponse.from_step(step) for step in run.steps],

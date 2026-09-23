@@ -16,9 +16,10 @@ from paimon.domain.agents import (
     StateUpdate,
     StepReport,
 )
-from paimon.domain.entities import RunStatus
+from paimon.domain.entities import AgentRun, RunStatus
 from paimon.domain.errors import AgentRunError
 from paimon.domain.ports import AgentWorkflow
+from paimon.domain.value_objects import Citation
 from paimon.infrastructure.orchestration import LangGraphWorkflow
 from tests.fakes import InMemoryCheckpointer
 
@@ -353,3 +354,130 @@ class TestCycles:
 async def test_the_workflow_satisfies_the_port() -> None:
     workflow = LangGraphWorkflow(two_step(), InMemoryCheckpointer())
     assert isinstance(workflow, AgentWorkflow)
+
+
+class TestWhatTheRunRecords:
+    """The answer and what it rests on, kept together.
+
+    The adapter reads both out of the same update, and that coupling is the
+    behaviour: a node that withdraws a draft writes empty citations alongside it,
+    so the record can never end up holding a refusal beside the citations of the
+    answer it replaced — which would be the worst of both, a statement that
+    declines to answer while pointing at sources for the answer it withdrew.
+    """
+
+    @staticmethod
+    def _cited(marker: int) -> Citation:
+        return Citation(
+            marker=marker,
+            document_id="runbook",
+            chunk_id=f"runbook:{marker}",
+            source_uri="https://example.test/runbook",
+            title="Node maintenance",
+            heading_path=(),
+            start_char=0,
+            end_char=22,
+            quote="Cordon the node first.",
+        )
+
+    def _graph(self, *, withdraw: bool) -> GraphSpec:
+        cited = self._cited(1)
+
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (cited,)}
+
+        async def verify(_state: AgentState) -> StateUpdate:
+            if not withdraw:
+                return {}
+            return {"draft": "I could not support that.", "citations": ()}
+
+        return GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="verify", run=verify, summary="checked"),
+            ],
+            edges=[("draft", "verify"), ("verify", END)],
+        )
+
+    async def _run(self, *, withdraw: bool) -> AgentRun:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._graph(withdraw=withdraw), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        return run
+
+    async def test_an_answers_citations_reach_the_run(self) -> None:
+        run = await self._run(withdraw=False)
+
+        assert run.answer == "Cordon the node first [1]."
+        assert [item.marker for item in run.citations] == [1]
+        assert run.grounded
+
+    async def test_withdrawing_a_draft_withdraws_its_citations(self) -> None:
+        run = await self._run(withdraw=True)
+
+        assert run.answer == "I could not support that."
+        assert run.citations == ()
+        assert not run.grounded
+
+    async def test_a_node_that_writes_neither_changes_neither(self) -> None:
+        # Most nodes write no draft at all. Reading citations with a default of
+        # the running value rather than of () is what keeps those nodes from
+        # silently clearing what an earlier one established.
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (self._cited(1),)}
+
+        async def noop(_state: AgentState) -> StateUpdate:
+            return {}
+
+        spec = GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="after", run=noop, summary="did nothing"),
+            ],
+            edges=[("draft", "after"), ("after", END)],
+        )
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-2", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-2")
+        assert run is not None
+        assert [item.marker for item in run.citations] == [1]
+
+    async def test_a_new_draft_that_names_no_citations_carries_none(self) -> None:
+        # The safe direction, and the honest one. A node that writes a new
+        # answer without saying what supports it has not inherited the old
+        # answer's support: carrying it forward would attach real, resolvable
+        # citations to prose that never cited them, which is the one failure
+        # this platform is built to make impossible.
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (self._cited(1),)}
+
+        async def rewrite(_state: AgentState) -> StateUpdate:
+            return {"draft": "On reflection, cordon the node first."}
+
+        spec = GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="rewrite", run=rewrite, summary="rewrote"),
+            ],
+            edges=[("draft", "rewrite"), ("rewrite", END)],
+        )
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-3", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-3")
+        assert run is not None
+        assert run.citations == ()

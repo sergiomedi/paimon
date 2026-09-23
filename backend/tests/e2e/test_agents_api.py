@@ -276,6 +276,57 @@ class TestReadingRunsBack:
         assert body["total_tokens"] > 0
         assert body["agent"] == TRIAGE
 
+    async def test_a_run_reads_back_with_what_it_cited(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # The platform's promise is that an answer carries citations or is not
+        # returned. Until this, the run record kept the answer and dropped them,
+        # so a caller reading a run back got the half they cannot check.
+        await backend.index()
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "eviction hangs"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
+
+        assert "[1]" in body["answer"]
+        assert body["citations"]
+        assert body["citations"][0]["marker"] == 1
+
+    async def test_a_citation_read_back_resolves_to_a_span(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # Offsets are the difference between a citation and a filename. A client
+        # gets enough to open the document at the passage, and a benchmark gets
+        # enough to check the claim without asking a model.
+        await backend.index()
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "eviction hangs"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        citation = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()[
+            "citations"
+        ][0]
+
+        assert citation["end_char"] > citation["start_char"]
+        assert citation["quote"]
+        assert citation["document_id"]
+
+    async def test_a_run_that_refused_reads_back_citing_nothing(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # Empty is the correct record of a refusal, not a missing value.
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "quantum tunnelling"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
+
+        assert body["citations"] == []
+
     async def test_listing_shows_the_run_that_just_ran(
         self, client: AsyncClient, backend: Backend, auth: dict[str, str]
     ) -> None:
