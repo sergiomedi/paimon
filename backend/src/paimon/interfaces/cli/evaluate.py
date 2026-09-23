@@ -58,6 +58,7 @@ from paimon.interfaces.api.dependencies import (
 from paimon.interfaces.cli.evaluate_agents import (
     Bench,
     emit,
+    verify_corpus,
 )
 from paimon.interfaces.cli.evaluate_agents import (
     load_dataset as load_agent_dataset,
@@ -626,6 +627,11 @@ async def _run_agents(
 ) -> int:
     """Run the agent benchmark for one system and report what it found."""
     dataset = load_agent_dataset(args.dataset)
+    unreachable = await verify_corpus(dataset, build_retrieve_chunks(resources), args.tenant)
+    if unreachable is not None:
+        sys.stderr.write(f"\n{unreachable}\n\n")
+        return USAGE_ERROR
+
     documents = await load_documents(resources, ingested, args.tenant)
     workflows = build_agent_workflows(resources)
     bench = Bench(

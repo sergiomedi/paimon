@@ -14,8 +14,8 @@ from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from paimon.application.use_cases import AnswerQuestion
-from paimon.domain.ports import AgentCheckpointer, AgentWorkflow
+from paimon.application.use_cases import AnswerQuestion, RetrieveChunks
+from paimon.domain.ports import AgentCheckpointer, AgentWorkflow, SearchFilters
 from paimon.evaluation import (
     AgentDataset,
     AgentReport,
@@ -71,6 +71,47 @@ class Bench:
         offered = ", ".join([*sorted(self.workflows), AnsweringSystem.name, *STANDINS])
         msg = f"no system named '{name}'; this deployment offers: {offered}"
         raise ValueError(msg)
+
+
+async def verify_corpus(
+    dataset: AgentDataset, retrieve: RetrieveChunks, tenant_id: str
+) -> str | None:
+    """Check the corpus is actually retrievable before measuring against it.
+
+    One search, for a passage the dataset itself says exists. It costs an
+    embedding and a query, and it turns the worst failure this harness can have
+    into a refusal.
+
+    That failure is not hypothetical. A benchmark run against an empty index
+    does not crash: every search returns nothing, every task ends in
+    ``no_material``, the out-of-corpus tasks score 100% because refusing is
+    right for them, and the report is a complete, confidently formatted
+    measurement of nothing. It is indistinguishable at a glance from a model
+    that simply cannot use its tools — which is exactly the conclusion this
+    phase exists to reach or reject, so it must not be reachable by accident.
+
+    Returns:
+        What is wrong and what to do about it, or None when the corpus answers.
+    """
+    probe = next(
+        (passage for item in dataset for passage in item.supporting),
+        None,
+    )
+    if probe is None:  # pragma: no cover - a set of only refusals
+        return None
+
+    result = await retrieve(probe.quote, SearchFilters(tenant_id=tenant_id))
+    if result.hits:
+        return None
+    return (
+        f"the corpus is not retrievable as tenant '{tenant_id}'.\n\n"
+        f"Searching for a passage the dataset says is in '{probe.document_id}' returned\n"
+        "nothing, so every task would end in no_material and the report would be a\n"
+        "confidently formatted measurement of an empty index.\n\n"
+        "Ingest the corpus for this tenant, and check that nothing else truncated it:\n"
+        "the integration tests TRUNCATE chunks and documents, so running them against\n"
+        "the same database during a benchmark empties it mid-run."
+    )
 
 
 def render(report: AgentReport) -> str:
@@ -321,5 +362,6 @@ __all__ = [
     "load_report",
     "render",
     "render_comparison",
+    "verify_corpus",
     "write_report",
 ]
