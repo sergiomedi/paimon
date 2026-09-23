@@ -11,6 +11,7 @@ from tests.fakes import (
 )
 
 from paimon.agents import AgentCollaborators
+from paimon.agents.tools import CorpusAccess
 from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
 from paimon.domain.entities import Chunk, Document
 from paimon.domain.errors import EmbeddingError
@@ -35,15 +36,18 @@ Detection was slow; nobody owned the alert.
 """
 
 
-def chunk(chunk_id: str, document_id: str, text: str) -> Chunk:
+def chunk(
+    chunk_id: str, document_id: str, text: str, *, ordinal: int = 0, start_char: int | None = None
+) -> Chunk:
+    start = ordinal * 1000 if start_char is None else start_char
     return Chunk(
         chunk_id=chunk_id,
         document_id=document_id,
         tenant_id=TENANT,
-        ordinal=0,
+        ordinal=ordinal,
         text=text,
-        start_char=0,
-        end_char=len(text),
+        start_char=start,
+        end_char=start + len(text),
         token_count=max(len(text.split()), 1),
     )
 
@@ -125,6 +129,20 @@ class Harness:
         )
         await self.repository.save(document("runbook", RUNBOOK))
         await self.repository.save(document("incident", POSTMORTEM))
+
+    def corpus(self) -> CorpusAccess:
+        """What the two tools run against, before a tenant is named."""
+        return CorpusAccess(retrieve=self.retrieve, repository=self.repository, store=self.store)
+
+    async def index_chunks(self, *chunks: Chunk) -> None:
+        """Index chunks exactly as given, for a test that cares about ordering."""
+        embeddings = await self.embedding_model.embed_documents([item.text for item in chunks])
+        await self.store.upsert(
+            [
+                ChunkRecord(chunk=item, embedding=embedding)
+                for item, embedding in zip(chunks, embeddings, strict=True)
+            ]
+        )
 
     def workflow(self, spec: object) -> LangGraphWorkflow:
         return LangGraphWorkflow(spec, self.checkpointer)  # type: ignore[arg-type]

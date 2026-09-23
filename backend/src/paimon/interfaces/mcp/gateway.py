@@ -8,8 +8,7 @@ something only reachable through a protocol session.
 import uuid
 from collections.abc import Callable, Mapping
 
-from paimon.agents.tools import ToolExecutor
-from paimon.application.use_cases.retrieve_chunks import RetrieveChunks
+from paimon.agents.tools import CorpusAccess, ToolExecutor
 from paimon.domain.entities import AgentRun, Principal
 from paimon.domain.errors import (
     AgentRunError,
@@ -20,7 +19,6 @@ from paimon.domain.errors import (
 from paimon.domain.ports import (
     AgentCheckpointer,
     AgentWorkflow,
-    DocumentRepository,
     IdentityProvider,
     ToolCall,
 )
@@ -76,8 +74,7 @@ class McpToolGateway:
     def __init__(
         self,
         identity: IdentityProvider,
-        retrieve: RetrieveChunks,
-        repository: DocumentRepository,
+        corpus: CorpusAccess,
         workflows: Mapping[str, AgentWorkflow] | None = None,
         checkpointer: AgentCheckpointer | None = None,
     ) -> None:
@@ -85,16 +82,14 @@ class McpToolGateway:
 
         Args:
             identity: Verifies the bearer token and returns the caller.
-            retrieve: Retrieval, shared with the rest of the platform.
-            repository: Where whole documents are read from.
+            corpus: What the tools run against, not yet bound to a tenant.
             workflows: The agents this deployment offers, by name. Empty when
                 agents are not exposed over MCP.
             checkpointer: Where runs are recorded, so a finished run can be read
                 back with its steps and what it cost.
         """
         self._identity = identity
-        self._retrieve = retrieve
-        self._repository = repository
+        self._corpus = corpus
         self._workflows = dict(workflows or {})
         self._checkpointer = checkpointer
 
@@ -114,7 +109,7 @@ class McpToolGateway:
         took its tenant from a tool call would take it from something a prompt
         can talk into changing.
         """
-        return ToolExecutor(self._retrieve, self._repository, principal.tenant_id)
+        return self._corpus.for_tenant(principal.tenant_id)
 
     async def run(
         self,

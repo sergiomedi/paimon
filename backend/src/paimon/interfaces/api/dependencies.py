@@ -22,6 +22,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from paimon.agents import AgentCollaborators, build_all
+from paimon.agents.tools import CorpusAccess
 from paimon.application.use_cases import (
     AnswerQuestion,
     CheckReadiness,
@@ -550,6 +551,19 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
     }
 
 
+def build_corpus_access(resources: Resources) -> CorpusAccess:
+    """Assemble what the platform's two tools run against.
+
+    Not bound to a tenant. Binding is per caller and per run, and a corpus that
+    arrived already scoped would be one somebody could forget to re-scope.
+    """
+    return CorpusAccess(
+        retrieve=build_retrieve_chunks(resources),
+        repository=resources.document_repository,
+        store=resources.vector_store,
+    )
+
+
 def build_mcp_gateway(
     resources: Resources, workflows: Mapping[str, AgentWorkflow]
 ) -> McpToolGateway:
@@ -565,8 +579,7 @@ def build_mcp_gateway(
     """
     return McpToolGateway(
         resources.identity_provider,
-        build_retrieve_chunks(resources),
-        resources.document_repository,
+        build_corpus_access(resources),
         workflows=workflows,
         checkpointer=resources.checkpointer,
     )

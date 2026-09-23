@@ -14,7 +14,8 @@ SIGNING_KEY = "test-signing-key-padded-to-thirty-two-bytes"
 
 def gateway(harness: Harness) -> McpToolGateway:
     return McpToolGateway(
-        DevIdentityProvider(signing_key=SIGNING_KEY), harness.retrieve, harness.repository
+        DevIdentityProvider(signing_key=SIGNING_KEY),
+        harness.corpus(),
     )
 
 
