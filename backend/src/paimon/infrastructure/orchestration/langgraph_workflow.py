@@ -201,6 +201,15 @@ class LangGraphWorkflow:
                 # the run is resumed, so everything above this line runs twice.
                 # Node bodies are pure, so that is wasteful rather than wrong -
                 # but a node that calls a model should not be the one to suspend.
+                #
+                # And a suspending node CANNOT READ ITS OWN ANSWER. The body has
+                # already finished by the time the decision arrives, and both of
+                # its executions saw an empty `decision`; the answer is merged
+                # into the state below, so only a *later* node sees it. A node
+                # that branches on its own decision compiles, type-checks, and
+                # never takes the branch — which is what the postmortem
+                # reviewer did from Phase 3 until a test resumed a run and
+                # rejected a draft that stayed accepted.
                 decision = interrupt({"question": awaiting, "node": node.name})
                 update = {**update, "awaiting": "", "decision": str(decision)}
 

@@ -137,3 +137,64 @@ class TestTheCapability:
         run = await runs.load("t-1")
         assert run is not None
         assert run.status is RunStatus.SUCCEEDED
+
+
+class TestWhatASuspendingNodeCannotDo:
+    """The rule that has to be written down, because it looks like the opposite.
+
+    A node asks for a decision by writing ``awaiting``. The adapter sees that
+    *after* the body has returned, and only then suspends — so the body has
+    already finished, and on resume it runs again with ``decision`` still empty
+    before the answer is merged into the state. A node that branches on its own
+    decision therefore compiles, type-checks and never takes the branch.
+
+    That is not hypothetical. The postmortem reviewer did exactly this from
+    Phase 3 until a Phase 9 test resumed a run, rejected the draft, and got back
+    a draft that had been accepted.
+    """
+
+    @staticmethod
+    def _spec(seen: list[str]) -> GraphSpec:
+        async def ask(state: AgentState) -> StateUpdate:
+            seen.append(f"ask:{state.decision!r}")
+            if not state.decision:
+                return {"awaiting": "accept or reject?"}
+            return {"draft": "the node acted on its own decision"}
+
+        async def act(state: AgentState) -> StateUpdate:
+            seen.append(f"act:{state.decision!r}")
+            return {"draft": f"a later node acted on {state.decision}"}
+
+        return GraphSpec(
+            name="approver",
+            entry="ask",
+            nodes=[
+                NodeSpec(name="ask", run=ask, summary="asked"),
+                NodeSpec(name="act", run=act, summary="acted"),
+            ],
+            edges=[("ask", "act"), ("act", END)],
+        )
+
+    async def _resume_with(self, decision: str) -> tuple[list[str], str]:
+        seen: list[str] = []
+        runs = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._spec(seen), runs, saver=InMemorySaver())
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id=TENANT):
+            pass
+        resumed = await workflow.resume(decision, thread_id="t-1")
+        return seen, resumed.answer
+
+    async def test_the_suspending_node_never_sees_the_decision(self) -> None:
+        seen, _ = await self._resume_with("reject: wrong")
+
+        assert [entry for entry in seen if entry.startswith("ask:")] == ["ask:''", "ask:''"]
+
+    async def test_the_next_node_does(self) -> None:
+        seen, _ = await self._resume_with("reject: wrong")
+
+        assert "act:'reject: wrong'" in seen
+
+    async def test_so_the_work_belongs_in_the_next_node(self) -> None:
+        _, answer = await self._resume_with("reject: wrong")
+
+        assert answer == "a later node acted on reject: wrong"

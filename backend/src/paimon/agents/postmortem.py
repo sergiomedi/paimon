@@ -142,18 +142,33 @@ def build_postmortem_graph(
             "usage": (completion.input_tokens, completion.output_tokens),
         }
 
-    async def ask_reviewer(state: AgentState) -> StateUpdate:
+    async def ask_reviewer(_state: AgentState) -> StateUpdate:
         """Suspend, so a person can accept or correct the draft.
 
         Writes to the state rather than calling the runtime: suspending is the
         adapter's job (ADR-0015), and a node that knew how to interrupt would be
         a node that needed a graph to be tested.
 
-        On the way back the same node runs again with ``decision`` filled, which
-        is why nothing expensive happens here.
+        It only asks. **A node cannot read its own answer**: the adapter runs
+        the body, sees ``awaiting``, and only then suspends, so on the way back
+        the body runs again with ``decision`` still empty and the answer is
+        merged into the state afterwards. Acting on it here looked right and was
+        unreachable — see :func:`apply_review`.
         """
-        if not state.decision:
-            return {"awaiting": REVIEW_QUESTION}
+        return {"awaiting": REVIEW_QUESTION}
+
+    async def apply_review(state: AgentState) -> StateUpdate:
+        """Do what the reviewer asked.
+
+        A second node, and it has to be: the decision does not exist until the
+        suspending node has finished. This was one node until a test resumed a
+        run and rejected a draft that stayed accepted — the rejection branch had
+        never been reachable, so the review step could record notes and could
+        not do the one thing the prompt offers.
+
+        Rejection withdraws the citations with the draft. A record that kept
+        them would point at the sources of text a person had just refused.
+        """
         if state.decision.strip().lower().startswith("reject"):
             return {"draft": f"{REJECTED}\n\n{state.decision}", "citations": ()}
         return {"notes": state.decision}
@@ -183,7 +198,13 @@ def build_postmortem_graph(
                         name="review",
                         run=ask_reviewer,
                         summary="put the draft to a reviewer",
-                    )
+                    ),
+                    NodeSpec(
+                        name="apply-review",
+                        run=apply_review,
+                        summary="applied the reviewer's decision",
+                        report=_report_review,
+                    ),
                 ]
                 if review
                 else []
@@ -194,10 +215,29 @@ def build_postmortem_graph(
             ("read", triage.entry),
             *triage.edges,
             ("ground", "compose"),
-            *([("compose", "review"), ("review", "verify")] if review else [("compose", "verify")]),
+            *(
+                [("compose", "review"), ("review", "apply-review"), ("apply-review", "verify")]
+                if review
+                else [("compose", "verify")]
+            ),
             ("verify", END),
         ],
         branches=list(triage.branches),
+    )
+
+
+def _report_review(state: AgentState, update: StateUpdate) -> StepReport:
+    """Say what the reviewer decided, so the trace records the human's part."""
+    withdrawn = REJECTED in update.get("draft", "")
+    return StepReport(
+        summary="the reviewer withdrew the draft" if withdrawn else "the reviewer accepted",
+        details={
+            "decision": "rejected" if withdrawn else "accepted",
+            # The reviewer's own words are not recorded here. They are already
+            # on the draft when it matters, and a step detail is read by anyone
+            # who can see the run.
+            "notes": "yes" if state.decision.strip() and not withdrawn else "no",
+        },
     )
 
 
