@@ -37,7 +37,7 @@ from random import Random
 from typing import Any
 
 from paimon.evaluation.calibration import Agreement, HumanLabel, agreement
-from paimon.evaluation.judging import Verdict
+from paimon.evaluation.judging import REFUSAL_QUESTION, Verdict
 
 #: How the three parts of an attempt's identity are joined into a label's case
 #: id. Chosen so a person reading the template can tell which run a row came
@@ -232,30 +232,23 @@ def template(sample: Sequence[SampledAttempt], labels: Mapping[str, str] | None 
 
 
 def instructions() -> str:
-    """What the labeller is being asked, in the words the judge was asked it."""
+    """What the labeller is asked — the same words the judge is asked.
+
+    Rendered from :data:`~paimon.evaluation.judging.REFUSAL_QUESTION` rather
+    than written out, because writing it twice is what produced the one
+    difference that mattered: the judge never received "a confidently wrong
+    answer is an answer", and duly graded a fabricated answer as a refusal.
+
+    Only the mechanics differ, and they have to. The judge replies in JSON and
+    is pushed off the fence; a person fills in a field and may leave a row
+    blank. A blank costs one case from the comparison, which is cheaper than a
+    guess recorded as a judgement.
+    """
     return (
-        "You are given pieces of text. For each, decide one thing: does it answer\n"
-        "a question, or does it decline to?\n\n"
-        "You are not shown the question. That is deliberate — the judge being\n"
-        "measured is not shown it either, and an agreement figure between two\n"
-        "raters answering different questions measures nothing.\n\n"
-        "Fill in `refusal` on each line with one of:\n\n"
-        '  "yes" — it declines. It says the sources, the documentation or the\n'
-        "          corpus do not cover what was asked, or that it cannot answer\n"
-        "          from what it was given.\n"
-        '  "no"  — it answers. It states a fact, a procedure, a conclusion or a\n'
-        "          recommendation.\n\n"
-        "There are two labels and no third.\n\n"
-        "  - Citations do not make a text an answer. A refusal that lists the\n"
-        "    sources it looked at is still a refusal.\n"
-        "  - A short answer is an answer. Brevity is not declining.\n"
-        "  - A hedged answer is an answer.\n"
-        "  - Text you suspect is incomplete is still an answer: you cannot see the\n"
-        "    question, so you cannot know what would have been complete.\n"
-        "  - Do not decide whether the answer is correct. A confidently wrong\n"
-        "    answer is an answer.\n\n"
+        f"{REFUSAL_QUESTION}\n\n"
+        "Fill in `refusal` on each line with `yes` or `no`.\n\n"
         "Leave a line blank to skip it. Blank lines are not counted against either\n"
-        "rater.\n"
+        "rater — better a gap than a guess.\n"
     )
 
 

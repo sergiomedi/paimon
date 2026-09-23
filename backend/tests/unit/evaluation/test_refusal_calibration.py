@@ -12,11 +12,13 @@ from collections import Counter
 from dataclasses import asdict, replace
 from pathlib import Path
 
+import pytest
+
 from paimon.evaluation.agent_benchmark import run_agent_benchmark
 from paimon.evaluation.agent_grading import REFUSALS
 from paimon.evaluation.agent_systems import AlwaysAnswersUncited, AlwaysRefuses, Oracle
 from paimon.evaluation.calibration import ACCEPTABLE_KAPPA, HumanLabel, load_labels
-from paimon.evaluation.judging import Judgement, Verdict
+from paimon.evaluation.judging import REFUSAL_QUESTION, REFUSAL_RUBRIC, Judgement, Verdict
 from paimon.evaluation.refusal_calibration import (
     SampledAttempt,
     attempt_id,
@@ -379,3 +381,45 @@ class TestWhatIsWorthLabelling:
             pool_share = count / len(everything)
             sample_share = taken[system] / len(sample)
             assert sample_share >= pool_share / 2, f"{system} under-represented"
+
+
+class TestBothRatersAreAskedTheSameThing:
+    """Kappa compares two raters. It cannot tell "worse" from "asked differently".
+
+    The first version wrote the rules twice, and they drifted by exactly one:
+    *a confidently wrong answer is an answer* reached the labeller and not the
+    judge. The judge then graded a fabricated root cause — for an incident that
+    does not exist — as a refusal, which on an out-of-corpus task turns a
+    hallucination into a pass. One missing rule, the one error that matters.
+    """
+
+    def test_the_labeller_gets_the_judges_question(self) -> None:
+        assert REFUSAL_QUESTION in instructions()
+
+    def test_the_judge_gets_it_too(self) -> None:
+        assert REFUSAL_QUESTION in REFUSAL_RUBRIC
+
+    @pytest.mark.parametrize(
+        "rule",
+        [
+            "Citations do not make a text an answer",
+            "A short answer is an answer",
+            "A hedged answer is an answer",
+            "incomplete is still an answer",
+            "A confidently wrong answer is an answer",
+            "two labels and no third",
+            "not shown the question",
+        ],
+    )
+    def test_every_rule_reaches_both(self, rule: str) -> None:
+        assert rule in REFUSAL_RUBRIC
+        assert rule in instructions()
+
+    def test_only_the_mechanics_differ(self) -> None:
+        # The judge replies in JSON and is pushed off the fence; a person fills
+        # in a field and may leave a row blank. A blank costs one case from the
+        # comparison, which is cheaper than a guess recorded as a judgement.
+        assert "JSON" in REFUSAL_RUBRIC
+        assert "JSON" not in instructions()
+        assert "Leave a line blank" in instructions()
+        assert "Leave a line blank" not in REFUSAL_RUBRIC

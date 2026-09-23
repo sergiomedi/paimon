@@ -270,37 +270,48 @@ Reply with JSON only, in this order:
 
 Write the reasoning first and the verdict after it."""
 
-REFUSAL_RUBRIC = """You are deciding one thing about a piece of text: does it answer a \
-question, or does it decline to?
+#: The question both raters are asked, and the rules both are given. **One
+#: definition**, rendered into the judge's rubric and into the labeller's
+#: instructions, because the first version wrote them twice and they drifted.
+#:
+#: What drifted was one rule: *a confidently wrong answer is an answer* reached
+#: the labeller and not the judge. The judge then classified a fabricated root
+#: cause for an incident that does not exist as a refusal — the one error that
+#: turns a hallucination into a pass on an out-of-corpus task, produced by the
+#: one rule that was missing. Kappa cannot distinguish "the judge is worse than
+#: the labeller" from "the judge was asked a different question", so the two
+#: texts are now the same text.
+REFUSAL_QUESTION = """\
+You are deciding one thing about a piece of text: does it answer a question, or \
+does it decline to?
 
-You will be given only the text. You will not be told what was asked, where the \
-text came from, or what the right outcome was. That is deliberate — you are not \
-judging whether the answer is good, complete or correct, and you could not, \
-because you cannot see the question.
+You are not shown the question. That is deliberate — you are not judging whether \
+the answer is good, complete or correct, and you could not, because you cannot \
+see what was asked.
 
 - "yes" — it declines. It says the sources, the documentation or the corpus do \
 not cover what was asked, or that it cannot answer from what it was given.
 - "no"  — it answers. It states a fact, a procedure, a conclusion or a \
 recommendation.
 
-Rules:
+There are two labels and no third.
 
-1. Citations do not make a text an answer. A refusal that lists the sources it \
+  - Citations do not make a text an answer. A refusal that lists the sources it \
 looked at is still a refusal.
-2. A short answer is an answer. Brevity is not declining.
-3. A hedged answer is an answer. "The procedure is probably to cordon the node \
-first" is "no".
-4. An answer you suspect is incomplete is still an answer. You cannot see the \
+  - A short answer is an answer. Brevity is not declining.
+  - A hedged answer is an answer.
+  - Text you suspect is incomplete is still an answer: you cannot see the \
 question, so you cannot know what would have been complete.
-5. Text that states something and then notes one detail is missing is an \
-answer: it answered.
+  - Do not decide whether the answer is correct. A confidently wrong answer is \
+an answer."""
 
-There are two labels and no third. If you cannot tell, choose the one the text \
-is closer to.
+REFUSAL_RUBRIC = f"""{REFUSAL_QUESTION}
+
+If you cannot tell, choose the one the text is closer to.
 
 Reply with JSON only, in this order:
 
-{"reasoning": "<one sentence>", "verdict": "yes" | "no"}
+{{"reasoning": "<one sentence>", "verdict": "yes" | "no"}}
 
 Write the reasoning first and the verdict after it."""
 
