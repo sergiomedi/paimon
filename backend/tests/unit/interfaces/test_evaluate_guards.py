@@ -30,6 +30,8 @@ def command(**overrides: object) -> argparse.Namespace:
         "labels": None,
         "write_labels": None,
         "against": None,
+        "agents": False,
+        "trials": 5,
     }
     return argparse.Namespace(**{**defaults, **overrides})
 
@@ -171,3 +173,48 @@ class TestProgress:
         stream = Terminal()
         progress_reporter("answering", stream)(done=1, total=9, case_id="q1")
         assert "\x1b[K" in stream.getvalue()
+
+
+class TestTheAgentBenchmarksRefusals:
+    """The combinations that would otherwise produce a confident wrong number."""
+
+    def test_agents_without_a_corpus_is_refused(self) -> None:
+        # The same trap --answers fell into. Without the corpus every citation
+        # is reported as pointing at an unknown document, and a correct system
+        # scores zero — which reads exactly like a broken agent.
+        refusal = unusable(command(agents=True), judge_enabled=False)
+
+        assert refusal is not None
+        assert "--agents needs --corpus" in refusal
+
+    def test_agents_with_a_corpus_is_fine(self) -> None:
+        assert unusable(command(agents=True, corpus=Path("corpus")), judge_enabled=False) is None
+
+    def test_both_benchmarks_at_once_is_refused(self) -> None:
+        # Two datasets, two sets of graders. Running them from one invocation
+        # would report one of them under the other's name.
+        refusal = unusable(
+            command(agents=True, answers=True, corpus=Path("corpus")), judge_enabled=False
+        )
+
+        assert refusal is not None
+        assert "two different benchmarks" in refusal
+
+    def test_zero_trials_is_refused(self) -> None:
+        refusal = unusable(
+            command(agents=True, corpus=Path("corpus"), trials=0), judge_enabled=False
+        )
+
+        assert refusal is not None
+        assert "at least one" in refusal
+
+    def test_comparing_two_agent_runs_is_allowed(self) -> None:
+        # Unlike --answers, this one is wired: the reports carry per-task scores
+        # and the comparison is paired on the task.
+        assert (
+            unusable(
+                command(agents=True, corpus=Path("corpus"), against=Path("baseline.json")),
+                judge_enabled=False,
+            )
+            is None
+        )

@@ -12,7 +12,7 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
@@ -23,7 +23,8 @@ from paimon.application.use_cases import (
     RetrieveChunks,
     SourceDocument,
 )
-from paimon.config import get_settings
+from paimon.application.use_cases.answer_question import NO_MATERIAL
+from paimon.config import Settings, get_settings
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import (
@@ -39,6 +40,7 @@ from paimon.evaluation import (
     Progress,
     labelling_template,
     load_labels,
+    run_agent_benchmark,
     run_answering_benchmark,
     run_benchmark,
 )
@@ -46,11 +48,31 @@ from paimon.evaluation.metrics import RetrievalMetrics
 from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
     Resources,
+    build_agent_workflows,
     build_answer_judge,
     build_answer_question,
     build_ingest_document,
     build_resources,
     build_retrieve_chunks,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    Bench,
+    emit,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    load_dataset as load_agent_dataset,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    load_report as load_agent_report,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    render as render_agents,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    render_comparison as render_agent_comparison,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    write_report as write_agent_report,
 )
 from paimon.observability import configure_logging, get_logger
 
@@ -479,7 +501,9 @@ def progress_reporter(label: str, stream: "TextIO | None" = None) -> Progress:
     return report
 
 
-def unusable(args: argparse.Namespace, *, judge_enabled: bool) -> str | None:
+def unusable(  # noqa: PLR0911  one refusal per mistake, each with its own explanation
+    args: argparse.Namespace, *, judge_enabled: bool
+) -> str | None:
     """Explain why this command line cannot do what it appears to ask for.
 
     Every combination refused here used to be **silently ignored**, and that is
@@ -510,6 +534,20 @@ def unusable(args: argparse.Namespace, *, judge_enabled: bool) -> str | None:
                     f"{flag} needs --answers. Labelling is about answers, and a retrieval\n"
                     "run has none to label."
                 )
+    if args.answers and args.agents:
+        return (
+            "--answers and --agents are two different benchmarks over two different\n"
+            "datasets. Run them separately."
+        )
+    if args.agents and not args.corpus:
+        return (
+            "--agents needs --corpus. Every citation is verified by opening the document\n"
+            "it names at the offsets it claims, and --corpus is how this run learns which\n"
+            "documents those are. Without it every citation is reported as pointing at an\n"
+            "unknown document and a correct system scores zero."
+        )
+    if args.agents and args.trials < 1:
+        return "--trials must be at least one: a task nobody attempted has no pass rate."
     if args.answers and args.against:
         return (
             "--against compares retrieval runs, and this is an answering run. Comparing\n"
@@ -565,6 +603,62 @@ def judging_for(
     )
 
 
+def _pricer(settings: "Settings", resources: Resources) -> Callable[[int, int], float | None]:
+    """Price this run's tokens with the deployment's own table.
+
+    Closed over the model that is actually generating, because a price list is
+    per model and the benchmark does not know which one it ran.
+    """
+    pricing = settings.observability.metrics.pricing
+    model = resources.chat_model.model_id
+
+    def price(input_tokens: int, output_tokens: int) -> float | None:
+        return pricing.cost(model, input_tokens=input_tokens, output_tokens=output_tokens)
+
+    return price
+
+
+async def _run_agents(
+    args: argparse.Namespace,
+    resources: Resources,
+    ingested: Sequence[str],
+    settings: "Settings",
+) -> int:
+    """Run the agent benchmark for one system and report what it found."""
+    dataset = load_agent_dataset(args.dataset)
+    documents = await load_documents(resources, ingested, args.tenant)
+    workflows = build_agent_workflows(resources)
+    bench = Bench(
+        workflows=workflows,
+        answerer=build_answer_question(resources),
+        checkpointer=resources.checkpointer,
+        documents=documents,
+        tenant_id=args.tenant,
+        refusal=NO_MATERIAL,
+    )
+    try:
+        system = bench.system(args.agent)
+    except ValueError as error:
+        sys.stderr.write(f"\n{error}\n\n")
+        return USAGE_ERROR
+
+    report = await run_agent_benchmark(
+        dataset,
+        system,
+        documents,
+        trials=args.trials,
+        configuration=args.label,
+        price=_pricer(settings, resources),
+        progress=progress_reporter(f"{args.agent} x{args.trials}"),
+    )
+    emit(render_agents(report))
+    if args.against:
+        emit(render_agent_comparison(report, load_agent_report(args.against)))
+    if args.report is not None:
+        write_agent_report(report, args.report)
+    return 0 if report.reliability.tasks else 1
+
+
 async def main(argv: list[str] | None = None) -> int:
     """Ingest the corpus if asked, run the benchmark, report.
 
@@ -608,6 +702,31 @@ async def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--agents",
+        action="store_true",
+        help=(
+            "Benchmark a whole system on the agent task set: k attempts per "
+            "task, graded on the outcome rather than on the route."
+        ),
+    )
+    parser.add_argument(
+        "--agent",
+        default="investigator",
+        help=(
+            "Which system to measure. An agent's name, 'answers' for the "
+            "single-pass path, or 'oracle' to check the graders can be satisfied."
+        ),
+    )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=5,
+        help=(
+            "Attempts per task. Above one is what makes pass^k mean anything; "
+            "at one it is not reported as a reliability."
+        ),
+    )
+    parser.add_argument(
         "--against",
         type=Path,
         help=(
@@ -625,14 +744,20 @@ async def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"\n{refusal}\n\n")
         return USAGE_ERROR
 
-    dataset = EvaluationDataset.from_jsonl(args.dataset)
-
+    # Loaded inside the branch that uses it. The two benchmarks read different
+    # shapes out of --dataset, and loading the retrieval one first meant an
+    # agent set was rejected for having refusal tasks — by a loader that was
+    # right to reject them and was never going to be asked to run them.
     async with build_resources(settings) as resources:
         ingested: list[str] = []
         if args.corpus:
             ingested = await ingest_corpus(resources, args.corpus, args.tenant)
             logger.info("corpus_ingested", documents=len(ingested))
 
+        if args.agents:
+            return await _run_agents(args, resources, ingested, settings)
+
+        dataset = EvaluationDataset.from_jsonl(args.dataset)
         if args.answers:
             # The template is blank on purpose — showing the judge's verdict
             # would anchor the labeller — so asking the judge here buys three

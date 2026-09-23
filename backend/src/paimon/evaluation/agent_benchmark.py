@@ -21,7 +21,7 @@ answer rather than a preference.
 """
 
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import Protocol
 
@@ -112,10 +112,14 @@ class TrajectoryReport:
     stop_reasons: Mapping[str, int] = field(default_factory=dict)
     outcomes: Mapping[str, int] = field(default_factory=dict)
     failures: int = 0
-    estimated_cost: float = 0.0
+    estimated_cost: float | None = None
     """What the tokens would cost at the configured prices. An estimate and
     labelled one (ADR-0028): the tokens are measured, the money is arithmetic
-    over a price list that changes without telling anyone."""
+    over a price list that changes without telling anyone.
+
+    None when this deployment prices nothing, or prices a different model from
+    the one that ran. Not zero — zero is a claim, and the honest answer when
+    nobody has supplied a price is silence."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +190,7 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
     *,
     trials: int = 5,
     configuration: str = "unnamed",
-    pricing: Mapping[str, float] | None = None,
+    price: Callable[[int, int], float | None] | None = None,
     progress: Progress | None = None,
 ) -> AgentReport:
     """Put every task to a system k times and grade what comes back.
@@ -200,8 +204,11 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
             something, few enough to finish against a local model.
         configuration: A label for what was measured. A number without the
             configuration that produced it cannot be compared with anything.
-        pricing: Input and output prices per thousand tokens, for the estimated
-            cost. Absent means the cost is reported as zero rather than guessed.
+        price: Turns an attempt's input and output token counts into money, or
+            returns None for a model nobody has priced. A callable rather than a
+            price list, so the per-million arithmetic stays in the one place
+            that already gets it right — converting at the call site is where a
+            factor of a thousand goes unnoticed.
         progress: Notified after each task, when the caller wants to watch.
 
     Returns:
@@ -239,7 +246,7 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
         trials=trials,
         reliability=reliability(outcomes, clusters),
         categories=_by_category(dataset, reports),
-        trajectory=_trajectory(reports, pricing or {}),
+        trajectory=_trajectory(reports, price),
         tasks=tuple(reports),
         scores={"pass_rate": tuple(report.rate for report in reports)},
         clusters=tuple(clusters),
@@ -314,7 +321,9 @@ def _by_category(
     )
 
 
-def _trajectory(reports: Sequence[TaskReport], pricing: Mapping[str, float]) -> TrajectoryReport:
+def _trajectory(
+    reports: Sequence[TaskReport], price: "Callable[[int, int], float | None] | None"
+) -> TrajectoryReport:
     """Aggregate what the runs cost and how they ended.
 
     Over **attempts**, not tasks, and that is the one place in this module where
@@ -350,21 +359,29 @@ def _trajectory(reports: Sequence[TaskReport], pricing: Mapping[str, float]) -> 
         stop_reasons=dict(sorted(stop_reasons.items())),
         outcomes=dict(sorted(outcomes.items())),
         failures=sum(1 for item in attempts if item.failed),
-        estimated_cost=_cost(attempts, pricing),
+        estimated_cost=_cost(attempts, price),
     )
 
 
-def _cost(attempts: Sequence[Attempt], pricing: Mapping[str, float]) -> float:
-    """What the tokens would have cost, at the prices this deployment declares."""
-    if not pricing:
-        return 0.0
-    per_thousand_in = pricing.get("input_per_1k", 0.0)
-    per_thousand_out = pricing.get("output_per_1k", 0.0)
-    return sum(
-        attempt.trajectory.input_tokens / 1000 * per_thousand_in
-        + attempt.trajectory.output_tokens / 1000 * per_thousand_out
-        for attempt in attempts
-    )
+def _cost(
+    attempts: Sequence[Attempt], price: "Callable[[int, int], float | None] | None"
+) -> float | None:
+    """What the tokens would have cost, when anyone has said what they cost.
+
+    None rather than zero when the model is unpriced, and None rather than a
+    partial total when *any* attempt is unpriced: a sum over the priced half of
+    a run is a smaller number than the truth, presented with the authority of
+    arithmetic.
+    """
+    if price is None:
+        return None
+    total = 0.0
+    for attempt in attempts:
+        each = price(attempt.trajectory.input_tokens, attempt.trajectory.output_tokens)
+        if each is None:
+            return None
+        total += each
+    return total
 
 
 __all__ = [

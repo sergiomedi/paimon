@@ -1,0 +1,325 @@
+"""Running the agent benchmark, and rendering what it found.
+
+Kept beside the retrieval command rather than inside it. The two share a corpus,
+a tenant and a report file, and nothing else: this one puts open questions to a
+whole system several times and scores the outcome, where that one puts fifteen
+questions to a retriever once and scores the ranking. Folding them into one
+``main`` would have produced a function whose every branch asked which benchmark
+it was running.
+"""
+
+import json
+import sys
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
+from pathlib import Path
+
+from paimon.application.use_cases import AnswerQuestion
+from paimon.domain.ports import AgentCheckpointer, AgentWorkflow
+from paimon.evaluation import (
+    AgentDataset,
+    AgentReport,
+    AnsweringSystem,
+    Oracle,
+    System,
+    WorkflowSystem,
+)
+from paimon.evaluation.agent_benchmark import TaskReport, TrajectoryReport
+from paimon.evaluation.agent_dataset import Outcome
+from paimon.evaluation.statistics import Estimate, Reliability
+
+#: Systems that exist to check the graders rather than to be measured. Named so
+#: ``--system oracle`` works without the caller knowing it is not an agent.
+STANDINS = ("oracle",)
+
+
+@dataclass(frozen=True, slots=True)
+class Bench:
+    """What a benchmark run needs in order to build any system it is asked for.
+
+    Named rather than passed as seven arguments, the way
+    :class:`~paimon.agents.collaborators.AgentCollaborators` was: the linter
+    counts, and a list that long is usually a concept nobody has named. Here the
+    concept is real — every one of these is fixed for the whole run, and a
+    system built with a different tenant or a different corpus would not be
+    comparable with the others.
+    """
+
+    workflows: Mapping[str, AgentWorkflow]
+    answerer: AnswerQuestion
+    checkpointer: AgentCheckpointer
+    documents: Mapping[str, str]
+    tenant_id: str
+    refusal: str
+
+    def system(self, name: str) -> System:
+        """Resolve a system by name, or say what names exist.
+
+        Raises:
+            ValueError: If nothing goes by that name. The message lists what
+                does, because the commonest cause is an agent this deployment
+                cannot run — the investigator on a model without tool calling —
+                and "no system named x" alone reads as a typo.
+        """
+        if name == AnsweringSystem.name:
+            return AnsweringSystem(self.answerer, self.tenant_id)
+        if name == Oracle.name:
+            return Oracle(self.documents, self.refusal)
+        workflow = self.workflows.get(name)
+        if workflow is not None:
+            return WorkflowSystem(workflow, self.checkpointer, self.tenant_id)
+        offered = ", ".join([*sorted(self.workflows), AnsweringSystem.name, *STANDINS])
+        msg = f"no system named '{name}'; this deployment offers: {offered}"
+        raise ValueError(msg)
+
+
+def render(report: AgentReport) -> str:
+    """Render an agent report for a terminal.
+
+    Three sections, in the order they should be read. The reliability first,
+    because pass@1 and pass^k are different claims and quoting one as the other
+    is the mistake this format exists to make hard. Then the categories, because
+    one average over five of them hides all five. Then the trajectory, which is
+    what the run cost and is never part of the score.
+    """
+    stats = report.reliability
+    lines = [
+        "",
+        f"dataset       {report.dataset}  ({stats.tasks} tasks, "
+        f"{stats.pass_at_1.clusters or stats.tasks} independent groups)",
+        f"system        {report.system}",
+        f"configuration {report.configuration}",
+        f"trials        {stats.trials} per task",
+        "",
+        "  reliability          mean +/- 95% CI      what it says",
+        f"  pass@1         {stats.pass_at_1.format(percent=True):>18}   one run gets it right",
+        *_repeated(stats),
+        "",
+        "  by category        tasks     pass@1            pass^k",
+    ]
+    for category in report.categories:
+        lines.append(
+            f"  {category.category:<18}{category.tasks:>5}   "
+            f"{category.reliability.pass_at_1.format(percent=True):>16}  "
+            f"{category.reliability.pass_hat_k.format(percent=True):>16}"
+        )
+
+    trajectory = report.trajectory
+    lines.extend(
+        [
+            "",
+            "  trajectory (reported, never scored)",
+            f"    tool calls per run    {trajectory.tool_calls.format()}",
+            f"    tool errors per run   {trajectory.tool_errors.format()}",
+            f"    repeated calls        {trajectory.repeated_calls.format()}",
+            f"    tokens per run        {trajectory.total_tokens.format()}",
+            f"    latency per run       {trajectory.latency_ms.mean / 1000:.2f} s",
+        ]
+    )
+    if trajectory.estimated_cost is not None:
+        lines.append(
+            f"    estimated cost        {trajectory.estimated_cost:.4f} (an estimate, not a bill)"
+        )
+    lines.append(f"    stop reasons          {_histogram(trajectory.stop_reasons)}")
+    lines.append(f"    what it produced      {_histogram(trajectory.outcomes)}")
+    if trajectory.failures:
+        lines.append(f"    runs that crashed     {trajectory.failures}")
+
+    if report.flaky:
+        lines.extend(["", "  answered inconsistently across trials:"])
+        lines.extend(
+            f"    {task.task_id}  {task.passes}/{len(task.grades)}  {task.question[:62]}"
+            for task in report.flaky
+        )
+    if report.never_passed:
+        lines.extend(["", "  never got right:"])
+        lines.extend(
+            f"    {task.task_id}  [{task.category}]  {task.question[:58]}"
+            for task in report.never_passed
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _repeated(stats: Reliability) -> list[str]:
+    """The two rates that only mean something above one trial.
+
+    At k=1 they are arithmetically equal to pass@1 and printing them would be
+    three names for one number — which is precisely the misreading this format
+    exists to prevent, since the whole point of pass^k is that it differs.
+    """
+    if stats.trials < 2:  # noqa: PLR2004  one trial is not a repetition
+        return [
+            "",
+            "  pass@k and pass^k need more than one trial; this run made one,",
+            "  so it reports how often it succeeded and nothing about how reliably.",
+        ]
+    return [
+        f"  pass@{stats.trials:<9}{stats.pass_at_k.format(percent=True):>18}   "
+        "at least one of the runs does",
+        f"  pass^{stats.trials:<9}{stats.pass_hat_k.format(percent=True):>18}   "
+        "every run does — what it is worth unwatched",
+        "",
+        "  The unit is the task, not the attempt: intervals are over tasks, so",
+        f"  {stats.tasks} tasks tried {stats.trials} times is {stats.tasks} observations,",
+        f"  not {stats.tasks * stats.trials}.",
+    ]
+
+
+def _histogram(counts: Mapping[str, int]) -> str:
+    """Render a small tally inline."""
+    return ", ".join(f"{name} {count}" for name, count in counts.items()) or "none"
+
+
+def render_comparison(report: AgentReport, baseline: AgentReport) -> str:
+    """Compare two systems task by task.
+
+    Paired on the task, which is what lets a set this size say anything: the
+    systems agree about which tasks are hard, and that correlation is most of
+    the information available (ADR-0029).
+    """
+    difference = report.compare(baseline)
+    low, high = difference.interval()
+    verdict = (
+        "distinguishable from zero"
+        if difference.is_significant()
+        else "not distinguishable from noise"
+    )
+    lines = [
+        "",
+        f"  {report.system} against {baseline.system}, task by task",
+        "",
+        f"    difference in pass rate   {difference.mean:+.1%}  [{low:+.1%}, {high:+.1%}]",
+        f"    p                         {difference.p_value:.3f}   {verdict}",
+        f"    agreement about difficulty r={difference.correlation:.2f}",
+        "",
+    ]
+    lines.extend(_where_they_differ(report, baseline))
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _where_they_differ(report: AgentReport, baseline: AgentReport) -> list[str]:
+    """List the tasks the two systems disagreed about, and which way.
+
+    The part worth reading. An aggregate that moved says something changed;
+    these say what, and a phase that concluded "autonomy helps" without them
+    would be quoting a number nobody had looked behind.
+
+    Read from the per-task scores rather than from the grades, because a
+    baseline loaded from a file has scores and no grades — and a comparison that
+    silently reported every baseline task as a zero would invent a landslide.
+    """
+    mine = report.scores.get("pass_rate", ())
+    theirs = baseline.scores.get("pass_rate", ())
+    if len(mine) != len(theirs) or len(mine) != len(report.tasks):
+        return ["    the two runs do not line up task for task"]
+
+    better: list[str] = []
+    worse: list[str] = []
+    for task, ours, yours in zip(report.tasks, mine, theirs, strict=True):
+        if ours == yours:
+            continue
+        line = f"      {task.task_id}  [{task.category}]  {ours:.0%} against {yours:.0%}"
+        (better if ours > yours else worse).append(line)
+
+    lines: list[str] = []
+    for label, entries in (("won", better), ("lost", worse)):
+        if entries:
+            lines.append(f"    {label} on {len(entries)}:")
+            lines.extend(entries)
+    return lines or ["    no task separated them"]
+
+
+def write_report(report: AgentReport, path: Path) -> None:
+    """Write the full report, transcripts included.
+
+    The transcripts are the point of keeping it. Anthropic's guidance on agent
+    evals is blunt that the aggregate is where you stop looking and the
+    transcripts are where you find out why, so a report that dropped them would
+    be a report nobody could act on.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
+
+
+def load_report(path: Path) -> AgentReport:
+    """Read a report written by an earlier run, for comparison.
+
+    Only what a paired comparison needs is rebuilt. Reconstructing the whole
+    object would mean a second parser to keep in step with the dataclasses, for
+    information a comparison does not use.
+
+    Raises:
+        ValueError: If the file carries no per-task scores.
+    """
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    scores = raw.get("scores")
+    if not scores:
+        msg = (
+            f"'{path}' carries no per-task scores, so it cannot be compared task "
+            "by task. Re-run the baseline to produce one."
+        )
+        raise ValueError(msg)
+    nothing = Estimate(mean=0.0, standard_error=0.0, n=0)
+    return AgentReport(
+        dataset=raw["dataset"],
+        system=raw["system"],
+        configuration=raw.get("configuration", "unnamed"),
+        trials=int(raw.get("trials", 1)),
+        reliability=Reliability(
+            tasks=len(next(iter(scores.values()), ())),
+            trials=int(raw.get("trials", 1)),
+            pass_at_1=nothing,
+            pass_at_k=nothing,
+            pass_hat_k=nothing,
+        ),
+        categories=(),
+        trajectory=_no_trajectory(),
+        tasks=_task_stubs(raw.get("tasks", ())),
+        scores={name: tuple(values) for name, values in scores.items()},
+        clusters=tuple(raw.get("clusters", ())),
+    )
+
+
+def _no_trajectory() -> TrajectoryReport:
+    """A trajectory with nothing in it, for a report read back for comparison."""
+    nothing = Estimate(mean=0.0, standard_error=0.0, n=0)
+    return TrajectoryReport(nothing, nothing, nothing, nothing, nothing)
+
+
+def _task_stubs(raw: Sequence[Mapping[str, object]]) -> tuple[TaskReport, ...]:
+    """Enough of each task to say which ones the two systems disagreed about."""
+    return tuple(
+        TaskReport(
+            task_id=str(item["task_id"]),
+            question=str(item.get("question", "")),
+            category=str(item.get("category", "")),
+            expected=Outcome(str(item.get("expected", "answer"))),
+            attempts=(),
+            grades=(),
+        )
+        for item in raw
+    )
+
+
+def load_dataset(path: Path) -> AgentDataset:
+    """Load the agent golden set, failing loudly on a malformed one."""
+    return AgentDataset.from_jsonl(path)
+
+
+def emit(rendered: str) -> None:
+    """Print a rendered report to stdout."""
+    sys.stdout.write(rendered)
+
+
+__all__ = [
+    "STANDINS",
+    "Bench",
+    "emit",
+    "load_dataset",
+    "load_report",
+    "render",
+    "render_comparison",
+    "write_report",
+]
