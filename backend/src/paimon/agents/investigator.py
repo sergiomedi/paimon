@@ -547,7 +547,8 @@ def _render(
     one the RAG path uses — and the difference is not cosmetic. In the first
     measured run the two systems presenting sources this way produced a
     resolvable citation on 250 of 250 answerable attempts; this agent, showing
-    the same passages in its own format, failed to on 37 of 125. That is not
+    the same passages in the ``TOOL_LINES`` format, failed to on 37 of 125 —
+    the run that report calls ``investigator``. That is not
     proof the format caused it, and it is the one difference between them worth
     removing before looking further.
 

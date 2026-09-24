@@ -805,8 +805,10 @@ class TestHowPassagesAreShown:
 
     In the first measured run, `answers` and `incident-triage` produced a
     resolvable citation on 250 of 250 answerable attempts. This agent, showing
-    the same passages from the same corpus to the same model in its own format,
-    failed to on 37 of 125. The format is now the one they use.
+    the same passages from the same corpus to the same model in the tool-lines
+    format — the run that report calls `investigator`, registered today as
+    `investigator-v1` — failed to on 37 of 125. The format is now the one they
+    use.
     """
 
     async def test_passages_arrive_under_the_same_header_the_prompt_uses(self) -> None:

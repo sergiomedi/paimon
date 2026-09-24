@@ -2,7 +2,9 @@
 // controls, one refusal.
 //
 // WHAT THIS IS FOR. The Phase 9 measurement found that the investigator's
-// failures on agents-v1 are not mostly about hopping: 37 of 125 answerable
+// failures on agents-v1 are not mostly about hopping. That run measured the
+// tool-lines layout — what agents-2026-09-23.md calls `investigator` and what
+// is registered today as `investigator-v1`: 37 of 125 answerable
 // attempts were withdrawn by its own verify node because no citation resolved,
 // while the same model in the two simpler harnesses produced a resolvable
 // citation on 125 of 125. That points at how the investigator presents passages
