@@ -36,6 +36,7 @@ from pathlib import Path
 from random import Random
 from typing import Any
 
+from paimon.agents.refusals import CANNED_REFUSALS
 from paimon.evaluation.calibration import Agreement, HumanLabel, agreement
 from paimon.evaluation.judging import REFUSAL_QUESTION, Verdict
 
@@ -86,9 +87,15 @@ def distinct_texts(attempts: Sequence[SampledAttempt]) -> list[SampledAttempt]:
 
 
 def without_canned_refusals(
-    attempts: Sequence[SampledAttempt], canned: Collection[str]
+    attempts: Sequence[SampledAttempt], canned: Collection[str] | None = None
 ) -> list[SampledAttempt]:
     """Drop the responses the platform wrote rather than a model.
+
+    Defaults to the whole catalogue, because the alternative was tried and
+    failed: the Azure sample was filtered against one constant, the single-pass
+    path's, and three of the investigator's canned refusals reached the
+    labeller, who recognised them. A caller passing its own set is opting out of
+    the catalogue and should have a reason.
 
     Two reasons, and the second is the stronger one. Code already grades these
     exactly — they are matched by equality against the constants that define
@@ -97,7 +104,8 @@ def without_canned_refusals(
     emit them, so a labeller who recognises one knows which harness produced it
     and is no longer rating the text alone.
     """
-    exact = {" ".join(text.split()) for text in canned}
+    catalogue = CANNED_REFUSALS if canned is None else canned
+    exact = {" ".join(text.split()) for text in catalogue}
     return [item for item in attempts if " ".join(item.answer.split()) not in exact]
 
 

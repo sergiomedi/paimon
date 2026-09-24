@@ -55,3 +55,50 @@ Opaque ids (`c01…`, `o01…`), the response and nothing else — no question, 
 system, no task id, no verdict, nothing prefilled. Verified after writing: three
 keys per row, zero prefilled, zero id leaks. The keys mapping ids back to
 `system/task/trial` stay beside the files but are not needed to label them.
+
+
+---
+
+## What went wrong with this sample, recorded after the labels came back
+
+### Three canned refusals reached the labeller
+
+The note above says canned refusals were excluded. They were not, fully. The
+filter was given **one** constant — the single-pass path's `NO_MATERIAL` — and
+the investigator's own are different sentences. Three got through: **c34** and
+**c40** ("I found material … could not tie …") and **c66** ("I kept asking for
+material I already had …"). The labeller recognised them as canned and said so,
+which is exactly the leak the exclusion exists to prevent: code grades these by
+equality, so a judge classifying them is measured on work a `==` already did,
+and only certain agents can emit them, so recognising one names the harness.
+
+**The deciding κ is computed without those three rows.** That is what the
+pre-registration asked for — a sample with the canned refusals excluded — and
+removing them is fulfilling it, not amending it. κ **with** them is reported
+beside it so the size of the difference is visible rather than asserted.
+
+Fixed in code, not just here: `paimon.agents.refusals.CANNED_REFUSALS` now
+collects every constant from every agent, `without_canned_refusals` defaults to
+it, and a catalogue test walks each agent module's source and fails on any
+string constant that is neither catalogued nor explicitly named as something
+else. Verified by adding a constant and watching the test fail.
+
+### The labels are not blind to category
+
+The KEY files were written into the same folder as the files to be labelled.
+While listing the folder the labeller saw the first lines of each key — enough
+to learn that `o01`–`o07` map to `answers/a023`–`a024`, and part of the `c01`–
+`c08` mapping — and it had also read the phase reports, so it knew which
+questions are out-of-corpus.
+
+**So these labels are not blind to category.** They were blind to the judge's
+verdict, which did not exist, and blind to the response-level pairing for most
+rows, but a labeller who can tell which questions the corpus cannot answer knows
+which responses are *expected* to be refusals. κ computed against them is an
+agreement between two raters one of whom had a hint, and it should be read as
+an upper bound rather than a clean estimate.
+
+Recorded rather than corrected: relabelling now, knowing the result, would be
+worse. **Next time the keys stay in the repo and only the response files are
+handed over** — the tooling already writes the key to a separate path, and this
+run defeated it by putting both in one folder.
