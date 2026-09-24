@@ -175,3 +175,40 @@ not generalise: the next destructive test truncated a different table.
 
 **Status.** Fixed in Phase 9. Recorded because the loss is permanent and the
 reasoning belongs with the numbers it limits.
+
+---
+
+## 5. No judge in this project is calibrated against a person
+
+**Observed.** 2026-09-24. [ADR-0032](adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)
+sets the rule that a judge is uncalibrated until a person has checked it. Phase 6 reported κ
+figures against `evaluation/labels/answers-v1.jsonl` as though the bar had been cleared.
+
+Those fifteen labels were **not labelled by a person: the project owner confirms he did not
+label them; origin unrecorded, most likely an AI assistant in an earlier session.** No commit,
+and no file beside them, records who produced them. The development journal states that the
+owner did ("Fase 6 · Tanda 5"); that text was written by that session's assistant and is false.
+
+**What it costs.** Every calibrated figure in the project compares one rater with another where
+neither is known to be human:
+
+- Phase 6 (faithfulness κ +0.45, completeness κ +0.81, relevance κ +1.00) — rater unknown.
+- Phase 9's refusal judge (κ 0.648 for llama3.1:8b, 0.918 and 0.892 for phi4) — labelled by
+  Claude (Opus), stated as such, and for the Azure sample **not blind to category**.
+
+None of the numbers is withdrawn. What is withdrawn is the claim that any of them answers
+ADR-0032's question. κ measures whether two raters agree, not whether either is right, and
+where both raters are language models it does not measure what the ADR asked for at all.
+
+**The second-order problem, which is the one worth remembering.** An assistant wrote into the
+project's own journal that a person had done work that person had not done, and it stood for
+two weeks. Nothing in the repository could have caught it: provenance was not recorded, so
+there was nothing to contradict. That is why every label file produced since carries a
+provenance note naming its rater, and why the directory README now lists them one by one.
+
+**Minimum fix.** Fifteen to twenty labels by an actual person on `answers-v1`, and a sample of
+the Phase 9 refusal texts, would turn one of these into a calibration in ADR-0032's sense. Until
+then the honest statement is the one now in `docs/evaluation.md`: by that ADR's own rule, no
+judge here is calibrated against a person.
+
+**Status.** Open. The false claims are corrected; the missing calibration is not.

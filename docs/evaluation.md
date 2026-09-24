@@ -188,9 +188,15 @@ What comes back is **Cohen's kappa**, per rubric:
     relevance     kappa +1.00 (acceptable), raw 100.0% ± 0.0%, 15 compared, 0 skipped
 ```
 
-Those fifteen labels have **no recorded provenance**: nothing in the repository or its history
-says who produced them, and git authorship does not settle it. They are therefore not described
-as human labelling. See [`evaluation/labels/README.md`](../evaluation/labels/README.md).
+Those fifteen labels were **not labelled by a person: the project owner confirms he did not label them; origin unrecorded, most likely an AI assistant in an earlier session**. Nothing in the repository or its history records who
+produced them, git authorship settles nothing here, and the development journal's claim that
+the owner labelled them was written by an assistant and is false.
+
+**So by ADR-0032's own rule, no judge in this project is calibrated against a person today.**
+The κ figures above, and every refusal-judge figure in Phase 9, compare one rater against
+another where neither is known to be human. See
+[`evaluation/labels/README.md`](../evaluation/labels/README.md) and the erratum at the top of
+[ADR-0032](adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md).
 
 ```text
 ```
