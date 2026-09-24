@@ -93,3 +93,38 @@ second look by their own author — and because pretending it is anything more
 would be the exact failure this file exists to prevent.
 
 A person settling these ten would be worth more than everything above.
+
+---
+
+# What was lost, and what the figure rests on
+
+The development-set judge run used `llama3.1:8b` and produced **κ = 0.648**, raw
+agreement 50/60. That figure is reported as measured on 2026-09-23 and is **not
+recomputed**.
+
+**The file holding all sixty verdicts no longer exists.** It was written to a
+session-scoped scratchpad, which was wiped while the next run was in flight. So
+was the intermediate copy of the three benchmark reports — those survived only
+because they had been committed to `evaluation/reports/`, which is the argument
+that was made for committing them and turned out to matter for a reason nobody
+predicted.
+
+What survives, and is committed:
+
+- `refusal-dev-adjudications-2026-09-24.jsonl` — **all ten disagreements**, each
+  with the judge's verdict, the judge's reasoning in its own words, the
+  labeller's verdict, the adjudication and the full response text. That is the
+  entire evidential basis for every claim made about how `llama3.1:8b` failed,
+  including c42 — the text it read as not answering a question it had been told
+  it could not see — which is the reason the judge was changed.
+- The fifty agreements are gone. They agreed; nothing was argued from them
+  beyond the count.
+
+So κ = 0.648 is quoted here as a figure recorded at the time rather than one
+that can be recomputed from what is in the repository. Re-running `llama3.1:8b`
+to reproduce it would be measuring a model that has already been rejected, on a
+set that has since become its development set, and would not make the number any
+more checkable than it is.
+
+Runs since then write each result to a durable journal as it is produced
+(`evaluation/reports/`, gitignored), so a wipe costs minutes rather than a run.
