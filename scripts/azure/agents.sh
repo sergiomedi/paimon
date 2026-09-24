@@ -29,10 +29,18 @@
 # same footing as benchmark.sh. Local authentication is disabled on both
 # services (ADR-0037), so there is no key: the identity is whoever is signed in.
 #
-# THE CEILING IS REAL. Each report carries what its tokens cost at the price
-# table below, and this stops before starting a system it cannot afford. If a
-# report comes back without a cost it stops too, because a ceiling that cannot
-# read the bill is decoration.
+# THE CEILING IS REAL, AND IT COUNTS TOKENS ONLY. Each report carries what its
+# tokens cost at the price table below, and this stops before starting a system
+# it cannot afford. If a report comes back without a cost it stops too, because
+# a ceiling that cannot read the bill is decoration.
+#
+# What it does **not** count is the environment's hourly charge. The deployment
+# bills roughly €0.25 an hour for the database whether or not anything queries
+# it, and at these token volumes that dominates: the models cost cents and the
+# clock costs euros. So the ceiling bounds the model bill, the wall clock bounds
+# the rest, and the only control on the second is destroying the environment
+# when the run finishes. Both figures are reported at the end; neither is
+# presented as the whole bill.
 
 source "$(dirname "${BASH_SOURCE[0]}")/_common.sh"
 
@@ -83,7 +91,18 @@ done
 # somebody typed — the invoice is the authority — so the figure is labelled with
 # when it was copied rather than presented as a fact about the bill.
 PRICE_REVISION="2026-09-24"
-PRICES='{"gpt-4.1-mini": {"input": 0.40, "output": 1.60}}'
+#
+# Keyed on the **deployment name** as well as the model, because the Azure
+# adapter reports `model_id` as the deployment — `paimon-chat`, not
+# `gpt-4.1-mini`. A table keyed only on the model produces no cost for every
+# attempt, which the ceiling below reads as "unmetered" and stops on. Correct
+# behaviour, and a stop on the first system rather than a measurement.
+PRICES="$(python3 - <<PY
+import json, os
+rate = {"input": 0.40, "output": 1.60}
+print(json.dumps({"gpt-4.1-mini": rate, os.environ["AZURE_CHAT_DEPLOYMENT_NAME"]: rate}))
+PY
+)"
 
 export PAIMON_ENVIRONMENT=local
 export PAIMON_EMBEDDING__PROVIDER=azure
@@ -137,6 +156,7 @@ if ! uv run --no-sync python -m paimon.interfaces.cli.ensure_search_index; then
 fi
 printf '\n'
 
+STARTED=$(date +%s)
 spent=0
 
 # The most any one system has cost so far, used to decide whether the next one
@@ -218,7 +238,11 @@ for spec in "${RUNS[@]}"; do
 done
 
 printf '\n'
-bold "▸ spent $spent of a \$$CEILING ceiling"
+ELAPSED=$(( ($(date +%s) - STARTED) / 60 ))
+bold "▸ tokens cost \$$spent of a \$$CEILING ceiling, in $ELAPSED minutes"
+printf 'The environment also bills about EUR 0.25 an hour while it exists, which the\n'
+printf 'ceiling does not count: %s minutes is about EUR %s. Destroy it to stop that.\n\n' \
+    "$ELAPSED" "$(python3 -c "print(f'{$ELAPSED / 60 * 0.25:.2f}')")"
 printf 'Reports are in evaluation/reports/azure-agents-*-%s.json.\n\n' "$STAMP"
 printf 'The primary diagnostic, against the local baseline of {1: 50} calls and\n'
 printf '11 and 10 of 50 attempts reaching two documents:\n'
