@@ -6,14 +6,21 @@ the template's own instructions, without sight of the key or of the judge's
 verdicts.
 
 **This is not a calibration against a person.** It is agreement between two
-models of different families — `llama3.1:8b` as the judge under test, Claude as
-the second rater. ADR-0032 says a judge is uncalibrated until a person has
-checked it, and that remains true: what this measures is inter-model agreement,
-which is a weaker thing and must be named as the weaker thing.
+models of different families — the judge under test, and Claude as the second
+rater. ADR-0032's condition is that a judge is uncalibrated until a person has
+checked it; what is recorded here instead is that the project owner **accepted
+these labels as the reference** without reviewing the rows. That is a decision
+about what to measure against. It is not the check ADR-0032 asks for, and the
+wording below never lets it be read as one.
 
-So everywhere a number from it appears — the report, the ADR, `docs/evaluation.md`
-— it is described as **"calibrated against a second model (Claude), with human
-review of the doubtful cases"**, and never as human labels.
+So everywhere a number from it appears — the report, the ADR,
+`docs/evaluation.md` — it is described in exactly these words:
+
+> **labelled and adjudicated by Claude (Opus); accepted by the project owner as the reference, without independent human review**
+
+and never as "human labels" or "reviewed by a person". The owner has read this
+file and accepted these labels as the reference; that is a decision about what
+to measure against, not a second pair of eyes on the rows.
 
 ## A second limitation, and it is the labeller's own disclosure
 
@@ -36,7 +43,7 @@ question, no system, no category, no task id.
 
 Result: **18 `yes` (declines), 42 `no` (answers)**.
 
-## Doubtful cases, flagged by the labeller for human review
+## Doubtful cases, flagged by the labeller
 
 Six on the boundary. In every one the text says the sources do not cover what was
 asked and then adds related information.
@@ -50,8 +57,8 @@ asked and then adds related information.
 | c30 | yes | "The notes give no instruction about citations" — a claim about the content, or a refusal? |
 | c36 | yes | As c30 |
 
-These six are the maintainer's to settle. Kappa is computed against whatever the
-file holds at the time it is run, so changing a line changes the number.
+These six were settled by the same labeller, along with the ten development-set
+disagreements. None of them turned out to be where the judge failed.
 
 ---
 

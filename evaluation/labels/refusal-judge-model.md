@@ -76,7 +76,7 @@ eventually produce a good number by chance.
 
 ## What this still is not
 
-Agreement between two models. The labeller is Claude (Opus), not a person, and
-had read this phase's reports before labelling. ADR-0032's condition — a judge
-is uncalibrated until a person has checked it — remains unmet, and every figure
-derived from this judge says so.
+Agreement between two models. The sample was **labelled and adjudicated by Claude (Opus); accepted by the project owner as the reference, without independent human review**, and the labeller had
+read this phase's reports beforehand, so it was not blind to category on every
+row. ADR-0032's condition remains unmet, and every figure derived from this
+judge carries that sentence rather than a paraphrase of it.
