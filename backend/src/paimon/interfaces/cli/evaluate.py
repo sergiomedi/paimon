@@ -59,6 +59,7 @@ from paimon.interfaces.api.dependencies import (
 )
 from paimon.interfaces.cli.evaluate_agents import (
     Bench,
+    FileJournal,
     emit,
     read_attempts,
     verify_corpus,
@@ -505,7 +506,7 @@ def progress_reporter(label: str, stream: "TextIO | None" = None) -> Progress:
     return report
 
 
-def unusable(  # noqa: PLR0911  one refusal per mistake, each with its own explanation
+def unusable(  # noqa: PLR0911, PLR0912  one refusal per mistake, each explained
     args: argparse.Namespace, *, judge_enabled: bool
 ) -> str | None:
     """Explain why this command line cannot do what it appears to ask for.
@@ -549,6 +550,14 @@ def unusable(  # noqa: PLR0911  one refusal per mistake, each with its own expla
             "it names at the offsets it claims, and --corpus is how this run learns which\n"
             "documents those are. Without it every citation is reported as pointing at an\n"
             "unknown document and a correct system scores zero."
+        )
+    if args.journal and not args.agents:
+        return "--journal records agent attempts, so it needs --agents."
+    if args.journal and args.regrade:
+        return (
+            "--journal and --regrade do opposite things: one runs a system and writes\n"
+            "down what it produced, the other re-scores what was written down earlier.\n"
+            "A re-grade runs nothing, so there is nothing to resume."
         )
     if args.regrade and not args.agents:
         return "--regrade re-scores an agent report, so it needs --agents."
@@ -689,6 +698,11 @@ async def _run_agents(
             progress=progress_reporter(f"regrading {system_name}"),
         )
     else:
+        journal = FileJournal(args.journal) if args.journal else None
+        if journal is not None and (resumed := len(journal.completed())):
+            # Said out loud, because a run that silently reuses most of its
+            # work looks identical to one that is implausibly fast.
+            sys.stderr.write(f"resuming: {resumed} attempt(s) already recorded\n")
         report = await run_agent_benchmark(
             dataset,
             system,
@@ -697,6 +711,7 @@ async def _run_agents(
             configuration=args.label,
             price=_pricer(settings, resources),
             judge_refusal=verdict,
+            journal=journal,
             progress=progress_reporter(f"{args.agent} x{args.trials}"),
         )
     emit(render_agents(report))
@@ -772,6 +787,15 @@ async def main(argv: list[str] | None = None) -> int:
         help=(
             "Attempts per task. Above one is what makes pass^k mean anything; "
             "at one it is not reported as a reliability."
+        ),
+    )
+    parser.add_argument(
+        "--journal",
+        type=Path,
+        help=(
+            "Record each attempt as it finishes, and resume from this file if "
+            "the run is relaunched. A run of several hours that keeps nothing "
+            "until the end loses everything to a machine that runs out of memory."
         ),
     )
     parser.add_argument(

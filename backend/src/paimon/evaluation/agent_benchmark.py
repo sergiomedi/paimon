@@ -52,6 +52,32 @@ from paimon.evaluation.statistics import (
 RefusalVerdict = Callable[[str], "Judgement | Awaitable[Judgement]"]
 
 
+class Journal(Protocol):
+    """Somewhere finished attempts are written down as they happen.
+
+    A benchmark of 450 runs takes hours, and the three that have died so far
+    died for reasons that had nothing to do with it — a machine short of memory,
+    a session ending. Each time the work was lost because nothing was written
+    until the end.
+
+    So the runner records each attempt as it completes and asks, on starting,
+    what is already done. A relaunch with the same seed picks up where the last
+    one stopped.
+
+    A protocol rather than a file path, so the runner does no I/O and a test can
+    supply a list. The file implementation lives in the command line, where
+    every other path in this project is resolved.
+    """
+
+    def completed(self) -> Mapping[tuple[str, int], Attempt]:
+        """What has already been run, by task and trial."""
+        ...
+
+    def record(self, attempt: Attempt) -> None:
+        """Write one finished attempt down before the next one starts."""
+        ...
+
+
 class System(Protocol):
     """Anything that can be asked an operational question.
 
@@ -236,6 +262,7 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
     configuration: str = "unnamed",
     price: Callable[[int, int], float | None] | None = None,
     judge_refusal: "RefusalVerdict | None" = None,
+    journal: Journal | None = None,
     progress: Progress | None = None,
 ) -> AgentReport:
     """Put every task to a system k times and grade what comes back.
@@ -254,6 +281,9 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
             sentences alone, which cannot see a refusal a model wrote in its own
             words — so a run with no judge understates refusal and the report
             says which it was.
+        journal: Where finished attempts are written as they complete, and read
+            back from on a relaunch. Without one the run is all-or-nothing, and
+            the runs this was built for take hours.
         price: Turns an attempt's input and output token counts into money, or
             returns None for a model nobody has priced. A callable rather than a
             price list, so the per-million arithmetic stays in the one place
@@ -271,9 +301,17 @@ async def run_agent_benchmark(  # noqa: PLR0913  collaborators and a label, not 
         msg = "a benchmark needs at least one attempt per task"
         raise ValueError(msg)
 
+    # Not logged from here: this layer may not reach configuration, and a
+    # logger would reach it through the observability package. The caller knows
+    # how many attempts were reused — it built the journal — and says so.
+    done = journal.completed() if journal is not None else {}
+
     reports: list[TaskReport] = []
     for task in dataset:
-        attempts = [await _attempt_once(system, task, trial) for trial in range(1, trials + 1)]
+        attempts = [
+            await _resume_or_run(system, task, trial, done, journal)
+            for trial in range(1, trials + 1)
+        ]
         # The judge sees the response and nothing else — not the question, not
         # the category, not the expected outcome.
         verdicts = [await _judge(judge_refusal, attempt.text) for attempt in attempts]
@@ -414,6 +452,30 @@ async def _judge(judge: "RefusalVerdict | None", answer: str) -> Judgement | Non
             reasoning=f"the judge could not be reached: {error}",
             model_id="unreachable",
         )
+
+
+async def _resume_or_run(
+    system: System,
+    task: AgentTask,
+    trial: int,
+    done: Mapping[tuple[str, int], Attempt],
+    journal: Journal | None,
+) -> Attempt:
+    """Reuse a recorded attempt, or run it and record it.
+
+    A crashed attempt is **not** reused. It failed for a reason that may have
+    been the machine rather than the system — the two runs this was built after
+    were killed by memory pressure and by a session ending — and carrying a
+    harness failure forward into a resumed run would bake an accident into the
+    numbers.
+    """
+    already = done.get((task.task_id, trial))
+    if already is not None and not already.failed:
+        return already
+    attempt = await _attempt_once(system, task, trial)
+    if journal is not None:
+        journal.record(attempt)
+    return attempt
 
 
 async def _attempt_once(system: System, task: AgentTask, trial: int) -> Attempt:
@@ -569,6 +631,7 @@ __all__ = [
     "AgentReport",
     "AttemptOutcome",
     "CategoryReport",
+    "Journal",
     "System",
     "TaskReport",
     "TrajectoryReport",

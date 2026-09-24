@@ -33,6 +33,7 @@ def command(**overrides: object) -> argparse.Namespace:
         "agents": False,
         "trials": 5,
         "regrade": None,
+        "journal": None,
     }
     return argparse.Namespace(**{**defaults, **overrides})
 

@@ -9,6 +9,7 @@ it was running.
 """
 
 import json
+import os
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
@@ -299,6 +300,47 @@ def write_report(report: AgentReport, path: Path) -> None:
     path.write_text(json.dumps(asdict(report), indent=2, default=str), encoding="utf-8")
 
 
+class FileJournal:
+    """A journal on disk, one attempt per line, appended as it completes.
+
+    JSON Lines and append-only, because the failure it exists for is the process
+    dying: a file rewritten wholesale is a file that can be truncated mid-write,
+    and a run that lost its record to the crash it was protecting against would
+    be worse than no journal at all.
+
+    A line that cannot be parsed is skipped rather than fatal. That is exactly
+    the half-written last line a kill leaves behind, and refusing to start
+    because of it would turn a recoverable interruption into a lost run.
+    """
+
+    def __init__(self, path: Path) -> None:
+        """Open, or resume, the journal at this path."""
+        self._path = path
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+
+    def completed(self) -> dict[tuple[str, int], Attempt]:
+        """Every attempt already recorded, by task and trial."""
+        if not self._path.exists():
+            return {}
+        found: dict[tuple[str, int], Attempt] = {}
+        for line in self._path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                attempt = _attempt_from(json.loads(line))
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+                continue
+            found[(attempt.task_id, attempt.trial)] = attempt
+        return found
+
+    def record(self, attempt: Attempt) -> None:
+        """Append one finished attempt, and flush it before returning."""
+        with self._path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(asdict(attempt), ensure_ascii=False, default=str) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+
 def read_attempts(path: Path) -> tuple[str, str, dict[str, list[Attempt]]]:
     """Read the recorded attempts out of a report, for re-grading.
 
@@ -437,6 +479,7 @@ def emit(rendered: str) -> None:
 __all__ = [
     "STANDINS",
     "Bench",
+    "FileJournal",
     "emit",
     "load_dataset",
     "load_report",
