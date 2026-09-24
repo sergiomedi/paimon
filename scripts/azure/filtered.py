@@ -28,6 +28,7 @@ import statistics
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
 #: What the provider says when it refuses. Matched on the message rather than on
 #: the status code: a 400 can also mean a malformed request, which is ours to
@@ -157,9 +158,16 @@ def _refuse_if_interleaved(spans: list[tuple[str, str, str]]) -> None:
     raise InterleavedTasks(msg)
 
 
-def read(path: Path) -> dict[str, object]:
+#: A report as the agent benchmark writes it. `Any` rather than a TypedDict:
+#: this reads reports it did not write, and a schema asserted here would be a
+#: second definition of the format to keep in step with the first.
+Report = dict[str, Any]
+
+
+def read(path: Path) -> Report:
     """One report, as written by the agent benchmark."""
-    return json.loads(path.read_text(encoding="utf-8"))
+    loaded: Report = json.loads(path.read_text(encoding="utf-8"))
+    return loaded
 
 
 def main(argv: list[str]) -> int:
@@ -184,7 +192,7 @@ def main(argv: list[str]) -> int:
         print(__doc__)
         return 2
 
-    reports = {}
+    reports: dict[str, Report] = {}
     for path in paths:
         raw = read(path)
         reports[str(raw.get("system", path.stem))] = raw
@@ -278,8 +286,8 @@ def main(argv: list[str]) -> int:
         order = [str(t["task_id"]) for t in next(iter(reports.values())).get("tasks", ())]
         for i, left in enumerate(names):
             for right in names[i + 1 :]:
-                a = reports[left]["scores"]["pass_rate"]  # type: ignore[index]
-                b = reports[right]["scores"]["pass_rate"]  # type: ignore[index]
+                a = reports[left]["scores"]["pass_rate"]
+                b = reports[right]["scores"]["pass_rate"]
                 if len(a) != len(order) or len(b) != len(order):
                     print(f"  {left} vs {right}: task counts differ, skipped")
                     continue

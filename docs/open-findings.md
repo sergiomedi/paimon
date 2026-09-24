@@ -101,3 +101,36 @@ and without. The 400 is deliberately **not** retried — it is a deterministic
 refusal, and a test pins that.
 
 **Status.** Open. Own step, not Phase 9.
+
+---
+
+## 3. A report records what an agent answered, not what it did
+
+**Observed.** Phase 9, throughout. An agent report stores, per attempt, the final
+answer, its citations, and counts — `stop_reason`, `tool_calls`,
+`repeated_calls`, the node sequence, tokens, latency. It does not store the tool
+trajectory: **not the arguments of each call, and not the ids of the documents
+each call returned**. `agent_runs` holds `steps`, `answer` and `citations`, and
+there is no checkpoint table, so the messages are gone when the process exits.
+
+**What it costs.** It blocks the next experiment this phase identified. Across
+the four Azure investigator runs, 84 runs made more than one tool call; 86% of
+them issued entirely distinct calls, and only 47% of *those* reached two
+documents. So the model varies its query and still does not arrive at the second
+document — but whether a given search **returned a new document or the same one
+again** cannot be answered, because what each call returned was never recorded.
+"Distinct call" is recoverable; "new document" is not.
+
+It also cost accuracy in this phase's own prose: reports were described as
+holding "transcripts", which is true of the answer and citations and false of
+the trajectory. `docs/measurements/agents-2026-09-23.md` now says exactly what is
+stored.
+
+**Minimum fix.** Record, in each tool step's details, the call's arguments and
+the ids of the documents it returned. That is what turns "the second search was
+different" into "the second search reached a document the first did not", which
+is the measurement that would say whether the lever is retrieval, reference
+following (`read_document`), or the loop.
+
+**Status.** Open. Own step, not Phase 9. It is the precondition for the next
+experiment, not a side issue.
