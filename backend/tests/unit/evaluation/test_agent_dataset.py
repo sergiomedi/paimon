@@ -6,6 +6,7 @@ relative to: a quote that has drifted out of the corpus turns a correct system
 into a failing one, silently, and the aggregate still looks like a measurement.
 """
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -311,3 +312,116 @@ class TestAMultiHopTaskThatIsNot:
             ROOT / "evaluation" / "datasets" / "agents-v2-heldout.jsonl"
         )
         assert {item.category for item in heldout} <= set(SHIPPED.categories)
+
+
+HELDOUT = ROOT / "evaluation" / "datasets" / "agents-v2-heldout.jsonl"
+
+#: What each shipped set's task content hashes to. Pinned here so a change to a
+#: question, a quote, an expected outcome or a category has to be made twice —
+#: once in the file and once here, in the same commit, where a reviewer sees it.
+#:
+#: Every measurement is relative to these tasks. A benchmark compared against a
+#: report written before a task changed is comparing two different experiments
+#: and reporting the difference as a result, and nothing in the numbers would
+#: show it.
+TASK_DIGESTS = {
+    "agents-v1.jsonl": (30, "739984e347d2affbd5d2f21a975f0f51d029b417ffcf8ef90acb4f1ec0975a54"),
+    "agents-v2-heldout.jsonl": (
+        10,
+        "792fe1d6f431d57931f74893598e97bc886c0baba61464204d6b4bf92bd81b56",
+    ),
+}
+
+
+def task_digest(path: Path) -> tuple[int, str]:
+    """Hash a dataset's task content, ignoring everything that is not a task.
+
+    Comment lines are skipped and each remaining line is re-serialised
+    canonically — keys sorted, no incidental whitespace — before hashing. So
+    reformatting the file, or rewriting the header that explains what the set
+    is for, leaves the digest alone, while changing a single character of a
+    question, a quote or an expected outcome does not.
+
+    That is the distinction worth enforcing: "held out" means nobody tuned a
+    system against these tasks, not that the file may never be touched.
+    """
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("//"):
+            continue
+        canonical = json.dumps(
+            json.loads(stripped), sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        )
+        rows.append(canonical)
+    return len(rows), hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+
+
+class TestTheShippedTasksAreWhatWasMeasured:
+    """The datasets every reported number is relative to, pinned by content.
+
+    A report is only comparable with another report over the same tasks. If a
+    question is reworded between two runs the comparison is between two
+    different experiments, the difference gets reported as a result, and
+    nothing in the numbers reveals it. Changing a task on purpose is allowed —
+    it just has to be visible, which means updating the digest in the same
+    commit.
+    """
+
+    @pytest.mark.parametrize(("name", "expected"), sorted(TASK_DIGESTS.items()))
+    def test_the_task_content_has_not_drifted(self, name: str, expected: tuple[int, str]) -> None:
+        count, digest = task_digest(ROOT / "evaluation" / "datasets" / name)
+
+        assert (count, digest) == expected, (
+            f"{name} changed. If that was deliberate, update TASK_DIGESTS to "
+            f"({count}, '{digest}') in this commit; every report measured "
+            f"against the old tasks is no longer comparable with one measured "
+            f"against the new ones."
+        )
+
+    def test_the_digest_ignores_comments_and_formatting(self, tmp_path: Path) -> None:
+        # Otherwise the pin would fight every clarification to a header, and
+        # the cheapest way to make CI green would be to stop explaining the set.
+        plain = tmp_path / "plain.jsonl"
+        plain.write_text('{"id": "h001", "expected": "answer"}\n', encoding="utf-8")
+        commented = tmp_path / "commented.jsonl"
+        commented.write_text(
+            '// what this set is for\n//\n{"expected":"answer",   "id":"h001"}\n\n',
+            encoding="utf-8",
+        )
+
+        assert task_digest(plain) == task_digest(commented)
+
+    def test_the_digest_notices_a_reworded_question(self, tmp_path: Path) -> None:
+        before = tmp_path / "before.jsonl"
+        before.write_text('{"id": "h001", "question": "which runbook?"}\n', encoding="utf-8")
+        after = tmp_path / "after.jsonl"
+        after.write_text('{"id": "h001", "question": "which runbook applies?"}\n', encoding="utf-8")
+
+        assert task_digest(before) != task_digest(after)
+
+    def test_the_digest_notices_a_changed_expected_outcome(self, tmp_path: Path) -> None:
+        # The one a reader is least likely to spot in a diff, and the one that
+        # silently turns a correct refusal into a failure.
+        before = tmp_path / "before.jsonl"
+        before.write_text('{"id": "h010", "expected": "refuse"}\n', encoding="utf-8")
+        after = tmp_path / "after.jsonl"
+        after.write_text('{"id": "h010", "expected": "answer"}\n', encoding="utf-8")
+
+        assert task_digest(before) != task_digest(after)
+
+    def test_the_digest_notices_a_dropped_task(self, tmp_path: Path) -> None:
+        both = tmp_path / "both.jsonl"
+        both.write_text('{"id": "h001"}\n{"id": "h002"}\n', encoding="utf-8")
+        one = tmp_path / "one.jsonl"
+        one.write_text('{"id": "h001"}\n', encoding="utf-8")
+
+        assert task_digest(both) != task_digest(one)
+
+    def test_both_shipped_sets_are_pinned(self) -> None:
+        # A new dataset that nobody pinned is a dataset that can drift, so the
+        # guard covers the directory rather than a list someone remembers to
+        # extend.
+        shipped = {path.name for path in (ROOT / "evaluation" / "datasets").glob("agents-*.jsonl")}
+
+        assert shipped == set(TASK_DIGESTS)
