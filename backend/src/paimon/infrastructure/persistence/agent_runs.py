@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 from paimon.domain.entities import AgentRun, AgentStep, RunStatus
 from paimon.domain.errors import CheckpointError
+from paimon.domain.value_objects import Citation
 from paimon.infrastructure.persistence.models import AgentRunRow
 
 
@@ -48,6 +49,34 @@ def _decode(raw: dict[str, Any]) -> AgentStep:
     )
 
 
+def _encode_citation(citation: Citation) -> dict[str, Any]:
+    return {
+        "marker": citation.marker,
+        "document_id": citation.document_id,
+        "chunk_id": citation.chunk_id,
+        "source_uri": citation.source_uri,
+        "title": citation.title,
+        "heading_path": list(citation.heading_path),
+        "start_char": citation.start_char,
+        "end_char": citation.end_char,
+        "quote": citation.quote,
+    }
+
+
+def _decode_citation(raw: dict[str, Any]) -> Citation:
+    return Citation(
+        marker=raw["marker"],
+        document_id=raw["document_id"],
+        chunk_id=raw["chunk_id"],
+        source_uri=raw["source_uri"],
+        title=raw["title"],
+        heading_path=tuple(raw.get("heading_path", ())),
+        start_char=raw["start_char"],
+        end_char=raw["end_char"],
+        quote=raw["quote"],
+    )
+
+
 def _run(row: Any) -> AgentRun:
     started_at = row["started_at"]
     return AgentRun(
@@ -56,6 +85,7 @@ def _run(row: Any) -> AgentRun:
         tenant_id=row["tenant_id"],
         status=RunStatus(row["status"]),
         answer=row["answer"],
+        citations=tuple(_decode_citation(item) for item in row["citations"]),
         steps=tuple(_decode(item) for item in row["steps"]),
         # A column declared with a timezone can still read back naive through
         # some drivers, and AgentStep refuses naive timestamps. Assuming UTC
@@ -90,6 +120,7 @@ class PostgresCheckpointer:
             "agent": run.agent,
             "status": str(run.status),
             "answer": run.answer,
+            "citations": [_encode_citation(citation) for citation in run.citations],
             "steps": [_encode(step) for step in run.steps],
             "started_at": run.started_at,
         }
@@ -99,6 +130,7 @@ class PostgresCheckpointer:
             set_={
                 "status": statement.excluded["status"],
                 "answer": statement.excluded["answer"],
+                "citations": statement.excluded["citations"],
                 "steps": statement.excluded["steps"],
                 "updated_at": datetime.now(UTC),
             },

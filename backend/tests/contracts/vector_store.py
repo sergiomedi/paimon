@@ -180,6 +180,121 @@ class VectorStoreContract:
         )
         assert [hit.chunk.document_id for hit in hits] == ["doc-2"]
 
+    async def test_a_document_can_be_read_back_in_reading_order(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # Written out of order on purpose. Insertion order is not reading order
+        # for any store worth having, and a backend that happened to return
+        # what it was given would pass a test that wrote them in sequence.
+        await self._write(
+            store,
+            embedding_model,
+            chunk("c3", "step three of the runbook", ordinal=2),
+            chunk("c1", "step one of the runbook", ordinal=0),
+            chunk("c2", "step two of the runbook", ordinal=1),
+        )
+
+        chunks = await store.list_chunks(TENANT, "doc-1")
+
+        assert [item.chunk_id for item in chunks] == ["c1", "c2", "c3"]
+
+    async def test_reading_a_document_carries_the_offsets_it_was_chunked_at(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # The property that makes a document read citable. Without offsets, a
+        # claim drawn from one paragraph can only be attributed to the whole
+        # document, which points a reader at everything and so at nothing.
+        await self._write(store, embedding_model, chunk("c2", "step two", ordinal=1))
+
+        chunks = await store.list_chunks(TENANT, "doc-1")
+
+        assert [(item.start_char, item.end_char) for item in chunks] == [(100, 108)]
+
+    async def test_reading_a_document_returns_only_that_document(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        await self._write(
+            store,
+            embedding_model,
+            chunk("c1", "step one of the runbook", document_id="doc-1", ordinal=0),
+            chunk("c3", "an unrelated runbook", document_id="doc-2", ordinal=1),
+        )
+
+        chunks = await store.list_chunks(TENANT, "doc-1")
+
+        assert [item.chunk_id for item in chunks] == ["c1"]
+
+    async def test_another_tenant_cannot_read_a_document(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # The same boundary the searches keep, on the one method that takes a
+        # document id straight from a caller. Over MCP that caller is a model.
+        await self._write(store, embedding_model, chunk("c1", "step one", ordinal=0))
+
+        assert await store.list_chunks(OTHER_TENANT, "doc-1") == []
+
+    async def test_reading_an_unknown_document_is_empty_rather_than_an_error(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # Asking after a document that is not indexed is an ordinary question
+        # with an ordinary answer, as it is on the repository.
+        assert await store.list_chunks(TENANT, "never-ingested") == []
+
+    async def test_reading_a_document_respects_its_limit(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # A bound rather than an option: a document large enough to exhaust a
+        # context window is the case this exists to survive.
+        await self._write(
+            store,
+            embedding_model,
+            chunk("c1", "step one", ordinal=0),
+            chunk("c2", "step two", ordinal=1),
+            chunk("c3", "step three", ordinal=2),
+        )
+
+        chunks = await store.list_chunks(TENANT, "doc-1", limit=2)
+
+        assert [item.chunk_id for item in chunks] == ["c1", "c2"]
+
+    async def test_a_long_document_comes_back_whole_and_in_order(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # Deliberately more chunks than one page of results. A store that hands
+        # its results back in instalments — Azure decides for itself how many
+        # documents to put in a response, and does not promise the number asked
+        # for — will return part of a document unless the caller follows the
+        # continuation. Half a runbook returned as a whole runbook is the exact
+        # failure this platform exists to avoid, and it is invisible: the
+        # passages that do come back are real, correctly ordered and correctly
+        # cited.
+        chunks = [
+            chunk(f"c{index:03d}", f"step {index} of the runbook", ordinal=index)
+            for index in range(40)
+        ]
+        await self._write(store, embedding_model, *chunks)
+
+        read = await store.list_chunks(TENANT, "doc-1", limit=100)
+
+        assert [item.chunk_id for item in read] == [item.chunk_id for item in chunks]
+
+    async def test_deleting_a_long_document_removes_all_of_it(
+        self, store: VectorStore, embedding_model: EmbeddingModel
+    ) -> None:
+        # The same hazard on the way out, and worse: a partial delete leaves
+        # orphaned chunks that still answer searches, so a document removed on
+        # request goes on being quoted.
+        chunks = [
+            chunk(f"c{index:03d}", f"step {index} of the runbook", ordinal=index)
+            for index in range(40)
+        ]
+        await self._write(store, embedding_model, *chunks)
+
+        removed = await store.delete_document(TENANT, "doc-1")
+
+        assert removed == 40
+        assert await store.list_chunks(TENANT, "doc-1") == []
+
     async def test_an_embedding_from_another_model_is_refused(
         self, store: VectorStore, embedding_model: EmbeddingModel
     ) -> None:

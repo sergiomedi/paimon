@@ -181,6 +181,17 @@ class GraphSpec:
         edges: Unconditional transitions, as ``(source, target)`` pairs. A target
             of :data:`END` finishes the run.
         branches: Conditional transitions.
+        worst_case_steps: Most node executions a run of this graph can cost, when
+            the graph knows. Zero means it does not, which is the honest answer
+            for a graph with no cycle: its worst case is its node count and the
+            orchestrator's default limit already covers it.
+
+            Declared here rather than computed, because only a graph with a loop
+            knows its own bound — it is a function of the loop's own budget,
+            which is an argument to the builder and not visible in the shape. And
+            declared *here* rather than passed to the adapter, because an agent
+            that had to be told the framework's step limit in order to validate
+            itself would be an agent that knows about the framework (ADR-0015).
     """
 
     name: str
@@ -188,6 +199,7 @@ class GraphSpec:
     nodes: Sequence[NodeSpec]
     edges: Sequence[tuple[str, str]] = ()
     branches: Sequence[Branch] = ()
+    worst_case_steps: int = 0
 
     def node_names(self) -> tuple[str, ...]:
         """Every node name, in declaration order."""
@@ -209,6 +221,9 @@ class GraphSpec:
         """
         if not self.name.strip():
             msg = "a graph must be named: the name identifies its runs"
+            raise ValueError(msg)
+        if self.worst_case_steps < 0:
+            msg = f"graph '{self.name}' declares a negative worst case"
             raise ValueError(msg)
         if not self.nodes:
             msg = f"graph '{self.name}' has no nodes"

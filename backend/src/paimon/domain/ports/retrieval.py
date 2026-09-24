@@ -118,6 +118,37 @@ class VectorStore(Protocol):
         """
         ...
 
+    async def list_chunks(
+        self, tenant_id: str, document_id: str, *, limit: int = 100
+    ) -> list[Chunk]:
+        """Return a document's chunks in reading order.
+
+        The one retrieval on this port that is not a search. A model reading a
+        whole document is not ranking anything — it has already decided which
+        document it wants and needs the parts in the order they were written —
+        so a query-shaped method would force it to invent a query whose ranking
+        it would then have to undo.
+
+        Returning the **indexed** chunks rather than the document's text is what
+        makes the result citable. Each carries the offsets it was chunked at, so
+        a claim drawn from the third paragraph cites the third paragraph; text
+        read straight from the repository would have to be cited as the whole
+        document, which points a reader at everything and therefore at nothing.
+
+        Args:
+            tenant_id: Owning organization. The isolation boundary, as everywhere.
+            document_id: Document whose chunks are returned.
+            limit: Most chunks to return. A bound rather than an option: a
+                document large enough to exhaust a context window is the case
+                this exists to survive, and the caller announces the truncation.
+
+        Returns:
+            The chunks, ordered by position in the document. Empty when the
+            tenant has no such document — which is an ordinary answer, not an
+            error, for the same reason ``DocumentRepository.get`` returns None.
+        """
+        ...
+
     async def search_dense(
         self, embedding: Embedding, *, top_k: int, filters: SearchFilters
     ) -> list[SearchHit]:

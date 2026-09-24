@@ -131,13 +131,24 @@ def render_run(run: AgentRun) -> str:
     The steps are included, not just the answer. A model deciding whether to
     trust an answer benefits from seeing that retrieval found four passages
     across two documents — and from seeing when it found none.
+
+    So are the sources. An answer's "[1]" is unresolvable to a client that was
+    never told what [1] was, and an unresolvable citation is indistinguishable
+    from an invented one — which is the distinction this whole platform exists
+    to keep.
     """
     steps = "\n".join(f"  - {step.name}: {step.summary}" for step in run.steps)
+    sources = "\n".join(
+        f"  [{item.marker}] {item.title} ({item.document_id}) "
+        f"chars {item.start_char}-{item.end_char}"
+        for item in run.citations
+    )
     return (
         f"agent: {run.agent}\n"
         f"run: {run.thread_id}\n"
         f"status: {run.status}\n"
         f"tokens: {run.total_tokens}\n"
-        f"steps:\n{steps}\n\n"
-        f"{run.answer or '(the run produced no text)'}"
+        f"steps:\n{steps}\n"
+        + (f"sources:\n{sources}\n" if sources else "")
+        + f"\n{run.answer or '(the run produced no text)'}"
     )

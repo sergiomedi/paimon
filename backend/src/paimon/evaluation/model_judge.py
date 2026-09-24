@@ -28,12 +28,14 @@ numbers are copied into a table.
 import json
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 
 from paimon.domain.errors import GenerationError
 from paimon.domain.ports import ChatModel, Message
 from paimon.evaluation.judging import (
     COMPLETENESS_RUBRIC,
     FAITHFULNESS_RUBRIC,
+    REFUSAL_RUBRIC,
     RELEVANCE_RUBRIC,
     Judgement,
     Verdict,
@@ -111,6 +113,27 @@ class ModelAnswerJudge:
         """Decide whether the answer addresses the question."""
         prompt = f"Question:\n{question}\n\nAnswer to grade:\n{answer}"
         return await self._ask(RELEVANCE_RUBRIC, prompt)
+
+    async def judge_refusal(self, answer: str) -> Judgement:
+        """Decide whether a piece of text declines to answer.
+
+        The prompt carries the text and nothing else — not the question, which
+        is the whole design. A judge holding the question grades completeness
+        instead, and judged a correct one-sentence answer as not-an-answer on
+        every trial.
+
+        The rubric offers two labels. One that comes back with the middle label
+        anyway has not followed it, so its verdict is an abstention rather than
+        a vote for either side.
+        """
+        judgement = await self._ask(REFUSAL_RUBRIC, f"Text to classify:\n{answer}")
+        if judgement.verdict is not Verdict.PARTIAL:
+            return judgement
+        return replace(
+            judgement,
+            verdict=Verdict.UNDECIDED,
+            reasoning=f"off-rubric 'partial': {judgement.reasoning}",
+        )
 
     async def _ask(self, rubric: str, prompt: str) -> Judgement:
         """Put one question to the judge, as many times as configured."""

@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from httpx import AsyncClient
 from langgraph.checkpoint.memory import InMemorySaver
 
-from paimon.agents import AGENTS, AgentCollaborators, build_all
+from paimon.agents import AGENTS, AgentCollaborators, build_all, unavailable
 from paimon.agents.triage import AGENT_NAME as TRIAGE
 from paimon.application.use_cases import RetrieveChunks
 from paimon.domain.entities import Chunk, Document
@@ -23,7 +23,11 @@ from paimon.domain.ports import AgentCheckpointer, AgentWorkflow, ChunkRecord, I
 from paimon.infrastructure.identity import DevIdentityProvider
 from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 from paimon.infrastructure.tokenization import HeuristicTokenCounter
-from paimon.interfaces.api.dependencies import get_agent_workflows, get_checkpointer
+from paimon.interfaces.api.dependencies import (
+    get_agent_workflows,
+    get_checkpointer,
+    get_unavailable_agents,
+)
 from tests.fakes import (
     FakeChatModel,
     FakeEmbeddingModel,
@@ -95,12 +99,7 @@ class Backend:
         """
         if self._workflows is not None:
             return self._workflows
-        collaborators = AgentCollaborators(
-            retrieve=RetrieveChunks(self.store, self.embedding_model),
-            chat_model=self.chat_model,
-            repository=self.repository,
-            token_counter=HeuristicTokenCounter(),
-        )
+        collaborators = self.collaborators()
         self._workflows = {
             name: LangGraphWorkflow(
                 spec, self.checkpointer, saver=InMemorySaver(serde=build_serializer())
@@ -108,6 +107,25 @@ class Backend:
             for name, spec in build_all(collaborators, review_postmortems=self.review).items()
         }
         return self._workflows
+
+    def collaborators(self) -> AgentCollaborators:
+        """The ports every agent's nodes call, as the composition root wires them."""
+        return AgentCollaborators(
+            retrieve=RetrieveChunks(self.store, self.embedding_model),
+            chat_model=self.chat_model,
+            repository=self.repository,
+            token_counter=HeuristicTokenCounter(),
+            store=self.store,
+        )
+
+    def unavailable(self) -> dict[str, str]:
+        """Why an agent this build offers is not running here.
+
+        Mirrors what the application computes at startup. An override that
+        returned an empty mapping would make every absence read as a typo, which
+        is exactly the failure the reasons exist to prevent.
+        """
+        return unavailable(self.collaborators())
 
     def runs(self) -> AgentCheckpointer:
         return self.checkpointer
@@ -118,6 +136,7 @@ def backend(app: FastAPI) -> Iterator[Backend]:
     instance = Backend()
     app.dependency_overrides[get_agent_workflows] = instance.workflows
     app.dependency_overrides[get_checkpointer] = instance.runs
+    app.dependency_overrides[get_unavailable_agents] = instance.unavailable
     yield instance
     app.dependency_overrides.clear()
 
@@ -134,12 +153,46 @@ def records(body: str) -> list[dict[str, object]]:
 
 
 class TestListingAgents:
-    async def test_every_registered_agent_is_offered(
+    async def test_every_agent_this_deployment_can_run_is_offered(
         self, client: AsyncClient, backend: Backend, auth: dict[str, str]
     ) -> None:
+        # Against the whole registry minus what this backend cannot run, not
+        # against a hardcoded list: the point of the assertion is that nothing
+        # available is quietly missing from the listing.
         response = await client.get("/api/v1/agents", headers=auth)
         assert response.status_code == 200
-        assert {item["name"] for item in response.json()} == set(AGENTS)
+        assert {item["name"] for item in response.json()} == set(AGENTS) - {"investigator"}
+
+    async def test_an_agent_the_model_cannot_run_is_not_listed(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # This backend's model cannot call tools. Listing the investigator would
+        # advertise a capability the first request would discover is absent.
+        response = await client.get("/api/v1/agents", headers=auth)
+        assert "investigator" not in {item["name"] for item in response.json()}
+
+    async def test_asking_for_it_anyway_says_why_rather_than_just_no(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # "No agent named 'investigator'" is true and useless: it reads as a
+        # typo, and whoever sent it goes looking for one. The deployment knows
+        # the real reason, so it says it.
+        response = await client.post(
+            "/api/v1/agents/investigator/runs", json={"input": "why?"}, headers=auth
+        )
+        assert response.status_code == 404
+        detail = response.json()["detail"]
+        assert "not available in this deployment" in detail
+        assert "call tools" in detail
+
+    async def test_an_agent_that_never_existed_still_says_so_plainly(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        response = await client.post(
+            "/api/v1/agents/investigatorr/runs", json={"input": "why?"}, headers=auth
+        )
+        assert response.status_code == 404
+        assert "no agent named 'investigatorr'" in response.json()["detail"]
 
     async def test_each_one_says_what_it_does(
         self, client: AsyncClient, backend: Backend, auth: dict[str, str]
@@ -222,6 +275,57 @@ class TestReadingRunsBack:
         body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
         assert body["total_tokens"] > 0
         assert body["agent"] == TRIAGE
+
+    async def test_a_run_reads_back_with_what_it_cited(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # The platform's promise is that an answer carries citations or is not
+        # returned. Until this, the run record kept the answer and dropped them,
+        # so a caller reading a run back got the half they cannot check.
+        await backend.index()
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "eviction hangs"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
+
+        assert "[1]" in body["answer"]
+        assert body["citations"]
+        assert body["citations"][0]["marker"] == 1
+
+    async def test_a_citation_read_back_resolves_to_a_span(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # Offsets are the difference between a citation and a filename. A client
+        # gets enough to open the document at the passage, and a benchmark gets
+        # enough to check the claim without asking a model.
+        await backend.index()
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "eviction hangs"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        citation = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()[
+            "citations"
+        ][0]
+
+        assert citation["end_char"] > citation["start_char"]
+        assert citation["quote"]
+        assert citation["document_id"]
+
+    async def test_a_run_that_refused_reads_back_citing_nothing(
+        self, client: AsyncClient, backend: Backend, auth: dict[str, str]
+    ) -> None:
+        # Empty is the correct record of a refusal, not a missing value.
+        started = await client.post(
+            f"/api/v1/agents/{TRIAGE}/runs", json={"input": "quantum tunnelling"}, headers=auth
+        )
+        thread_id = started.headers["X-Paimon-Thread-Id"]
+
+        body = (await client.get(f"/api/v1/agents/runs/{thread_id}", headers=auth)).json()
+
+        assert body["citations"] == []
 
     async def test_listing_shows_the_run_that_just_ran(
         self, client: AsyncClient, backend: Backend, auth: dict[str, str]

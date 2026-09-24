@@ -22,6 +22,11 @@ import httpx
 
 _TOKEN = re.compile(r"[a-z0-9]+")
 _TENANT = re.compile(r"tenant_id eq '([^']*)'")
+#: Documents per response. Small on purpose: the point of the fake paging is
+#: that an adapter which reads only the first page fails, and a page size of a
+#: thousand would mean nothing in the suite ever reached a second one.
+PAGE_SIZE = 15
+
 _DOCUMENTS = re.compile(r"search\.in\(document_id, '([^']*)', ','\)")
 _DOCUMENT_EQ = re.compile(r"document_id eq '([^']*)'")
 
@@ -142,10 +147,37 @@ class FakeAzureSearchService:
             scored = [(1.0, document) for document in documents]
 
         scored.sort(key=lambda pair: pair[0], reverse=True)
+        # An explicit ordering wins over the score, which is what the service
+        # does and what a caller asking for reading order is relying on.
+        # Without this the fake returned insertion order for every request and
+        # an adapter that never sent `orderby` at all would have passed — the
+        # Phase 7 lesson about stand-ins written by the author of the adapter
+        # they are meant to check.
+        if orderby := payload.get("orderby"):
+            field, _, direction = str(orderby).partition(" ")
+            scored.sort(
+                key=lambda pair: pair[1].get(field, 0),
+                reverse=direction.strip().lower() == "desc",
+            )
         selected = payload.get("select")
+        # Azure decides how many documents to put in a response and hands back a
+        # continuation for the rest; it does not promise `top` in one page. The
+        # fake pages at a deliberately small size so the adapter's continuation
+        # handling is exercised by every test rather than only by a document
+        # nobody writes — an adapter that read one page would otherwise pass
+        # everything and lose the tail of any real document.
+        skip = int(payload.get("skip") or 0)
+        window = scored[skip : min(top, skip + PAGE_SIZE)]
         value = []
-        for score, document in scored[:top]:
+        for score, document in window:
             item = {"id": document["id"]} if selected == "id" else dict(document)
             item["@search.score"] = score
             value.append(item)
-        return httpx.Response(200, json={"value": value})
+
+        body: dict[str, Any] = {"value": value}
+        delivered = skip + len(window)
+        if delivered < min(top, len(scored)) and window:
+            following = {**payload, "skip": delivered}
+            body["@search.nextPageParameters"] = following
+            body["@odata.nextLink"] = "https://example.invalid/docs/search"
+        return httpx.Response(200, json=body)

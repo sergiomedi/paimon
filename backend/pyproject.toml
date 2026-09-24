@@ -60,6 +60,7 @@ test = [
     "pytest-asyncio>=1.4.0",
     "pytest-cov>=7.1.0",
     "asgi-lifespan>=2.1.0",
+    "types-PyYAML>=6.0.0",
 ]
 
 [build-system]
@@ -132,7 +133,11 @@ docstring-code-format = true
 
 [tool.mypy]
 python_version = "3.13"
-files = ["src", "tests", "migrations"]
+# ../scripts too: the deployment and evaluation scripts are Python that runs
+# against real infrastructure and real reports, and leaving them out is how a
+# truthy-method bug (`if d.is_significant` for `is_significant()`) reaches a
+# measurement. They are checked at the same strictness as everything else.
+files = ["src", "tests", "migrations", "../scripts"]
 # The architecture fixture is a standalone package that is only importable
 # from its own directory, which is where the checker under test runs it.
 exclude = ["tests/architecture/fixtures/"]

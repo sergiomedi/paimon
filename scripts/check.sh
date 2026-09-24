@@ -34,7 +34,15 @@ if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
     step "ruff format";    uv run --no-sync ruff format --check .
     step "mypy --strict";  uv run --no-sync mypy
     step "import-linter";  uv run --no-sync lint-imports
-    step "pytest";         uv run --no-sync pytest
+    # Integration tests TRUNCATE tables, and twice they have truncated tables
+    # holding a measurement. They now run against their own database and the
+    # fixture refuses any name not ending in _test. Created here if missing, so
+    # a contributor's first run works without a setup step nobody reads.
+    if docker compose -f "$ROOT/docker/compose.yaml" ps postgres --status running >/dev/null 2>&1; then
+        docker compose -f "$ROOT/docker/compose.yaml" exec -T postgres \
+            psql -U paimon -d postgres -c "CREATE DATABASE paimon_test" >/dev/null 2>&1 || true
+    fi
+    step "pytest";         PAIMON_DATABASE__NAME=paimon_test uv run --no-sync pytest
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "frontend" ]]; then

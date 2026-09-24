@@ -28,12 +28,17 @@ from enum import StrEnum
 
 from paimon.domain.value_objects import Citation
 from paimon.evaluation.dataset import normalize
+from paimon.rag.citations import MARKER as CITATION_MARKER
 
 #: A sentence that carries no marker. Not automatically a failure — "I could not
 #: find anything about this" is a sentence and should not be cited — but a
 #: sentence making a claim without one is the thing this platform exists not to
 #: do.
-MARKER = re.compile(r"\[(\d+)\]")
+#:
+#: Re-exported from the resolver rather than restated. This module decides
+#: whether a marker resolved; the resolver decides what a marker is, and a
+#: second definition here would be a second answer to that question.
+MARKER = CITATION_MARKER
 
 #: Sentence boundaries, roughly. Deliberately simple: a full sentence splitter
 #: brings a model or a large dependency, and the failure mode here is splitting

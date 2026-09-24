@@ -12,7 +12,8 @@ import argparse
 import asyncio
 import json
 import sys
-from collections.abc import Sequence
+from collections import Counter
+from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, TextIO
@@ -23,7 +24,8 @@ from paimon.application.use_cases import (
     RetrieveChunks,
     SourceDocument,
 )
-from paimon.config import get_settings
+from paimon.application.use_cases.answer_question import NO_MATERIAL
+from paimon.config import Settings, get_settings
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import (
@@ -39,18 +41,44 @@ from paimon.evaluation import (
     Progress,
     labelling_template,
     load_labels,
+    run_agent_benchmark,
     run_answering_benchmark,
     run_benchmark,
 )
+from paimon.evaluation.agent_benchmark import RefusalVerdict, regrade
+from paimon.evaluation.judging import Judgement, RefusalJudge
 from paimon.evaluation.metrics import RetrievalMetrics
 from paimon.evaluation.statistics import Estimate
 from paimon.interfaces.api.dependencies import (
     Resources,
+    build_agent_workflows,
     build_answer_judge,
     build_answer_question,
     build_ingest_document,
     build_resources,
     build_retrieve_chunks,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    Bench,
+    FileJournal,
+    emit,
+    read_attempts,
+    verify_corpus,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    load_dataset as load_agent_dataset,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    load_report as load_agent_report,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    render as render_agents,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    render_comparison as render_agent_comparison,
+)
+from paimon.interfaces.cli.evaluate_agents import (
+    write_report as write_agent_report,
 )
 from paimon.observability import configure_logging, get_logger
 
@@ -115,8 +143,17 @@ def read_corpus(corpus: Path) -> list[tuple[str, str, bytes, str]]:
     return documents
 
 
-async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> list[str]:
-    """Ingest every supported document in a directory.
+async def ingest_corpus(resources: Resources, corpus: Sequence[Path], tenant_id: str) -> list[str]:
+    """Ingest every supported document in one or more directories.
+
+    More than one because a held-out set needs the corpus it was held out
+    *from*. Three documents ingested alone are not a retrieval problem: every
+    search returns nearly the whole corpus, so the failure this measurement
+    exists to detect — the right document retrieved at the wrong chunk, because
+    some other chunk named the same identifier — cannot occur, and the result
+    is not comparable with a run over the full corpus. The directories stay
+    separate on disk so the earlier measurement remains reproducible against
+    its own corpus alone.
 
     Returns:
         The ids of the documents indexed or confirmed unchanged, in order. The
@@ -124,8 +161,25 @@ async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> l
         the documents back and the repository has no "list everything" — nor
         should it, since nothing else in the platform ever wants one.
     """
+    documents = [
+        document
+        for directory in corpus
+        for document in await asyncio.to_thread(read_corpus, directory)
+    ]
+    # A document id is a filename stem, so two directories can carry the same
+    # one — and ingesting both would leave whichever came last, silently. That
+    # is a corpus nobody described, measured as though it were the one in the
+    # command line, which is the same class of error as running a benchmark
+    # against a database another process was truncating.
+    seen = Counter(document_id for document_id, *_ in documents)
+    clashing = sorted(document_id for document_id, count in seen.items() if count > 1)
+    if clashing:
+        raise ValueError(
+            "the same document id appears in more than one corpus directory: "
+            f"{', '.join(clashing)}. One would silently replace the other."
+        )
+
     ingest = build_ingest_document(resources)
-    documents = await asyncio.to_thread(read_corpus, corpus)
     ingested: list[str] = []
     for document_id, source_uri, raw, media_type in documents:
         result = await ingest(
@@ -292,7 +346,7 @@ def write_labelling_template(
 def _calibration_lines(calibration: Calibration) -> list[str]:
     """Render what a person's labels said about the judge."""
     lines = [
-        f"  calibrated against {calibration.labels} human labels",
+        f"  calibrated against {calibration.labels} reference labels",
         f"    faithfulness  {calibration.faithfulness.format()}",
         f"    completeness  {calibration.completeness.format()}",
         f"    relevance     {calibration.relevance.format()}",
@@ -479,7 +533,9 @@ def progress_reporter(label: str, stream: "TextIO | None" = None) -> Progress:
     return report
 
 
-def unusable(args: argparse.Namespace, *, judge_enabled: bool) -> str | None:
+def unusable(  # noqa: PLR0911, PLR0912  one refusal per mistake, each explained
+    args: argparse.Namespace, *, judge_enabled: bool
+) -> str | None:
     """Explain why this command line cannot do what it appears to ask for.
 
     Every combination refused here used to be **silently ignored**, and that is
@@ -510,6 +566,30 @@ def unusable(args: argparse.Namespace, *, judge_enabled: bool) -> str | None:
                     f"{flag} needs --answers. Labelling is about answers, and a retrieval\n"
                     "run has none to label."
                 )
+    if args.answers and args.agents:
+        return (
+            "--answers and --agents are two different benchmarks over two different\n"
+            "datasets. Run them separately."
+        )
+    if args.agents and not args.corpus:
+        return (
+            "--agents needs --corpus. Every citation is verified by opening the document\n"
+            "it names at the offsets it claims, and --corpus is how this run learns which\n"
+            "documents those are. Without it every citation is reported as pointing at an\n"
+            "unknown document and a correct system scores zero."
+        )
+    if args.journal and not args.agents:
+        return "--journal records agent attempts, so it needs --agents."
+    if args.journal and args.regrade:
+        return (
+            "--journal and --regrade do opposite things: one runs a system and writes\n"
+            "down what it produced, the other re-scores what was written down earlier.\n"
+            "A re-grade runs nothing, so there is nothing to resume."
+        )
+    if args.regrade and not args.agents:
+        return "--regrade re-scores an agent report, so it needs --agents."
+    if args.agents and args.trials < 1:
+        return "--trials must be at least one: a task nobody attempted has no pass rate."
     if args.answers and args.against:
         return (
             "--against compares retrieval runs, and this is an answering run. Comparing\n"
@@ -565,6 +645,110 @@ def judging_for(
     )
 
 
+def _refusal_verdict(judge: object) -> "RefusalVerdict | None":
+    """Adapt the configured judge to the one question the benchmark asks it.
+
+    None when no judge is configured, and the report then says its outcomes were
+    read from citations alone — which cannot see a refusal written in a model's
+    own words, so it understates refusal rather than guessing.
+
+    Takes ``object`` and asks, rather than declaring ``AnswerJudge``: classifying
+    a refusal is a separate capability from grading one, and a judge that does
+    the first and not the second should be usable for the first (ADR-0014's
+    pattern, applied to a judge).
+    """
+    if not isinstance(judge, RefusalJudge):
+        return None
+
+    async def verdict(answer: str) -> Judgement:
+        return await judge.judge_refusal(answer)
+
+    return verdict
+
+
+def _pricer(settings: "Settings", resources: Resources) -> Callable[[int, int], float | None]:
+    """Price this run's tokens with the deployment's own table.
+
+    Closed over the model that is actually generating, because a price list is
+    per model and the benchmark does not know which one it ran.
+    """
+    pricing = settings.observability.metrics.pricing
+    model = resources.chat_model.model_id
+
+    def price(input_tokens: int, output_tokens: int) -> float | None:
+        return pricing.cost(model, input_tokens=input_tokens, output_tokens=output_tokens)
+
+    return price
+
+
+async def _run_agents(
+    args: argparse.Namespace,
+    resources: Resources,
+    ingested: Sequence[str],
+    settings: "Settings",
+) -> int:
+    """Run the agent benchmark for one system and report what it found."""
+    dataset = load_agent_dataset(args.dataset)
+    unreachable = await verify_corpus(dataset, build_retrieve_chunks(resources), args.tenant)
+    if unreachable is not None:
+        sys.stderr.write(f"\n{unreachable}\n\n")
+        return USAGE_ERROR
+
+    documents = await load_documents(resources, ingested, args.tenant)
+    workflows = build_agent_workflows(resources, variants=True)
+    bench = Bench(
+        workflows=workflows,
+        answerer=build_answer_question(resources),
+        checkpointer=resources.checkpointer,
+        documents=documents,
+        tenant_id=args.tenant,
+        refusal=NO_MATERIAL,
+    )
+    try:
+        system = bench.system(args.agent)
+    except ValueError as error:
+        sys.stderr.write(f"\n{error}\n\n")
+        return USAGE_ERROR
+
+    judge = build_answer_judge(resources)
+    verdict = _refusal_verdict(judge)
+    if args.regrade:
+        system_name, configuration, stored = read_attempts(args.regrade)
+        report = await regrade(
+            dataset,
+            stored,
+            documents,
+            system=system_name,
+            configuration=configuration,
+            judge_refusal=verdict,
+            price=_pricer(settings, resources),
+            progress=progress_reporter(f"regrading {system_name}"),
+        )
+    else:
+        journal = FileJournal(args.journal) if args.journal else None
+        if journal is not None and (resumed := len(journal.completed())):
+            # Said out loud, because a run that silently reuses most of its
+            # work looks identical to one that is implausibly fast.
+            sys.stderr.write(f"resuming: {resumed} attempt(s) already recorded\n")
+        report = await run_agent_benchmark(
+            dataset,
+            system,
+            documents,
+            trials=args.trials,
+            configuration=args.label,
+            price=_pricer(settings, resources),
+            judge_refusal=verdict,
+            journal=journal,
+            progress=progress_reporter(f"{args.agent} x{args.trials}"),
+        )
+    emit(render_agents(report))
+    if args.against:
+        emit(render_agent_comparison(report, load_agent_report(args.against)))
+    if args.report is not None:
+        write_agent_report(report, args.report)
+    return 0 if report.reliability.tasks else 1
+
+
 async def main(argv: list[str] | None = None) -> int:
     """Ingest the corpus if asked, run the benchmark, report.
 
@@ -573,7 +757,16 @@ async def main(argv: list[str] | None = None) -> int:
         empty benchmark that reports success is worse than one that fails.
     """
     parser = argparse.ArgumentParser(description="Run the retrieval benchmark.")
-    parser.add_argument("--corpus", type=Path, help="Directory of documents to ingest first.")
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        nargs="+",
+        help=(
+            "Directories of documents to ingest first. More than one when a "
+            "held-out set has to be measured against the corpus it was held "
+            "out from, rather than alone with no distractors."
+        ),
+    )
     parser.add_argument("--dataset", type=Path, required=True, help="Golden set, JSON Lines.")
     parser.add_argument("--tenant", default="benchmark", help="Tenant to ingest and query as.")
     parser.add_argument("--cutoff", type=int, default=8, help="The k metrics are measured at.")
@@ -595,7 +788,7 @@ async def main(argv: list[str] | None = None) -> int:
         "--labels",
         type=Path,
         help=(
-            "A file of human labels, to measure how far this judge agrees with a "
+            "A file of reference labels, to measure how far this judge agrees "
             "person. Without it the judged numbers are reported as uncalibrated."
         ),
     )
@@ -605,6 +798,48 @@ async def main(argv: list[str] | None = None) -> int:
         help=(
             "Write a labelling template for this run and stop. Fill in the blank "
             "verdicts, then pass the file back with --labels."
+        ),
+    )
+    parser.add_argument(
+        "--agents",
+        action="store_true",
+        help=(
+            "Benchmark a whole system on the agent task set: k attempts per "
+            "task, graded on the outcome rather than on the route."
+        ),
+    )
+    parser.add_argument(
+        "--agent",
+        default="investigator",
+        help=(
+            "Which system to measure. An agent's name, 'answers' for the "
+            "single-pass path, or 'oracle' to check the graders can be satisfied."
+        ),
+    )
+    parser.add_argument(
+        "--trials",
+        type=int,
+        default=5,
+        help=(
+            "Attempts per task. Above one is what makes pass^k mean anything; "
+            "at one it is not reported as a reliability."
+        ),
+    )
+    parser.add_argument(
+        "--journal",
+        type=Path,
+        help=(
+            "Record each attempt as it finishes, and resume from this file if "
+            "the run is relaunched. A run of several hours that keeps nothing "
+            "until the end loses everything to a machine that runs out of memory."
+        ),
+    )
+    parser.add_argument(
+        "--regrade",
+        type=Path,
+        help=(
+            "Re-score the transcripts in an earlier agent report instead of "
+            "running anything. A grader change needs no re-run."
         ),
     )
     parser.add_argument(
@@ -625,14 +860,20 @@ async def main(argv: list[str] | None = None) -> int:
         sys.stderr.write(f"\n{refusal}\n\n")
         return USAGE_ERROR
 
-    dataset = EvaluationDataset.from_jsonl(args.dataset)
-
+    # Loaded inside the branch that uses it. The two benchmarks read different
+    # shapes out of --dataset, and loading the retrieval one first meant an
+    # agent set was rejected for having refusal tasks — by a loader that was
+    # right to reject them and was never going to be asked to run them.
     async with build_resources(settings) as resources:
         ingested: list[str] = []
         if args.corpus:
             ingested = await ingest_corpus(resources, args.corpus, args.tenant)
             logger.info("corpus_ingested", documents=len(ingested))
 
+        if args.agents:
+            return await _run_agents(args, resources, ingested, settings)
+
+        dataset = EvaluationDataset.from_jsonl(args.dataset)
         if args.answers:
             # The template is blank on purpose — showing the judge's verdict
             # would anchor the labeller — so asking the judge here buys three

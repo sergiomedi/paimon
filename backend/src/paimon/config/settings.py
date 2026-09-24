@@ -400,6 +400,16 @@ class AgentSettings(BaseModel):
     # The one agent whose output an organization publishes, so the one where
     # waiting for a person is worth it when someone asks for it.
     review_postmortems: bool = False
+    # How long the autonomous agent may go on. Eight model turns is enough for
+    # the two-hop questions it exists for — search, read what the first result
+    # cited, answer — with room to recover from a mistake, and it is the number
+    # the published reports of agent cost say to fix before starting rather
+    # than discover from a bill (ADR-0045).
+    investigator_max_turns: int = Field(default=8, ge=1, le=50)
+    # Checked before a turn, so it can be exceeded by at most one turn's worth.
+    # A budget enforced mid-generation would mean cancelling a call already paid
+    # for, which costs the same and produces nothing.
+    investigator_token_budget: int = Field(default=60_000, ge=1_000)
 
 
 class McpSettings(BaseModel):

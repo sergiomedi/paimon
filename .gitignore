@@ -61,6 +61,16 @@ evaluation/reports/*
 # within the hour — so this one cannot be reproduced by running it again, and is
 # committed for the same reason docs/measurements is.
 !evaluation/reports/azure-*.json
+# An agent run is not repeatable either, for a different reason. It takes hours
+# rather than minutes — 450 runs against a local 7B took three — and it is not
+# deterministic: the same task passed on one trial and failed on the next often
+# enough that flakiness is one of the things being measured. Re-running it would
+# produce different numbers, so the transcripts are the record.
+#
+# They are also what makes a grader change cheap. Re-scoring reads the response
+# text and its citations and nothing else, so a rule that turns out to be wrong
+# — and one did — costs a re-score rather than another three hours.
+!evaluation/reports/agents-*.json
 
 # A deployment's running commentary, written by deploy.sh. It lives under
 # docs/measurements because that directory is what the delivery workflow uploads

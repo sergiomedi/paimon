@@ -7,6 +7,13 @@ from tests.fakes.checkpointer import InMemoryCheckpointer
 from tests.fakes.embedding import FakeEmbeddingModel
 from tests.fakes.judge import ScriptedJudge
 from tests.fakes.repository import InMemoryDocumentRepository
+from tests.fakes.scripted_tool_chat import (
+    ScriptedToolCallingChatModel,
+    Turn,
+    UnreachableToolCallingChatModel,
+    read,
+    search,
+)
 from tests.fakes.source import InMemoryDocumentSource
 from tests.fakes.tool_chat import FakeToolCallingChatModel
 from tests.fakes.vector_store import (
@@ -30,4 +37,9 @@ __all__ = [
     "InMemoryManagedVectorStore",
     "InMemoryVectorStore",
     "ScriptedJudge",
+    "ScriptedToolCallingChatModel",
+    "Turn",
+    "UnreachableToolCallingChatModel",
+    "read",
+    "search",
 ]

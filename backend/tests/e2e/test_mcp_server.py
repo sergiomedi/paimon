@@ -20,7 +20,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 from paimon.agents import AGENTS
-from paimon.agents.tools import READ_DOCUMENT, SEARCH_CORPUS
+from paimon.agents.tools import READ_DOCUMENT, SEARCH_CORPUS, CorpusAccess
 from paimon.application.use_cases import RetrieveChunks
 from paimon.infrastructure.identity import DevIdentityProvider
 from paimon.interfaces.mcp import McpToolGateway
@@ -48,8 +48,11 @@ def gateway_for(backend: Backend) -> McpToolGateway:
     """A gateway over the in-memory corpus, with the test signing key."""
     return McpToolGateway(
         DevIdentityProvider(signing_key=DEV_SIGNING_KEY),
-        RetrieveChunks(backend.store, backend.embedding_model),
-        backend.repository,
+        CorpusAccess(
+            retrieve=RetrieveChunks(backend.store, backend.embedding_model),
+            repository=backend.repository,
+            store=backend.store,
+        ),
         workflows=backend.workflows(),
         checkpointer=backend.checkpointer,
     )

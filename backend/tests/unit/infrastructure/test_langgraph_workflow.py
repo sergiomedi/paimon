@@ -16,9 +16,10 @@ from paimon.domain.agents import (
     StateUpdate,
     StepReport,
 )
-from paimon.domain.entities import RunStatus
+from paimon.domain.entities import AgentRun, RunStatus
 from paimon.domain.errors import AgentRunError
 from paimon.domain.ports import AgentWorkflow
+from paimon.domain.value_objects import Citation
 from paimon.infrastructure.orchestration import LangGraphWorkflow
 from tests.fakes import InMemoryCheckpointer
 
@@ -246,7 +247,319 @@ class TestFailure:
         with pytest.raises(AgentRunError, match="could not complete run"):
             await steps_of(workflow)
 
+    async def test_the_step_limit_leaves_a_failed_run_with_the_steps_it_managed(self) -> None:
+        # What the limit costs, stated rather than assumed. An agent that loops
+        # until the framework stops it does not produce a result: it produces a
+        # FAILED run. That is the whole reason an agent with a loop has to own a
+        # budget of its own and stop before this fires — this is the backstop,
+        # not the mechanism.
+        checkpointer = InMemoryCheckpointer()
+        spec = GraphSpec(
+            name="looper",
+            entry="retrieve",
+            nodes=[NodeSpec(name="retrieve", run=retrieve)],
+            edges=[("retrieve", "retrieve")],
+        )
+        workflow = LangGraphWorkflow(spec, checkpointer, step_limit=3)
+        with pytest.raises(AgentRunError):
+            await steps_of(workflow)
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.FAILED
+        assert len(run.steps) == 3
+
+
+class TestCycles:
+    """A branch that leads back to an earlier node, run for real.
+
+    The shape every tool-calling agent has, and until Phase 9 nothing here ran
+    one. The existing step-limit test proves a runaway loop is stopped; these
+    prove a *terminating* loop does what its author meant, which is the
+    different and more useful claim.
+    """
+
+    @staticmethod
+    def _counting_loop(rounds: int) -> GraphSpec:
+        """A graph that goes act -> tools -> act until it has looped enough."""
+
+        async def act(state: AgentState) -> StateUpdate:
+            return {"notes": state.notes + "x", "usage": (3, 1)}
+
+        async def tools(_state: AgentState) -> StateUpdate:
+            return {}
+
+        async def finalize(state: AgentState) -> StateUpdate:
+            return {"draft": f"answered after {len(state.notes)} turns"}
+
+        return GraphSpec(
+            name="looper",
+            entry="act",
+            nodes=[
+                NodeSpec(name="act", run=act, summary="called the model"),
+                NodeSpec(name="tools", run=tools, summary="ran the tools"),
+                NodeSpec(name="finalize", run=finalize, summary="answered"),
+            ],
+            edges=[("tools", "act"), ("finalize", END)],
+            branches=[
+                Branch(
+                    source="act",
+                    decide=lambda state: "tools" if len(state.notes) < rounds else "finalize",
+                    targets={"tools": "tools", "finalize": "finalize"},
+                )
+            ],
+        )
+
+    async def test_a_node_reached_twice_runs_twice(self) -> None:
+        workflow = LangGraphWorkflow(self._counting_loop(3), InMemoryCheckpointer())
+        assert await steps_of(workflow) == ["act", "tools", "act", "tools", "act", "finalize"]
+
+    async def test_every_pass_leaves_its_own_step(self) -> None:
+        # The append reducer, doing the thing it exists for. Replacement would
+        # leave a three-turn run remembering one turn, which is the trace an
+        # operator would be asked to investigate an overspend with.
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(3), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.status is RunStatus.SUCCEEDED
+        assert [step.name for step in run.steps].count("act") == 3
+
+    async def test_usage_accumulates_across_passes(self) -> None:
+        # What makes a token budget expressible as a branch: state.usage is the
+        # running total, not the last node's share.
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(3), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.total_tokens == 12
+
+    async def test_a_loop_that_stops_reaches_its_answer(self) -> None:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._counting_loop(2), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        assert run.answer == "answered after 2 turns"
+
 
 async def test_the_workflow_satisfies_the_port() -> None:
     workflow = LangGraphWorkflow(two_step(), InMemoryCheckpointer())
     assert isinstance(workflow, AgentWorkflow)
+
+
+class TestWhatTheRunRecords:
+    """The answer and what it rests on, kept together.
+
+    The adapter reads both out of the same update, and that coupling is the
+    behaviour: a node that withdraws a draft writes empty citations alongside it,
+    so the record can never end up holding a refusal beside the citations of the
+    answer it replaced — which would be the worst of both, a statement that
+    declines to answer while pointing at sources for the answer it withdrew.
+    """
+
+    @staticmethod
+    def _cited(marker: int) -> Citation:
+        return Citation(
+            marker=marker,
+            document_id="runbook",
+            chunk_id=f"runbook:{marker}",
+            source_uri="https://example.test/runbook",
+            title="Node maintenance",
+            heading_path=(),
+            start_char=0,
+            end_char=22,
+            quote="Cordon the node first.",
+        )
+
+    def _graph(self, *, withdraw: bool) -> GraphSpec:
+        cited = self._cited(1)
+
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (cited,)}
+
+        async def verify(_state: AgentState) -> StateUpdate:
+            if not withdraw:
+                return {}
+            return {"draft": "I could not support that.", "citations": ()}
+
+        return GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="verify", run=verify, summary="checked"),
+            ],
+            edges=[("draft", "verify"), ("verify", END)],
+        )
+
+    async def _run(self, *, withdraw: bool) -> AgentRun:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(self._graph(withdraw=withdraw), checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        return run
+
+    async def test_an_answers_citations_reach_the_run(self) -> None:
+        run = await self._run(withdraw=False)
+
+        assert run.answer == "Cordon the node first [1]."
+        assert [item.marker for item in run.citations] == [1]
+        assert run.grounded
+
+    async def test_withdrawing_a_draft_withdraws_its_citations(self) -> None:
+        run = await self._run(withdraw=True)
+
+        assert run.answer == "I could not support that."
+        assert run.citations == ()
+        assert not run.grounded
+
+    async def test_a_node_that_writes_neither_changes_neither(self) -> None:
+        # Most nodes write no draft at all. Reading citations with a default of
+        # the running value rather than of () is what keeps those nodes from
+        # silently clearing what an earlier one established.
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (self._cited(1),)}
+
+        async def noop(_state: AgentState) -> StateUpdate:
+            return {}
+
+        spec = GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="after", run=noop, summary="did nothing"),
+            ],
+            edges=[("draft", "after"), ("after", END)],
+        )
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-2", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-2")
+        assert run is not None
+        assert [item.marker for item in run.citations] == [1]
+
+    async def test_a_new_draft_that_names_no_citations_carries_none(self) -> None:
+        # The safe direction, and the honest one. A node that writes a new
+        # answer without saying what supports it has not inherited the old
+        # answer's support: carrying it forward would attach real, resolvable
+        # citations to prose that never cited them, which is the one failure
+        # this platform is built to make impossible.
+        async def draft(_state: AgentState) -> StateUpdate:
+            return {"draft": "Cordon the node first [1].", "citations": (self._cited(1),)}
+
+        async def rewrite(_state: AgentState) -> StateUpdate:
+            return {"draft": "On reflection, cordon the node first."}
+
+        spec = GraphSpec(
+            name="drafting",
+            entry="draft",
+            nodes=[
+                NodeSpec(name="draft", run=draft, summary="drafted"),
+                NodeSpec(name="rewrite", run=rewrite, summary="rewrote"),
+            ],
+            edges=[("draft", "rewrite"), ("rewrite", END)],
+        )
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer)
+        async for _ in workflow.stream("why?", thread_id="t-3", tenant_id="tenant-a"):
+            pass
+
+        run = await checkpointer.load("t-3")
+        assert run is not None
+        assert run.citations == ()
+
+
+class TestAGraphThatKnowsItsOwnCost:
+    """A graph declares what its loop can cost; the adapter takes the larger.
+
+    Before this, an agent with a turn budget had to be told the deployment's
+    step limit in order to check itself against it — an agent knowing about the
+    framework, which is the one thing ADR-0015 exists to prevent. Worse, getting
+    the pair out of step turned a configured budget into a framework recursion
+    error: a FAILED run with no stop reason, hours after somebody raised the
+    budget and days before anybody connected the two.
+    """
+
+    @staticmethod
+    def _loop(rounds: int, *, declares: int) -> GraphSpec:
+        async def act(state: AgentState) -> StateUpdate:
+            return {"notes": state.notes + "x"}
+
+        async def tools(_state: AgentState) -> StateUpdate:
+            return {}
+
+        async def finalize(state: AgentState) -> StateUpdate:
+            return {"draft": f"done after {len(state.notes)}"}
+
+        return GraphSpec(
+            name="looper",
+            entry="act",
+            worst_case_steps=declares,
+            nodes=[
+                NodeSpec(name="act", run=act, summary="acted"),
+                NodeSpec(name="tools", run=tools, summary="ran tools"),
+                NodeSpec(name="finalize", run=finalize, summary="finished"),
+            ],
+            edges=[("tools", "act"), ("finalize", END)],
+            branches=[
+                Branch(
+                    source="act",
+                    decide=lambda state: "tools" if len(state.notes) < rounds else "finalize",
+                    targets={"tools": "tools", "finalize": "finalize"},
+                )
+            ],
+        )
+
+    async def _run(self, spec: GraphSpec, *, step_limit: int) -> AgentRun:
+        checkpointer = InMemoryCheckpointer()
+        workflow = LangGraphWorkflow(spec, checkpointer, step_limit=step_limit)
+        async for _ in workflow.stream("why?", thread_id="t-1", tenant_id="tenant-a"):
+            pass
+        run = await checkpointer.load("t-1")
+        assert run is not None
+        return run
+
+    async def test_a_declared_worst_case_beats_a_smaller_default(self) -> None:
+        # Eight rounds is seventeen node executions. The deployment's limit says
+        # five; the graph says it needs seventeen, and the graph is the one that
+        # knows.
+        run = await self._run(self._loop(8, declares=17), step_limit=5)
+
+        assert run.status is RunStatus.SUCCEEDED
+        assert run.answer == "done after 8"
+
+    async def test_a_graph_with_no_opinion_gets_the_default(self) -> None:
+        # Zero means "I do not know", not "zero steps". A graph without a loop
+        # has nothing to declare and the default still governs it.
+        with pytest.raises(AgentRunError):
+            await self._run(self._loop(50, declares=0), step_limit=6)
+
+    async def test_the_larger_of_the_two_wins_either_way(self) -> None:
+        # A generous deployment limit is not cut down by a modest declaration.
+        run = await self._run(self._loop(8, declares=4), step_limit=40)
+
+        assert run.status is RunStatus.SUCCEEDED
+
+    async def test_a_runaway_loop_is_still_stopped(self) -> None:
+        # The declaration raises the ceiling; it does not remove it. A graph
+        # that under-declares still hits a wall rather than running forever.
+        with pytest.raises(AgentRunError, match="could not complete run"):
+            await self._run(self._loop(500, declares=12), step_limit=5)
+
+    def test_a_negative_declaration_is_refused(self) -> None:
+        with pytest.raises(ValueError, match="negative worst case"):
+            self._loop(4, declares=-1).validate()

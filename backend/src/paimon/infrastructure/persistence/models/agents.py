@@ -32,6 +32,13 @@ class AgentRunRow(Base):
     agent: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     answer: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
+    # Beside the answer rather than in a table of their own, for the reason the
+    # steps are: they are written with the answer, read with the answer, and
+    # never queried on their own. A run that refused carries an empty list,
+    # which is a fact about the run and not a missing value.
+    citations: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, server_default="[]"
+    )
     steps: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False, server_default="[]")
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

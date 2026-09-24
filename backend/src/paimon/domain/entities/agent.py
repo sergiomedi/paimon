@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 
+from paimon.domain.value_objects import Citation
+
 
 class RunStatus(StrEnum):
     """Where a run has got to.
@@ -92,6 +94,17 @@ class AgentRun:
     the stream because a run that can be read back without its answer is a run
     whose result exists once, for whoever happened to be watching — which is not
     a record, it is a notification.
+
+    ``citations`` is what that answer rests on, and it is here for the same
+    reason and a stronger one. This platform's promise is that an answer carries
+    citations or is not returned; a record that kept the answer and dropped them
+    kept the half a reader cannot check and discarded the half they can. It also
+    makes a run *scoreable* after the fact — every citation carries a document
+    and a character range, so whether an answer was anchored where it claims is
+    a lookup rather than an opinion (ADR-0013, ADR-0030).
+
+    Empty is a meaningful value, not a missing one: a run that refused cites
+    nothing, and that is the correct record of what it did.
     """
 
     thread_id: str
@@ -99,6 +112,7 @@ class AgentRun:
     tenant_id: str
     status: RunStatus
     answer: str = ""
+    citations: Sequence[Citation] = ()
     steps: Sequence[AgentStep] = ()
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -117,6 +131,11 @@ class AgentRun:
     def total_tokens(self) -> int:
         """What the run has cost so far."""
         return sum(step.total_tokens for step in self.steps)
+
+    @property
+    def grounded(self) -> bool:
+        """Whether the answer points at anything a reader can check."""
+        return bool(self.citations)
 
     @property
     def is_terminal(self) -> bool:

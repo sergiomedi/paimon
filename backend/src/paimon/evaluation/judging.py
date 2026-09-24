@@ -34,7 +34,7 @@ Everything about the shape below is a mitigation for something measured:
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
 class Verdict(StrEnum):
@@ -110,6 +110,72 @@ class JudgedAnswer:
     faithfulness: Judgement
     completeness: Judgement
     relevance: Judgement
+
+
+@runtime_checkable
+class RefusalJudge(Protocol):
+    """Decides whether a response answers a question or declines to.
+
+    A judge, and labelled one everywhere it appears, because this is the one
+    question in the agent benchmark that arithmetic cannot settle. ADR-0030's
+    rule is to verify what can be verified and judge only what cannot; whether
+    free prose constitutes a refusal is not a lookup.
+
+    The first version of this benchmark tried to decide it in code, by reading a
+    response as an answer whenever it carried a citation. That scored this as a
+    failure to refuse:
+
+        "The provided sources do not contain specific information about the
+        escalation path... Therefore, I cannot provide an answer based on the
+        given documentation. [1][2][3][4][5][6][7][8]"
+
+    It is a correct refusal that happens to cite the eight sources it has just
+    said are irrelevant, and the rule called it an answer on every one of
+    twenty-five such attempts. A benchmark that reports 0% for a system
+    refusing perfectly is worse than no benchmark.
+
+    **The judge sees the response and nothing else** — not the question, not the
+    category, not whether the corpus was supposed to cover it. Showing it the
+    question was the first design and it was wrong: a judge holding the question
+    starts grading *completeness*, and llama3.1:8b duly classified
+
+        "According to the documentation, a node must be drained before any
+        kernel upgrade. [1]"
+
+    as not-an-answer to "What has to happen to a node before a kernel upgrade?",
+    on all five trials, reasoning that it "does not directly answer the question
+    of what happens to the node". That turned nineteen correct answers into
+    failures — more damage than the twenty-five refusals the judge was added to
+    catch.
+
+    Whether a text declines is a property of the text. Withholding the question
+    makes the easy question the only one it can answer.
+
+    **Two labels and no third.** A middle label is where a judge puts everything
+    it is unsure about, and the first version mapped that middle onto "declined"
+    — so every answer the judge found unsatisfying became a refusal.
+    """
+
+    @property
+    def model_id(self) -> str:
+        """Which model judges. Recorded on every judgement it produces."""
+        ...
+
+    async def judge_refusal(self, answer: str) -> Judgement:
+        """Decide whether a piece of text declines to answer.
+
+        Args:
+            answer: The text to classify, and nothing about where it came from
+                or what it was answering.
+
+        Returns:
+            ``YES`` when it declines and ``NO`` when it answers. ``UNDECIDED``
+            when the judge could not be read **or returned the middle label the
+            rubric does not offer** — a judge that did not follow the rubric has
+            not given a verdict, and treating its middle as either extreme is
+            how a grader acquires a bias nobody chose.
+        """
+        ...
 
 
 class AnswerJudge(Protocol):
@@ -201,6 +267,51 @@ points where it claims is checked by opening it, not by asking you.
 Reply with JSON only, in this order:
 
 {"reasoning": "<one or two sentences>", "verdict": "yes" | "partial" | "no"}
+
+Write the reasoning first and the verdict after it."""
+
+#: The question both raters are asked, and the rules both are given. **One
+#: definition**, rendered into the judge's rubric and into the labeller's
+#: instructions, because the first version wrote them twice and they drifted.
+#:
+#: What drifted was one rule: *a confidently wrong answer is an answer* reached
+#: the labeller and not the judge. The judge then classified a fabricated root
+#: cause for an incident that does not exist as a refusal — the one error that
+#: turns a hallucination into a pass on an out-of-corpus task, produced by the
+#: one rule that was missing. Kappa cannot distinguish "the judge is worse than
+#: the labeller" from "the judge was asked a different question", so the two
+#: texts are now the same text.
+REFUSAL_QUESTION = """\
+You are deciding one thing about a piece of text: does it answer a question, or \
+does it decline to?
+
+You are not shown the question. That is deliberate — you are not judging whether \
+the answer is good, complete or correct, and you could not, because you cannot \
+see what was asked.
+
+- "yes" — it declines. It says the sources, the documentation or the corpus do \
+not cover what was asked, or that it cannot answer from what it was given.
+- "no"  — it answers. It states a fact, a procedure, a conclusion or a \
+recommendation.
+
+There are two labels and no third.
+
+  - Citations do not make a text an answer. A refusal that lists the sources it \
+looked at is still a refusal.
+  - A short answer is an answer. Brevity is not declining.
+  - A hedged answer is an answer.
+  - Text you suspect is incomplete is still an answer: you cannot see the \
+question, so you cannot know what would have been complete.
+  - Do not decide whether the answer is correct. A confidently wrong answer is \
+an answer."""
+
+REFUSAL_RUBRIC = f"""{REFUSAL_QUESTION}
+
+If you cannot tell, choose the one the text is closer to.
+
+Reply with JSON only, in this order:
+
+{{"reasoning": "<one sentence>", "verdict": "yes" | "no"}}
 
 Write the reasoning first and the verdict after it."""
 

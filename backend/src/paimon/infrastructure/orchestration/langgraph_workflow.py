@@ -24,6 +24,7 @@ from paimon.domain.agents import END, AgentState, GraphSpec, NodeSpec, StateUpda
 from paimon.domain.entities import AgentRun, AgentStep, RunStatus
 from paimon.domain.errors import AgentRunError, UnknownThreadError
 from paimon.domain.ports import AgentCheckpointer
+from paimon.domain.value_objects import Citation
 from paimon.observability.genai import (
     AGENT_NAME,
     AGENT_NODE,
@@ -101,7 +102,10 @@ class LangGraphWorkflow:
                 (ADR-0017): one is this platform's record of what happened, the
                 other is the framework's record of where it stopped. Without it
                 the workflow runs normally and simply cannot be resumed.
-            step_limit: Most nodes one run may execute.
+            step_limit: Most nodes one run may execute, for a graph that does
+                not declare its own worst case. A graph that declares a larger
+                one gets that instead: see ``worst_case_steps`` on
+                :class:`~paimon.domain.agents.GraphSpec`.
 
         Raises:
             ValueError: If the spec does not describe a runnable graph.
@@ -109,7 +113,13 @@ class LangGraphWorkflow:
         spec.validate()
         self._spec = spec
         self._checkpointer = checkpointer
-        self._step_limit = step_limit
+        # The graph's own bound wins when it is larger. A deployment's step
+        # limit is a default for graphs that have no opinion; a graph with a
+        # loop has computed what its own budget costs, and letting the default
+        # cut it short would turn a configured turn budget into a framework
+        # recursion error — a FAILED run with no stop reason, hours after
+        # somebody raised the budget and days before anybody connects the two.
+        self._step_limit = max(step_limit, spec.worst_case_steps)
         self._resumable = saver is not None
         self._graph = self._compile(spec, saver)
 
@@ -200,6 +210,15 @@ class LangGraphWorkflow:
                 # the run is resumed, so everything above this line runs twice.
                 # Node bodies are pure, so that is wasteful rather than wrong -
                 # but a node that calls a model should not be the one to suspend.
+                #
+                # And a suspending node CANNOT READ ITS OWN ANSWER. The body has
+                # already finished by the time the decision arrives, and both of
+                # its executions saw an empty `decision`; the answer is merged
+                # into the state below, so only a *later* node sees it. A node
+                # that branches on its own decision compiles, type-checks, and
+                # never takes the branch — which is what the postmortem
+                # reviewer did from Phase 3 until a test resumed a run and
+                # rejected a draft that stayed accepted.
                 decision = interrupt({"question": awaiting, "node": node.name})
                 update = {**update, "awaiting": "", "decision": str(decision)}
 
@@ -252,6 +271,7 @@ class LangGraphWorkflow:
         """
         seen: list[AgentStep] = list(run.steps)
         answer = run.answer
+        citations: tuple[Citation, ...] = tuple(run.citations)
         failure = ""
         suspended = ""
         try:
@@ -267,14 +287,35 @@ class LangGraphWorkflow:
                     # The last node to write a draft owns the answer. Nodes that
                     # withdraw one write it too, so a withdrawal replaces the
                     # draft it withdrew rather than leaving both on the record.
-                    answer = update.get("draft", "") or answer
+                    #
+                    # Citations move with it, in the same update, and that
+                    # coupling is the point: an answer and what it rests on are
+                    # one fact, so the record can never end up holding a refusal
+                    # beside the citations of the answer it replaced.
+                    #
+                    # A node that writes a draft and says nothing about
+                    # citations clears them. That is the safe direction and the
+                    # honest one: it has written a new answer, and the sources
+                    # of the old one are not the sources of the new one.
+                    # Carrying them forward would attach real, resolvable
+                    # citations to prose that never cited them, which is the one
+                    # failure this platform is built to make impossible.
+                    #
+                    # A node that writes no draft at all — most of them — leaves
+                    # both alone, which is why this is guarded rather than read
+                    # on every update.
+                    if "draft" in update:
+                        answer = update["draft"] or answer
+                        citations = update.get("citations", ())
                     for step in update.get("steps", ()):
                         seen.append(step)
-                        run = self._replace(run, RunStatus.RUNNING, seen, answer)
+                        run = self._replace(run, RunStatus.RUNNING, seen, answer, citations)
                         await self._checkpointer.save(run)
                         yield step
         except Exception as error:
-            await self._checkpointer.save(self._replace(run, RunStatus.FAILED, seen, answer))
+            await self._checkpointer.save(
+                self._replace(run, RunStatus.FAILED, seen, answer, citations)
+            )
             msg = f"agent '{self.name}' could not complete run '{thread_id}': {error}"
             raise AgentRunError(msg) from error
 
@@ -284,7 +325,7 @@ class LangGraphWorkflow:
             status = RunStatus.AWAITING_INPUT
         else:
             status = RunStatus.FAILED if failure else RunStatus.SUCCEEDED
-        await self._checkpointer.save(self._replace(run, status, seen, answer))
+        await self._checkpointer.save(self._replace(run, status, seen, answer, citations))
 
     async def stream(
         self, question: str, *, thread_id: str, tenant_id: str
@@ -370,13 +411,20 @@ class LangGraphWorkflow:
         return resumed
 
     @staticmethod
-    def _replace(run: AgentRun, status: RunStatus, steps: list[AgentStep], answer: str) -> AgentRun:
+    def _replace(
+        run: AgentRun,
+        status: RunStatus,
+        steps: list[AgentStep],
+        answer: str,
+        citations: tuple[Citation, ...],
+    ) -> AgentRun:
         return AgentRun(
             thread_id=run.thread_id,
             agent=run.agent,
             tenant_id=run.tenant_id,
             status=status,
             answer=answer,
+            citations=citations,
             steps=tuple(steps),
             started_at=run.started_at,
         )

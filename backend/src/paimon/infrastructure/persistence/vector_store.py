@@ -106,6 +106,20 @@ class PgVectorStore:
             result = await connection.execute(statement)
         return int(result.rowcount)
 
+    async def list_chunks(
+        self, tenant_id: str, document_id: str, *, limit: int = 100
+    ) -> list[Chunk]:
+        """Return a document's chunks in the order they were written."""
+        statement = (
+            select(*self._COLUMNS)
+            .where(ChunkRow.tenant_id == tenant_id, ChunkRow.document_id == document_id)
+            .order_by(ChunkRow.ordinal)
+            .limit(limit)
+        )
+        async with self._engine.connect() as connection:
+            rows = (await connection.execute(statement)).all()
+        return [self._to_chunk(row) for row in rows]
+
     def _restrict(self, statement: Select[Any], filters: SearchFilters) -> Select[Any]:
         statement = statement.where(ChunkRow.tenant_id == filters.tenant_id)
         if filters.document_ids is not None:

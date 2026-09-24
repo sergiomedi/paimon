@@ -3,6 +3,7 @@
 import re
 from collections.abc import Sequence
 
+from paimon.domain.entities import Chunk
 from paimon.domain.errors import IndexMismatchError
 from paimon.domain.ports import ChunkRecord, IndexDescriptor, SearchFilters, SearchHit
 from paimon.domain.value_objects import Embedding, cosine_similarity
@@ -61,6 +62,20 @@ class InMemoryVectorStore:
         for chunk_id in doomed:
             del self._records[chunk_id]
         return len(doomed)
+
+    async def list_chunks(
+        self, tenant_id: str, document_id: str, *, limit: int = 100
+    ) -> list[Chunk]:
+        owned = [
+            record.chunk
+            for record in self._records.values()
+            if record.chunk.tenant_id == tenant_id and record.chunk.document_id == document_id
+        ]
+        # By ordinal rather than by start_char: ordinal is what the chunker
+        # assigned and is what "reading order" means even for a chunking policy
+        # whose windows overlap, where two chunks can begin at the same offset.
+        owned.sort(key=lambda chunk: chunk.ordinal)
+        return owned[:limit]
 
     def _visible(self, filters: SearchFilters) -> list[ChunkRecord]:
         return [

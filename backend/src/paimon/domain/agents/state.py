@@ -12,9 +12,10 @@ to observe a node is a test of the framework, not of the node.
 """
 
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated, TypedDict
 
+from paimon.domain.agents.transcript import Transcript
 from paimon.domain.entities import AgentStep, Chunk
 from paimon.domain.value_objects import Citation
 
@@ -122,6 +123,13 @@ class AgentState:
             a node can tell "not asked yet" from "asked and answered".
         failure: Why the run failed, when it did. Joined by the reducer, because
             concurrent branches can fail independently and separately.
+        transcript: The conversation an agent that chooses its own steps is
+            holding with itself, and what it has cost. Empty for the three fixed
+            graphs of Phase 3, which never need to know what an earlier node
+            said. Deliberately **not** annotated with a reducer: a loop is
+            sequential by construction, so two nodes cannot write it in one
+            step, and a merge rule for a conversation would be a rule for
+            something that cannot happen.
     """
 
     # Defaulted, not because a run without a question is meaningful, but because
@@ -141,6 +149,7 @@ class AgentState:
     awaiting: str = ""
     decision: str = ""
     failure: Annotated[str, combine_failures] = ""
+    transcript: Transcript = field(default_factory=Transcript)
 
     @property
     def grounded(self) -> bool:
@@ -170,3 +179,4 @@ class StateUpdate(TypedDict, total=False):
     awaiting: str
     decision: str
     failure: str
+    transcript: Transcript

@@ -119,7 +119,7 @@ When retrieval finds nothing, **no model is called** and the answer says so. A `
 `grounded: false` is a normal outcome: an answer that sounds right and is not in the sources
 is worse than no answer, because the reader cannot tell the difference.
 
-## Three agents, and why they are workflows
+## Four agents: three workflows and one loop
 
 - **Incident triage** — a symptom is two questions, so it is framed twice and retrieved
   concurrently: *what do I do* against runbooks, *has this happened before* against
@@ -129,11 +129,37 @@ is worse than no answer, because the reader cannot tell the difference.
 - **Documentation gap analysis** — reports what a topic's material covers and what it leaves
   undocumented, against a checklist fixed in code so two reports are comparable.
 
-A model is called at **one node** in each. Framing is a template, routing is a comparison, and
-checking that a draft is supported is a lookup — so a run is reproducible at temperature zero,
-its cost is bounded before it starts, and a failure names the node that produced it. A
-deliberate choice, with a stated condition for revisiting it
+A model is called at **one node** in each of those three. Framing is a template, routing is a
+comparison, and checking that a draft is supported is a lookup — so a run is reproducible at
+temperature zero, its cost is bounded before it starts, and a failure names the node that
+produced it. A deliberate choice, with a stated condition for revisiting it
 ([ADR-0016](docs/adr/0016-deterministic-workflows-before-autonomous-agents.md)).
+
+- **Investigator** — the fourth, and the only one that loops. `act → tools → act` until the
+  model stops asking for tools, then a deterministic `verify` that withdraws any answer whose
+  citations do not resolve. Six named stop reasons, so a run that ends says why. Needs a model
+  that can call tools; where the deployment's model cannot, the API says so rather than
+  offering an agent that would fail on its first question.
+
+**Phase 9 built it to find out whether autonomy pays for itself, and measured that it does
+not — on one model, against a well-shaped workflow.**
+
+| agents-v1, `gpt-4.1-mini`, k=3 | `answers` | `incident-triage` | `investigator` |
+|---|---|---|---|
+| multi-hop (7 tasks) | 28.6% | 33.3% | **28.6%** |
+| tokens / run | 1 031 | 1 320 | **2 460** |
+| latency / run | 1.6 s | 1.7 s | **4.8 s** |
+
+Every paired difference is indistinguishable from noise. Locally the same agent took
+**exactly one tool call in 100 of 100 runs** — the model's choice, not a truncated loop: no
+limit fired, every run reached its second turn, and a proxy in front of the model showed that
+request still carrying both tool definitions. Holding retrieval fixed and changing only the
+generator moved pass@1 from 32.0% to 63.3%. **Model capability moves the number; autonomy
+does not.** The agent is kept, its cost is reported beside its score, and the reasoning —
+including what would change the verdict — is in
+[ADR-0045](docs/adr/0045-an-autonomous-loop-measured-against-the-workflows.md).
+Numbers: [`docs/measurements/`](docs/measurements/). What is known and unfixed:
+[`docs/open-findings.md`](docs/open-findings.md).
 
 The distinction the agents work hardest to preserve: **"I searched and found nothing" and "I
 could not search" are different answers.** Conflating them lets a provider outage become a
@@ -144,6 +170,14 @@ is **indexed, not rejected** — filtering the phrase would break every runbook 
 incident and miss the next wording anyway. What is guaranteed is where the text may go: into
 the **user** turn as a numbered source, never into the system turn or a tool description. Both
 are asserted as tests, because a boundary nothing checks is one that moves.
+
+**A known exception, on Azure.** Azure OpenAI's content filter rejects some of these documents
+outright, and it fires on the *retrieved passage* rather than on the question. So a deployment
+using Azure OpenAI currently returns an **error** — not an answer, not a refusal — for any
+question whose retrieval happens to pull in such a document. Measured in Phase 9: 6 of 9
+attempts on two tasks, for both single-pass systems. That contradicts the promise this
+paragraph makes, it is not fixed, and it is written down with its minimum fix in
+[`docs/open-findings.md`](docs/open-findings.md#2-azure-openais-content-filter-turns-a-retrievable-document-into-an-error).
 
 ## Architecture
 
@@ -180,6 +214,9 @@ including the negative ones. These are the ones that shaped the most:
 |---|---|
 | [ADR-0003](docs/adr/0003-ports-and-adapters-for-llm-and-vector-store.md) | Ports and adapters for the LLM and the vector store |
 | [ADR-0016](docs/adr/0016-deterministic-workflows-before-autonomous-agents.md) | Deterministic workflows before autonomous agents |
+| [ADR-0045](docs/adr/0045-an-autonomous-loop-measured-against-the-workflows.md) | An autonomous loop, measured against the workflows it does not replace |
+| [ADR-0046](docs/adr/0046-how-an-agent-is-evaluated.md) | How an agent is evaluated |
+| [ADR-0047](docs/adr/0047-a-cyclic-graph-declares-its-own-bound.md) | A cyclic graph declares its own bound |
 | [ADR-0023](docs/adr/0023-mcp-client-as-a-document-source.md) | External MCP servers are document sources, not an agent's toolbox |
 | [ADR-0028](docs/adr/0028-metrics-and-an-estimated-cost.md) | Tokens are measured, cost is estimated, and they are labelled differently |
 | [ADR-0030](docs/adr/0030-verify-attribution-before-judging-anything.md) | Verify what can be verified; judge only what cannot |
@@ -290,7 +327,7 @@ Each of these is the full version of a paragraph above, written to be read on it
 
 ## How it was built
 
-Eight phases. Each shipped working software and its documentation, and none began before the
+Nine phases. Each shipped working software and its documentation, and none began before the
 previous one was complete. The commit history and the decision records are the record of it.
 
 - [x] **Phase 1 — Foundation** · architecture, ADRs, repository skeleton, dev environment, CI
@@ -301,6 +338,8 @@ previous one was complete. The commit history and the decision records are the r
 - [x] **Phase 6 — Evaluation** · golden sets, verified attribution, a calibrated judge
 - [x] **Phase 7 — Cloud** · Azure deployment, deployed and measured, then destroyed
 - [x] **Phase 8 — Delivery** · an environment per merge, created, exercised and destroyed
+- [x] **Phase 9 — Autonomy** · an agent that loops, and the measurement that it does not pay
+      for itself against a workflow on the same model
 
 **Nothing in this repository is described as working before it has been observed working.**
 That rule cost several documents a rewrite, and it is the one worth keeping.

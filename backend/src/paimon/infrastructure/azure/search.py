@@ -193,16 +193,17 @@ class AzureSearchStore:
 
         Two round trips: Azure deletes by key, so the keys have to be found first.
         """
-        found = await self._search(
+        found = await self._search_all(
             {
                 "search": "*",
                 "filter": _odata_filter(SearchFilters(tenant_id=tenant_id))
                 + f" and document_id eq '{_escape(document_id)}'",
                 "select": "id",
                 "top": MAX_BATCH,
-            }
+            },
+            MAX_BATCH,
         )
-        keys = [item["id"] for item in found.get("value", [])]
+        keys = [item["id"] for item in found]
         if not keys:
             return 0
 
@@ -213,6 +214,61 @@ class AzureSearchStore:
 
     async def _search(self, payload: dict[str, Any]) -> Any:
         return await self._request(f"/indexes/{self._config.index_name}/docs/search", payload)
+
+    async def _search_all(self, payload: dict[str, Any], limit: int) -> list[Any]:
+        """Run a search and follow its continuation until ``limit`` is reached.
+
+        Azure decides for itself how many documents to put in a response. Asking
+        for a hundred does not promise a hundred: the service may return fewer
+        and a continuation, and an adapter that reads only the first response
+        silently returns part of a document as though it were all of it. That is
+        the worst shape of failure this platform has — a plausible, confident,
+        incomplete answer — so the continuation is followed rather than assumed
+        absent.
+
+        Used by the reads that want *everything matching* rather than the best
+        few. The ranked searches do not need it: they ask for ``top_k`` and the
+        first page is by definition the best ``top_k``.
+        """
+        items: list[Any] = []
+        body = await self._search(payload)
+        while True:
+            page = body.get("value", []) if isinstance(body, dict) else []
+            items.extend(page)
+            if len(items) >= limit:
+                return items[:limit]
+            following = body.get("@search.nextPageParameters") if isinstance(body, dict) else None
+            # An empty page with a continuation would otherwise spin forever, so
+            # no progress ends the loop as surely as no continuation does.
+            if not following or not page:
+                return items[:limit]
+            body = await self._search(following)
+
+    async def list_chunks(
+        self, tenant_id: str, document_id: str, *, limit: int = 100
+    ) -> list[Chunk]:
+        """Return a document's chunks in the order they were written.
+
+        ``search: "*"`` with an ordered filter rather than a query: there is
+        nothing to rank here, and asking the service to rank would make the
+        order depend on a relevance score for a query nobody asked.
+
+        Paged, because a document large enough to matter is a document the
+        service may hand back in instalments. Half a runbook returned as a whole
+        runbook is the failure this exists to avoid.
+        """
+        capped = min(limit, MAX_BATCH)
+        results = await self._search_all(
+            {
+                "search": "*",
+                "filter": _odata_filter(SearchFilters(tenant_id=tenant_id))
+                + f" and document_id eq '{_escape(document_id)}'",
+                "orderby": "ordinal asc",
+                "top": capped,
+            },
+            capped,
+        )
+        return [_chunk_from(item) for item in results]
 
     async def search_dense(
         self, embedding: Embedding, *, top_k: int, filters: SearchFilters
@@ -395,30 +451,49 @@ def _odata_filter(filters: SearchFilters) -> str:
     return " and ".join(clauses)
 
 
+def _chunk_from(item: Any) -> Chunk:
+    """Read one indexed document back as a chunk.
+
+    Shared by ranked search and by listing a document, because "what does a
+    malformed document mean" deserves one answer rather than two that drift.
+
+    Raises:
+        RetrievalError: If the service returned something this platform cannot
+            read as a chunk.
+    """
+    try:
+        return Chunk(
+            chunk_id=str(item["chunk_id"]),
+            document_id=str(item["document_id"]),
+            tenant_id=str(item["tenant_id"]),
+            ordinal=int(item["ordinal"]),
+            text=str(item["text"]),
+            start_char=int(item["start_char"]),
+            end_char=int(item["end_char"]),
+            token_count=int(item["token_count"]),
+            heading_path=tuple(item.get("heading_path") or ()),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        msg = f"azure ai search returned an unusable document: {error}"
+        raise RetrievalError(msg) from error
+
+
 def _hits(body: Any, retriever: str) -> list[SearchHit]:
     """Turn a search response into ranked hits."""
     results = body.get("value", []) if isinstance(body, dict) else []
     hits: list[SearchHit] = []
     for position, item in enumerate(results, start=1):
-        try:
-            chunk = Chunk(
-                chunk_id=str(item["chunk_id"]),
-                document_id=str(item["document_id"]),
-                tenant_id=str(item["tenant_id"]),
-                ordinal=int(item["ordinal"]),
-                text=str(item["text"]),
-                start_char=int(item["start_char"]),
-                end_char=int(item["end_char"]),
-                token_count=int(item["token_count"]),
-                heading_path=tuple(item.get("heading_path") or ()),
-            )
-        except (KeyError, TypeError, ValueError) as error:
-            msg = f"azure ai search returned an unusable document: {error}"
-            raise RetrievalError(msg) from error
         # Reranker score when semantic ranking ran, search score otherwise; the
         # two are on different scales, which is one more reason fusion is by rank.
         score = item.get("@search.rerankerScore", item.get("@search.score", 0.0))
-        hits.append(SearchHit(chunk=chunk, score=float(score), rank=position, retriever=retriever))
+        hits.append(
+            SearchHit(
+                chunk=_chunk_from(item),
+                score=float(score),
+                rank=position,
+                retriever=retriever,
+            )
+        )
     return hits
 
 

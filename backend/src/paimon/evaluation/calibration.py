@@ -21,9 +21,14 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from random import Random
 
 from paimon.evaluation.judging import Verdict
 from paimon.evaluation.statistics import Estimate, estimate
+
+#: Kappa needs both labels present to mean anything: with one, there is no
+#: chance agreement to discount.
+_MINIMUM_LABELS = 2
 
 #: Industry practice alerts below this. Not a law of nature — it is a convention
 #: for "the raters are measuring the same thing" — but a convention is better
@@ -51,6 +56,12 @@ class HumanLabel:
     faithfulness: Verdict | None = None
     completeness: Verdict | None = None
     relevance: Verdict | None = None
+    refusal: Verdict | None = None
+    """Whether the response declined to answer. The fourth rubric, added when
+    the agent benchmark found that deciding this in code scored a system that
+    refused perfectly as one that never refused. ``yes`` it declined, ``no`` it
+    answered, ``partial`` it declined the thing asked while giving context."""
+
     note: str = ""
 
 
@@ -151,6 +162,74 @@ def cohens_kappa(first: Sequence[Verdict], second: Sequence[Verdict]) -> float:
     return (observed - expected) / (1.0 - expected)
 
 
+def bootstrap_kappa(
+    first: Sequence[Verdict],
+    second: Sequence[Verdict],
+    *,
+    resamples: int = 10_000,
+    confidence: float = 0.95,
+    seed: int = 0,
+) -> tuple[float, float]:
+    """A percentile interval for Cohen's kappa, by resampling the cases.
+
+    Bootstrapped rather than derived, unlike everything in ``statistics``. That
+    module reports a mean with a standard error from the central limit theorem,
+    which kappa does not have: it is a ratio of two quantities both estimated
+    from the same small sample, and its sampling distribution is skewed at the
+    sizes this project works with. Resampling makes no assumption about its
+    shape.
+
+    The interval is what decides something here. A point estimate of 0.81 on
+    thirty-nine cases and an interval of [0.55, 0.95] are not an argument that
+    the judge clears a 0.80 threshold; they are an argument that thirty-nine
+    cases cannot tell.
+
+    Args:
+        first: One rater's verdicts.
+        second: The other's, for the same cases in the same order.
+        resamples: How many resamples to draw.
+        confidence: Two-sided coverage.
+        seed: Fixed, so the interval is the same on a second run. An interval
+            that moves when nothing else did invites re-rolling until it clears.
+
+    Returns:
+        The lower and upper bounds. A resample in which either rater used only
+        one label has undefined kappa and is skipped; if too few survive, the
+        interval is the widest honest one, ``(-1.0, 1.0)``.
+
+    Raises:
+        ValueError: If the two sequences differ in length.
+    """
+    if len(first) != len(second):
+        msg = f"{len(first)} verdicts against {len(second)}"
+        raise ValueError(msg)
+    if not first:
+        return (-1.0, 1.0)
+
+    rng = Random(seed)  # noqa: S311  reproducibility, not secrecy
+    size = len(first)
+    drawn: list[float] = []
+    for _ in range(resamples):
+        picks = [rng.randrange(size) for _ in range(size)]
+        sampled_first = [first[i] for i in picks]
+        sampled_second = [second[i] for i in picks]
+        if len(set(sampled_first)) < _MINIMUM_LABELS or len(set(sampled_second)) < _MINIMUM_LABELS:
+            # Both raters used one label, so there is no chance agreement to
+            # discount and kappa is undefined. Skipped rather than counted as
+            # zero or one, either of which would drag the interval somewhere
+            # the data does not go.
+            continue
+        drawn.append(cohens_kappa(sampled_first, sampled_second))
+
+    if len(drawn) < resamples // 10:
+        return (-1.0, 1.0)
+    drawn.sort()
+    tail = (1.0 - confidence) / 2.0
+    low = drawn[int(tail * len(drawn))]
+    high = drawn[min(int((1.0 - tail) * len(drawn)), len(drawn) - 1)]
+    return (low, high)
+
+
 def agreement(judge: Mapping[str, Verdict], human: Mapping[str, Verdict]) -> Agreement:
     """Compare a judge's verdicts against a person's, case by case.
 
@@ -220,7 +299,9 @@ def load_labels(path: Path) -> list[HumanLabel]:
         if not isinstance(raw, dict):
             msg = f"{path}:{number} is not an object"
             raise ValueError(msg)
-        if not any(raw.get(field) for field in ("faithfulness", "completeness", "relevance")):
+        if not any(
+            raw.get(field) for field in ("faithfulness", "completeness", "relevance", "refusal")
+        ):
             # An unlabelled row, left in the template. Skipped rather than
             # refused, so a partly finished file still measures what it covers.
             continue
@@ -228,6 +309,7 @@ def load_labels(path: Path) -> list[HumanLabel]:
             HumanLabel(
                 case_id=str(raw["case_id"]),
                 faithfulness=_verdict(raw, "faithfulness", f"{path}:{number}"),
+                refusal=_verdict(raw, "refusal", f"{path}:{number}"),
                 completeness=_verdict(raw, "completeness", f"{path}:{number}"),
                 relevance=_verdict(raw, "relevance", f"{path}:{number}"),
                 note=str(raw.get("note", "")),

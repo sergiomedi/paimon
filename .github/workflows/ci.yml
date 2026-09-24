@@ -133,7 +133,9 @@ jobs:
       PAIMON_DATABASE__HOST: localhost
       PAIMON_DATABASE__USER: paimon
       PAIMON_DATABASE__PASSWORD: paimon
-      PAIMON_DATABASE__NAME: paimon
+      # Its own database, because these tests TRUNCATE. The fixture refuses a
+      # name that does not end in _test, so this is not merely a convention.
+      PAIMON_DATABASE__NAME: paimon_test
       PAIMON_REDIS__HOST: localhost
       # Turns "the service is unreachable" from a skip into a failure. Locally a
       # skip is a courtesy; here it would hide a broken adapter behind a green
@@ -152,6 +154,11 @@ jobs:
 
       - name: Install the locked environment
         run: uv sync --all-groups --all-extras --frozen
+
+      - name: Create the disposable test database
+        run: |
+          PGPASSWORD=paimon psql -h localhost -U paimon -d postgres \
+            -c "CREATE DATABASE paimon_test" || true
 
       - name: Run integration tests
         run: uv run --no-sync pytest tests/integration -v
@@ -230,6 +237,24 @@ jobs:
           PATH="$stub:$PATH" bicep_cli build x.bicep --stdout
           rm "$stub/bicep"
           PATH="$stub:/usr/bin:/bin" bicep_cli build x.bicep --stdout
+
+      # The template compiles, both ways round. deployData gates the database and
+      # the application; a flag that only ever ships true is a flag nobody has
+      # proved compiles false, and the evaluation windows are the ones that set
+      # it. Both branches are built here so neither rots.
+      - name: Build the Bicep template
+        run: |
+          bicep build infrastructure/main.bicep --stdout > /dev/null
+          bicep build-params infrastructure/main.bicepparam --stdout > /dev/null
+        env:
+          AZURE_PAIMON_API_AUDIENCE: api://ci
+          AZURE_PAIMON_DEPLOY_DATA: "true"
+
+      - name: Build the Bicep template without the database
+        run: bicep build-params infrastructure/main.bicepparam --stdout > /dev/null
+        env:
+          AZURE_PAIMON_API_AUDIENCE: api://ci
+          AZURE_PAIMON_DEPLOY_DATA: "false"
 
       # A quota row is named gpt4.1-mini where the model is gpt-4.1-mini, and the
       # name contains a dot that a naive split drops. Both mistakes were made

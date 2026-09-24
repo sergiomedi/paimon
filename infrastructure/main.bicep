@@ -238,6 +238,21 @@ the registry what is in it.
 ''')
 param deployApi bool = true
 
+@description('''
+Whether to deploy the PostgreSQL flexible server and its private networking.
+
+On by default, so the delivery pipeline is unchanged. Off for an evaluation
+window: those run the models and the search service against a database in local
+Docker — benchmark.sh and agents.sh say so in their headers — and the managed
+server then bills roughly EUR 0.25 an hour to be ignored. That is most of the
+cost of a window whose tokens cost cents.
+
+Turning it off also turns off the application, because an API with no database
+is an API that fails every readiness probe. The template does not try to make
+that combination work; it just does not create either.
+''')
+param deployData bool = true
+
 // Deterministic across redeployments of the same environment in the same
 // subscription, which is what makes `deploy` idempotent — and is also why
 // `destroy` has to purge soft-deleted resources rather than leave their names
@@ -276,7 +291,7 @@ module platform 'modules/platform.bicep' = {
   }
 }
 
-module data 'modules/data.bicep' = {
+module data 'modules/data.bicep' = if (deployData) {
   scope: group
   name: 'data'
   params: {
@@ -332,7 +347,7 @@ module observability 'modules/observability.bicep' = if (deployObservability) {
   }
 }
 
-module api 'modules/api.bicep' = if (deployApi) {
+module api 'modules/api.bicep' = if (deployApi && deployData) {
   scope: group
   name: 'api'
   params: {
@@ -352,8 +367,8 @@ module api 'modules/api.bicep' = if (deployApi) {
     apiTrafficRevision: apiTrafficRevision
     tenantId: empty(apiTenantId) ? subscription().tenantId : apiTenantId
     apiAudience: apiAudience
-    databaseHost: data.outputs.databaseHost
-    databaseName: data.outputs.databaseName
+    databaseHost: data!.outputs.databaseHost
+    databaseName: data!.outputs.databaseName
     openaiEndpoint: ai.outputs.openaiEndpoint
     chatDeploymentName: ai.outputs.chatDeploymentName
     embeddingDeploymentName: ai.outputs.embeddingDeploymentName
@@ -423,13 +438,13 @@ output searchEndpoint string = ai.outputs.searchEndpoint
 output searchName string = ai.outputs.searchName
 
 @description('Database hostname, for PAIMON_DATABASE__HOST. Resolves privately from inside the network and to nothing useful outside it.')
-output databaseHost string = data.outputs.databaseHost
+output databaseHost string = deployData ? data!.outputs.databaseHost : ''
 
 @description('Database name, for PAIMON_DATABASE__NAME.')
-output databaseName string = data.outputs.databaseName
+output databaseName string = deployData ? data!.outputs.databaseName : ''
 
 @description('Name of the PostgreSQL server.')
-output databaseServerName string = data.outputs.databaseServerName
+output databaseServerName string = deployData ? data!.outputs.databaseServerName : ''
 
 // Empty rather than absent when the application was not deployed: an output that
 // disappears breaks whatever reads the list, and "" is a readable answer to

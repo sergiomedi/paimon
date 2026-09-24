@@ -6,6 +6,19 @@ orchestration adapter has to speak it too.
 """
 
 from paimon.agents.collaborators import AgentCollaborators
-from paimon.agents.registry import AGENT_DESCRIPTIONS, AGENTS, GraphBuilder, build_all
+from paimon.agents.registry import (
+    AGENT_DESCRIPTIONS,
+    AGENTS,
+    GraphBuilder,
+    build_all,
+    unavailable,
+)
 
-__all__ = ["AGENTS", "AGENT_DESCRIPTIONS", "AgentCollaborators", "GraphBuilder", "build_all"]
+__all__ = [
+    "AGENTS",
+    "AGENT_DESCRIPTIONS",
+    "AgentCollaborators",
+    "GraphBuilder",
+    "build_all",
+    "unavailable",
+]

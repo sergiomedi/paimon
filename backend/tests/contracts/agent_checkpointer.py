@@ -11,6 +11,7 @@ import pytest
 
 from paimon.domain.entities import AgentRun, AgentStep, RunStatus
 from paimon.domain.ports import AgentCheckpointer
+from paimon.domain.value_objects import Citation
 
 TENANT = "tenant-a"
 OTHER_TENANT = "tenant-b"
@@ -28,6 +29,21 @@ def step(name: str, *, minutes: int = 0, tokens: int = 0) -> AgentStep:
     )
 
 
+def citation(marker: int = 1, *, document_id: str = "runbook") -> Citation:
+    """Build a citation with a resolvable span, for use in a contract test."""
+    return Citation(
+        marker=marker,
+        document_id=document_id,
+        chunk_id=f"{document_id}:{marker}",
+        source_uri=f"https://example.test/{document_id}",
+        title="Node maintenance",
+        heading_path=("Node maintenance", "Draining"),
+        start_char=40,
+        end_char=62,
+        quote="Cordon the node first.",
+    )
+
+
 def run(  # noqa: PLR0913  a builder for tests: every field is one the contract pins
     thread_id: str,
     *,
@@ -35,6 +51,7 @@ def run(  # noqa: PLR0913  a builder for tests: every field is one the contract 
     status: RunStatus = RunStatus.RUNNING,
     steps: tuple[AgentStep, ...] = (),
     answer: str = "",
+    citations: tuple[Citation, ...] = (),
     minutes: int = 0,
 ) -> AgentRun:
     """Build a run for use in a contract test."""
@@ -44,6 +61,7 @@ def run(  # noqa: PLR0913  a builder for tests: every field is one the contract 
         tenant_id=tenant_id,
         status=status,
         answer=answer,
+        citations=citations,
         steps=steps,
         started_at=datetime(2026, 9, 3, 9, 0, tzinfo=UTC) + timedelta(minutes=minutes),
     )
@@ -146,3 +164,82 @@ class AgentCheckpointerContract:
         self, checkpointer: AgentCheckpointer
     ) -> None:
         assert list(await checkpointer.list_runs("tenant-nobody")) == []
+
+    async def test_an_answers_citations_survive_being_stored(
+        self, checkpointer: AgentCheckpointer
+    ) -> None:
+        # The platform's promise is that an answer carries citations or is not
+        # returned. A store that kept the answer and dropped them would keep the
+        # half a reader cannot check and discard the half they can.
+        await checkpointer.save(
+            run(
+                "t-cited",
+                status=RunStatus.SUCCEEDED,
+                answer="Cordon the node first [1].",
+                citations=(citation(),),
+            )
+        )
+
+        loaded = await checkpointer.load("t-cited")
+
+        assert loaded is not None
+        assert loaded.citations == (citation(),)
+
+    async def test_a_citations_span_survives_exactly(self, checkpointer: AgentCheckpointer) -> None:
+        # Offsets are the whole difference between a citation and a filename:
+        # they are what lets a reader be shown the passage in context, and what
+        # lets a benchmark check the claim without asking a model.
+        await checkpointer.save(run("t-span", status=RunStatus.SUCCEEDED, citations=(citation(),)))
+
+        loaded = await checkpointer.load("t-span")
+
+        assert loaded is not None
+        stored = loaded.citations[0]
+        assert (stored.start_char, stored.end_char) == (40, 62)
+        assert stored.quote == "Cordon the node first."
+        assert stored.heading_path == ("Node maintenance", "Draining")
+
+    async def test_several_citations_keep_their_order(
+        self, checkpointer: AgentCheckpointer
+    ) -> None:
+        # Marker order is the order the answer referred to them in, and an
+        # answer's "[1]" has to keep meaning the first one.
+        cited = (citation(1), citation(2, document_id="incident"))
+        await checkpointer.save(run("t-many", status=RunStatus.SUCCEEDED, citations=cited))
+
+        loaded = await checkpointer.load("t-many")
+
+        assert loaded is not None
+        assert [item.marker for item in loaded.citations] == [1, 2]
+        assert [item.document_id for item in loaded.citations] == ["runbook", "incident"]
+
+    async def test_a_run_that_cited_nothing_loads_as_having_cited_nothing(
+        self, checkpointer: AgentCheckpointer
+    ) -> None:
+        # Empty is a meaningful value, not a missing one: a run that refused
+        # cites nothing, and that is the correct record of what it did.
+        await checkpointer.save(run("t-refused", status=RunStatus.SUCCEEDED, answer="No material."))
+
+        loaded = await checkpointer.load("t-refused")
+
+        assert loaded is not None
+        assert loaded.citations == ()
+        assert not loaded.grounded
+
+    async def test_replacing_a_run_replaces_its_citations(
+        self, checkpointer: AgentCheckpointer
+    ) -> None:
+        # A run is upserted after every step. A node that withdraws a draft
+        # writes empty citations with it, so the record must not end up holding
+        # a refusal beside the citations of the answer it replaced.
+        await checkpointer.save(
+            run("t-withdrawn", answer="Cordon the node first [1].", citations=(citation(),))
+        )
+        await checkpointer.save(
+            run("t-withdrawn", status=RunStatus.SUCCEEDED, answer="I could not support that.")
+        )
+
+        loaded = await checkpointer.load("t-withdrawn")
+
+        assert loaded is not None
+        assert loaded.citations == ()

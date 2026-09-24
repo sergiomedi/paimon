@@ -777,3 +777,42 @@ Stated here rather than left to be assumed:
   healthy and drops everything, and it says so only in its own logs. If Application Insights is
   empty, `az containerapp logs show --name ca-paimon-otel-<env>` is the first place to look, not
   the second.
+
+
+## Deploying without the database, for an evaluation window
+
+`scripts/azure/benchmark.sh` and `scripts/azure/agents.sh` run the models and Azure AI
+Search against **PostgreSQL in local Docker**. They need no container, no private network
+and no deployed application. The managed PostgreSQL server the template creates is then
+billing roughly **EUR 0.25 an hour to be ignored** — which, in a window whose tokens cost
+cents, is most of the bill.
+
+```bash
+AZURE_PAIMON_DEPLOY_DATA=false ./scripts/azure/deploy.sh
+```
+
+`deployData` defaults to **true**, so the delivery pipeline is unchanged and nothing in
+`.github/workflows/` sets it. Only an evaluation window turns it off.
+
+Turning it off also turns off the application, because an API with no database fails every
+readiness probe; the template does not attempt that combination, it simply creates neither.
+`databaseHost`, `databaseName` and `databaseServerName` come back empty, which is what
+`load_outputs` and the scripts that read them expect for a resource that was not created.
+
+CI builds the template both ways round. A flag that only ever ships `true` is a flag nobody
+has proved compiles `false`.
+
+### Integration tests and the development database
+
+Integration tests `TRUNCATE` tables, and twice they have destroyed measurement data — a
+corpus mid-benchmark, and the `agent_runs` rows holding a finished phase's withdrawn drafts.
+The fixture now refuses any database whose name does not end in `_test`:
+
+```bash
+docker exec paimon-postgres-1 psql -U paimon -c "CREATE DATABASE paimon_test"
+PAIMON_DATABASE__NAME=paimon_test uv run pytest tests/integration
+```
+
+`scripts/check.sh` creates it if missing and sets the variable, so an ordinary local run
+needs no setup step. CI does the same. Pointing the suite at any other database is refused
+before it connects, with the command to fix it in the error.

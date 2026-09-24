@@ -102,6 +102,25 @@ class TestValidation:
                 ],
             ).validate()
 
+    def test_a_branch_may_lead_back_to_an_earlier_node(self) -> None:
+        # The property the autonomous agent of Phase 9 is built on, asserted
+        # here because nothing else asserts it. Reachability is a forward
+        # closure from the entry, which a back-edge satisfies trivially, so no
+        # rule ever rejected a cycle — but "was never rejected" is not the same
+        # claim as "is supported", and only a test can make the second one.
+        spec(
+            nodes=[node("act"), node("tools"), node("finalize")],
+            entry="act",
+            edges=[("tools", "act"), ("finalize", END)],
+            branches=[
+                Branch(
+                    source="act",
+                    decide=lambda state: "tools" if state.evidence else "finalize",
+                    targets={"tools": "tools", "finalize": "finalize"},
+                )
+            ],
+        ).validate()
+
     def test_a_node_reached_only_by_a_branch_counts_as_reachable(self) -> None:
         spec(
             nodes=[node("retrieve"), node("answer"), node("refuse")],

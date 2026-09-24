@@ -159,6 +159,90 @@ class PairedDifference:
         return f"{body}  p={self.p_value:.3f}"
 
 
+@dataclass(frozen=True, slots=True)
+class Reliability:
+    """How often a system solves a task, and how often it solves it *every* time.
+
+    The three numbers answer three different questions, and reporting only the
+    first is how an unreliable system is mistaken for a good one.
+
+    * ``pass_at_1`` — the chance a single run succeeds. What a user experiences
+      once.
+    * ``pass_at_k`` — the chance at least one of k runs succeeds. What a system
+      is worth when somebody can retry and can tell a good answer from a bad
+      one. Generous, and the generosity is the point of naming it separately.
+    * ``pass_hat_k`` — the chance **all** k runs succeed. What a system is worth
+      when nobody is checking, which is the case that matters for an agent left
+      to run unattended. Anthropic's guidance puts it beside pass@k precisely
+      because the gap between them is the reliability nobody measures.
+
+    The unit of all three is the **task**, never the attempt. Twenty tasks tried
+    five times each is twenty observations, not a hundred: the five attempts at
+    one task share its question, its corpus and its difficulty, so counting them
+    as independent would shrink every interval by roughly the square root of
+    five and claim a precision the experiment does not have.
+
+    Attributes:
+        tasks: Tasks behind these numbers.
+        trials: Attempts per task.
+        pass_at_1: Mean per-task success rate, with its interval.
+        pass_at_k: Fraction of tasks solved at least once.
+        pass_hat_k: Fraction of tasks solved every time.
+    """
+
+    tasks: int
+    trials: int
+    pass_at_1: Estimate
+    pass_at_k: Estimate
+    pass_hat_k: Estimate
+
+
+def reliability(
+    outcomes: Sequence[Sequence[bool]], clusters: Sequence[str] | None = None
+) -> Reliability:
+    """Summarise repeated attempts at each task.
+
+    Args:
+        outcomes: One inner sequence per **task**, holding that task's attempts.
+            Ragged input is accepted — a run interrupted partway leaves some
+            tasks with fewer attempts, and dropping those tasks would bias the
+            result towards whatever finished first.
+        clusters: The group each task belongs to, when tasks are correlated.
+            Ours cluster by the documents they draw on, as everything else in
+            this module does (ADR-0029).
+
+    Returns:
+        The three rates, each with an interval computed over tasks.
+
+    Raises:
+        ValueError: If a task has no attempts. A task nobody tried is not a task
+            that failed, and averaging it in either direction is a fabrication.
+    """
+    for index, attempts in enumerate(outcomes):
+        if not attempts:
+            msg = f"task {index} has no attempts, so it has no success rate"
+            raise ValueError(msg)
+
+    per_task = [sum(1 for ok in attempts if ok) / len(attempts) for attempts in outcomes]
+    any_pass = [1.0 if any(attempts) else 0.0 for attempts in outcomes]
+    all_pass = [1.0 if all(attempts) else 0.0 for attempts in outcomes]
+
+    def summarise(values: list[float]) -> Estimate:
+        if clusters is None:
+            return estimate(values)
+        return clustered_estimate(values, clusters)
+
+    return Reliability(
+        tasks=len(outcomes),
+        # The honest k when a run was interrupted: the fewest attempts any task
+        # got, because pass@k over tasks with different k is not one number.
+        trials=min((len(attempts) for attempts in outcomes), default=0),
+        pass_at_1=summarise(per_task),
+        pass_at_k=summarise(any_pass),
+        pass_hat_k=summarise(all_pass),
+    )
+
+
 def estimate(values: Sequence[float]) -> Estimate:
     """Mean and standard error of a sample, by the central limit theorem.
 
@@ -440,6 +524,7 @@ __all__ = [
     "DEFAULT_CONFIDENCE",
     "Estimate",
     "PairedDifference",
+    "Reliability",
     "clustered_estimate",
     "compare_metric",
     "correlation",
@@ -447,6 +532,7 @@ __all__ = [
     "estimate",
     "group_by_document",
     "paired_difference",
+    "reliability",
     "student_t_sf",
     "to_mapping",
 ]

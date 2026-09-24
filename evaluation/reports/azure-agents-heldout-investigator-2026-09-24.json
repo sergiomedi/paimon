@@ -1,0 +1,2912 @@
+{
+  "dataset": "agents-v2-heldout",
+  "system": "investigator",
+  "configuration": "gpt-4.1-mini via azure openai, azure ai search, agents-v2-heldout",
+  "trials": 3,
+  "reliability": {
+    "tasks": 10,
+    "trials": 3,
+    "pass_at_1": {
+      "mean": 0.6,
+      "standard_error": 0.11500724614852173,
+      "n": 10,
+      "clusters": 6
+    },
+    "pass_at_k": {
+      "mean": 0.7,
+      "standard_error": 0.139427400463467,
+      "n": 10,
+      "clusters": 6
+    },
+    "pass_hat_k": {
+      "mean": 0.5,
+      "standard_error": 0.1341640786499874,
+      "n": 10,
+      "clusters": 6
+    }
+  },
+  "categories": [
+    {
+      "category": "multi-hop",
+      "tasks": 6,
+      "reliability": {
+        "tasks": 6,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.5555555555555556,
+          "standard_error": 0.20487876571761973,
+          "n": 6,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 0.6666666666666666,
+          "standard_error": 0.21081851067789198,
+          "n": 6,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.5,
+          "standard_error": 0.22360679774997896,
+          "n": 6,
+          "clusters": null
+        }
+      }
+    },
+    {
+      "category": "one-hop",
+      "tasks": 3,
+      "reliability": {
+        "tasks": 3,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.6666666666666666,
+          "standard_error": 0.33333333333333337,
+          "n": 3,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 0.6666666666666666,
+          "standard_error": 0.33333333333333337,
+          "n": 3,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.6666666666666666,
+          "standard_error": 0.33333333333333337,
+          "n": 3,
+          "clusters": null
+        }
+      }
+    },
+    {
+      "category": "out-of-corpus",
+      "tasks": 1,
+      "reliability": {
+        "tasks": 1,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.6666666666666666,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 1.0,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        }
+      }
+    }
+  ],
+  "trajectory": {
+    "tool_calls": {
+      "mean": 2.466666666666667,
+      "standard_error": 0.6520622556053871,
+      "n": 30,
+      "clusters": 10
+    },
+    "tool_errors": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 30,
+      "clusters": 10
+    },
+    "repeated_calls": {
+      "mean": 0.06666666666666667,
+      "standard_error": 0.06666666666666667,
+      "n": 30,
+      "clusters": 10
+    },
+    "total_tokens": {
+      "mean": 4360.933333333333,
+      "standard_error": 1609.5313364339827,
+      "n": 30,
+      "clusters": 10
+    },
+    "latency_ms": {
+      "mean": 6572.0061,
+      "standard_error": 1315.2231588962266,
+      "n": 30,
+      "clusters": 10
+    },
+    "stop_reasons": {
+      "answered": 28,
+      "step_limit": 2
+    },
+    "outcomes": {
+      "answered": 28,
+      "refused": 2
+    },
+    "failures": 0,
+    "estimated_cost": 0.057487600000000014
+  },
+  "tasks": [
+    {
+      "task_id": "h001",
+      "question": "CR-2311 rotated the mesh certificate authority. What does the step that decides whether a rotation is safe to start actually compare?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h001",
+          "trial": 1,
+          "text": "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime across every counted service against the rotation window. If the shortest remaining lifetime is less than the rotation window, the rotation should not start because it would cause leaf certificates to expire before they can be re-issued. This comparison ensures the rotation timing is safe to avoid service disruption. This is described in CR-2311 and the referenced runbook RB-207, specifically in the step that compares the shortest remaining leaf lifetime against the rotation window [1][5].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            },
+            {
+              "marker": 5,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1632,
+            "output_tokens": 133,
+            "latency_ms": 5507.383
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h001",
+          "trial": 2,
+          "text": "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime against the rotation window. This is described in the procedure RB-207, which CR-2311 followed, but the change record CR-2311 itself does not restate the details because the procedure is maintained separately [2].",
+          "citations": [
+            {
+              "marker": 2,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1500,
+            "output_tokens": 90,
+            "latency_ms": 3456.95
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h001",
+          "trial": 3,
+          "text": "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime against the rotation window. This is the criterion used to determine if it is safe to begin the rotation process [2].",
+          "citations": [
+            {
+              "marker": 2,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2890,
+            "output_tokens": 90,
+            "latency_ms": 5105.76
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              },
+              {
+                "marker": 5,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 4,
+            "uncited_sentences": [
+              "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime across every counted service against the rotation window.",
+              "If the shortest remaining lifetime is less than the rotation window, the rotation should not start because it would cause leaf certificates to expire before they can be re-issued.",
+              "This comparison ensures the rotation timing is safe to avoid service disruption."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 2,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime against the rotation window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 2,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "The step that decides whether a rotation is safe to start compares the shortest remaining leaf certificate lifetime against the rotation window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h002",
+      "question": "What is the mesh rotation window that RB-207 step three compares against?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h002",
+          "trial": 1,
+          "text": "The mesh rotation window that RB-207 step three compares against is six hours. A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window. This is recorded in the platform limits reference, which RB-207 refers to but does not restate directly [2][3][6].",
+          "citations": [
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            },
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2989,
+            "output_tokens": 104,
+            "latency_ms": 4717.994
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h002",
+          "trial": 2,
+          "text": "The mesh rotation window that RB-207 step three compares against is six hours. A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window. This is recorded in the platform limits reference, which RB-207 refers to but does not restate directly [2][3][6].",
+          "citations": [
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            },
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2989,
+            "output_tokens": 104,
+            "latency_ms": 4901.961
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h002",
+          "trial": 3,
+          "text": "The mesh rotation window that RB-207 step three compares against is six hours. A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window. This is recorded in the platform limits reference, which RB-207 refers to but does not restate directly [2][3][6].",
+          "citations": [
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            },
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2989,
+            "output_tokens": 104,
+            "latency_ms": 5245.047
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              },
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The mesh rotation window that RB-207 step three compares against is six hours.",
+              "A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              },
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The mesh rotation window that RB-207 step three compares against is six hours.",
+              "A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              },
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The mesh rotation window that RB-207 step three compares against is six hours.",
+              "A rotation may not begin if the shortest remaining leaf lifetime is below this six-hour window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h003",
+      "question": "CR-2311's pre-flight count reported 39 services. How many should it have reported?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h003",
+          "trial": 1,
+          "text": "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services. Two services were missed due to a label typo that excluded them from the mesh inventory, causing the pre-flight count to be 39 instead of the correct 41 [1][3][4].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What changed"
+              ],
+              "start_char": 169,
+              "end_char": 379,
+              "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+            },
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Mesh"
+              ],
+              "start_char": 568,
+              "end_char": 712,
+              "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1578,
+            "output_tokens": 87,
+            "latency_ms": 3460.312
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h003",
+          "trial": 2,
+          "text": "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services. Two services were missed due to a label typo, which caused them to be excluded from the mesh inventory, leading to the count of 39 instead of 41 [1][3][4].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What changed"
+              ],
+              "start_char": 169,
+              "end_char": 379,
+              "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+            },
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Mesh"
+              ],
+              "start_char": 568,
+              "end_char": 712,
+              "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1445,
+            "output_tokens": 85,
+            "latency_ms": 3100.48
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h003",
+          "trial": 3,
+          "text": "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services. Two services were missed due to a label typo that excluded them from the mesh inventory, causing the pre-flight count to be 39 instead of the correct 41 [1][3][4].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What changed"
+              ],
+              "start_char": 169,
+              "end_char": 379,
+              "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+            },
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Mesh"
+              ],
+              "start_char": 568,
+              "end_char": 712,
+              "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1578,
+            "output_tokens": 87,
+            "latency_ms": 4420.081
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n",
+                "found": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+              },
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n",
+                "found": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n",
+                "found": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+              },
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n",
+                "found": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n",
+                "found": "## What changed\n\nThe service mesh certificate authority was rotated on 2026-07-02 during the\nThursday change window. All 41 services re-issued leaf certificates against the\nnew root within the rotation window.\n"
+              },
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n",
+                "found": "## Mesh\n\nThe control plane counts 41 services. Batch size for re-issue is ten; a larger\nbatch has been tried and saturates the issuing service.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "CR-2311's pre-flight count reported 39 services, but it should have reported 41 services."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h004",
+      "question": "A single service is serving an expired leaf certificate. Which runbook applies, and why not RB-207?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h004",
+          "trial": 1,
+          "text": "The runbook that applies to a single service serving an expired leaf certificate is RB-208. RB-208 specifically covers the case of a single expired leaf certificate.\n\nRB-207 is not the correct runbook for this situation because it is intended for a scheduled root rotation or an emergency rotation after a suspected key compromise. For an expired leaf certificate on a single service, RB-207 is the wrong procedure, and RB-208 should be used instead [1][2].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Related"
+              ],
+              "start_char": 1366,
+              "end_char": 1470,
+              "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+            },
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "When to use this"
+              ],
+              "start_char": 156,
+              "end_char": 375,
+              "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 4,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 5425,
+            "output_tokens": 176,
+            "latency_ms": 8942.683
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h004",
+          "trial": 2,
+          "text": "The runbook that applies to a single service serving an expired leaf certificate is RB-208. RB-207 is not the correct runbook for this situation because RB-207 is intended for a scheduled root rotation or an emergency rotation after a suspected key compromise. Specifically, for an expired leaf certificate on a single service, RB-207 is the wrong procedure, and RB-208 is the right one [1][2].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Related"
+              ],
+              "start_char": 1366,
+              "end_char": 1470,
+              "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+            },
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "When to use this"
+              ],
+              "start_char": 156,
+              "end_char": 375,
+              "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 3,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 3746,
+            "output_tokens": 145,
+            "latency_ms": 6719.51
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h004",
+          "trial": 3,
+          "text": "The runbook that applies to a single service serving an expired leaf certificate is RB-208. RB-207 is not the correct runbook for this situation because RB-207 is intended for scheduled root rotations or emergency rotations after a suspected key compromise. Specifically, RB-207 states that for an expired leaf certificate on a single service, it is the wrong procedure and RB-208 is the right one [1][2][6]. \n\nAdditionally, RB-207 was revised after the change CR-2311, which involved issues with expired leaf certificates on individual services, further indicating that RB-208 is the appropriate runbook for handling a single expired leaf certificate [1][3].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Related"
+              ],
+              "start_char": 1366,
+              "end_char": 1470,
+              "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+            },
+            {
+              "marker": 2,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "When to use this"
+              ],
+              "start_char": 156,
+              "end_char": 375,
+              "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+            },
+            {
+              "marker": 6,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:0",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority"
+              ],
+              "start_char": 0,
+              "end_char": 155,
+              "quote": "# RB-207: rotating the mesh certificate authority\n\nSample material written for this repository's held-out benchmark. Not a\ndescription of any real system.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 6,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 11579,
+            "output_tokens": 260,
+            "latency_ms": 17861.806
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after.",
+                "found": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+              },
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n",
+                "found": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+              }
+            ],
+            "sentences": 4,
+            "uncited_sentences": [
+              "The runbook that applies to a single service serving an expired leaf certificate is RB-208.",
+              "RB-208 specifically covers the case of a single expired leaf certificate.",
+              "RB-207 is not the correct runbook for this situation because it is intended for a scheduled root rotation or an emergency rotation after a suspected key compromise."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after.",
+                "found": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+              },
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n",
+                "found": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The runbook that applies to a single service serving an expired leaf certificate is RB-208.",
+              "RB-207 is not the correct runbook for this situation because RB-207 is intended for a scheduled root rotation or an emergency rotation after a suspected key compromise."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after.",
+                "found": "## Related\n\nRB-208 covers a single expired leaf. CR-2311 is the rotation this runbook was\nrevised after."
+              },
+              {
+                "marker": 2,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n",
+                "found": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+              },
+              {
+                "marker": 6,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "# RB-207: rotating the mesh certificate authority\n\nSample material written for this repository's held-out benchmark. Not a\ndescription of any real system.\n",
+                "found": "# RB-207: rotating the mesh certificate authority\n\nSample material written for this repository's held-out benchmark. Not a\ndescription of any real system.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              }
+            ],
+            "sentences": 4,
+            "uncited_sentences": [
+              "The runbook that applies to a single service serving an expired leaf certificate is RB-208.",
+              "RB-207 is not the correct runbook for this situation because RB-207 is intended for scheduled root rotations or emergency rotations after a suspected key compromise."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h005",
+      "question": "Why did RB-207 step one tell the operator not to use the inventory label, and what happened in CR-2311 when it was used?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h005",
+          "trial": 1,
+          "text": "RB-207 step one instructs the operator not to use the inventory label because a service missing its label will not be counted and therefore will not be rotated. Instead, the service count should be taken from the mesh control plane to ensure all services are included [4].\n\nIn CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo. This caused RB-207's pre-flight count to report 39 services instead of the actual 41. As a result, two services missed the rotation window and served an expired leaf certificate for nine minutes [7]. Following this incident, the pre-flight count was changed to be taken from the mesh control plane rather than from the inventory label [5].",
+          "citations": [
+            {
+              "marker": 4,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 7,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 5,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2058,
+            "output_tokens": 209,
+            "latency_ms": 5112.48
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h005",
+          "trial": 2,
+          "text": "RB-207 step one instructs the operator not to use the inventory label because a service missing its label will not be counted and therefore will not be rotated. Instead, the service count should be taken from the mesh control plane to ensure all services are included [4].\n\nIn CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo. This caused RB-207's pre-flight count to report 39 services instead of the actual 41. As a result, two services missed the rotation window and served an expired leaf certificate for nine minutes [7]. Following this incident, the pre-flight count was changed to be taken from the mesh control plane rather than from the inventory label [5].",
+          "citations": [
+            {
+              "marker": 4,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 7,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 5,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2058,
+            "output_tokens": 209,
+            "latency_ms": 4404.532
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h005",
+          "trial": 3,
+          "text": "RB-207 step one instructs the operator not to use the inventory label because a service missing its label would not be counted and therefore would not be rotated. Instead, the service count should be taken from the mesh control plane to ensure all services are included [4].\n\nIn CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo. This caused RB-207's pre-flight count to report 39 services instead of the actual 41. As a result, these two services missed the rotation window and served an expired leaf certificate for nine minutes [7]. Following this incident, the pre-flight count was changed to be taken from the mesh control plane rather than from the inventory label [5].",
+          "citations": [
+            {
+              "marker": 4,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 7,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "What went wrong"
+              ],
+              "start_char": 744,
+              "end_char": 970,
+              "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+            },
+            {
+              "marker": 5,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "Follow-up"
+              ],
+              "start_char": 971,
+              "end_char": 1217,
+              "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2058,
+            "output_tokens": 210,
+            "latency_ms": 5135.581
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 4,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 7,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 5,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              }
+            ],
+            "sentences": 6,
+            "uncited_sentences": [
+              "RB-207 step one instructs the operator not to use the inventory label because a service missing its label will not be counted and therefore will not be rotated.",
+              "In CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo.",
+              "This caused RB-207's pre-flight count to report 39 services instead of the actual 41."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 4,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 7,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 5,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              }
+            ],
+            "sentences": 6,
+            "uncited_sentences": [
+              "RB-207 step one instructs the operator not to use the inventory label because a service missing its label will not be counted and therefore will not be rotated.",
+              "In CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo.",
+              "This caused RB-207's pre-flight count to report 39 services instead of the actual 41."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 4,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              },
+              {
+                "marker": 7,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n",
+                "found": "## What went wrong\n\nTwo services missed the window and served an expired leaf for nine minutes. Both\nhad been excluded from the mesh inventory by a label typo, so RB-207's\npre-flight count reported 39 services rather than 41.\n"
+              },
+              {
+                "marker": 5,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to.",
+                "found": "## Follow-up\n\nThe pre-flight count is now taken from the mesh control plane rather than from\nthe inventory label. The rotation window itself was not changed; it is recorded\nin the platform limits reference and is the same window RB-207 refers to."
+              }
+            ],
+            "sentences": 6,
+            "uncited_sentences": [
+              "RB-207 step one instructs the operator not to use the inventory label because a service missing its label would not be counted and therefore would not be rotated.",
+              "In CR-2311, when the inventory label was used, two services were excluded from the mesh inventory due to a label typo.",
+              "This caused RB-207's pre-flight count to report 39 services instead of the actual 41."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h006",
+      "question": "In what size batches does RB-207 tell me to re-issue, and why that size?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h006",
+          "trial": 1,
+          "text": "RB-207 instructs to trigger re-issue in batches of ten services. The reason for this batch size is not explicitly stated in the passages, but the runbook emphasizes careful steps to ensure that every counted service is serving a leaf signed by the new root before retiring the old one, implying a controlled and manageable batch size is important for verification and stability during the rotation process [6].",
+          "citations": [
+            {
+              "marker": 6,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2766,
+            "output_tokens": 125,
+            "latency_ms": 6688.57
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h006",
+          "trial": 2,
+          "text": "RB-207 instructs to trigger re-issue in batches of ten services. The reason for this batch size is not explicitly stated in the passages, but the runbook emphasizes careful steps to ensure that every service is serving a leaf signed by the new root before retiring the old one, implying a controlled and manageable batch size is important for verification and stability during the rotation process [6].",
+          "citations": [
+            {
+              "marker": 6,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2766,
+            "output_tokens": 124,
+            "latency_ms": 5849.344
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h006",
+          "trial": 3,
+          "text": "RB-207 instructs to trigger re-issue in batches of ten services. The reason for this batch size is not explicitly stated in the passages, but the procedure emphasizes careful verification before retiring the old root to avoid service failures. The batch size of ten likely balances the need to manage the rotation process in manageable chunks while ensuring stability and control during the certificate re-issue process [7].",
+          "citations": [
+            {
+              "marker": 7,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2768,
+            "output_tokens": 125,
+            "latency_ms": 5547.99
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 6,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "RB-207 instructs to trigger re-issue in batches of ten services."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 6,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "RB-207 instructs to trigger re-issue in batches of ten services."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 7,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "RB-207 instructs to trigger re-issue in batches of ten services.",
+              "The reason for this batch size is not explicitly stated in the passages, but the procedure emphasizes careful verification before retiring the old root to avoid service failures."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h007",
+      "question": "Could the CR-2311 rotation have run inside the Thursday change window if it had taken the full rotation window?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h007",
+          "trial": 1,
+          "text": "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window. The Thursday change window is four hours long (22:00 to 02:00 UTC) [4], while the rotation window itself is six hours [6]. Since the rotation window is longer than the change window, a rotation taking the full rotation window would exceed the Thursday change window duration. \n\nThis is consistent with the procedure in RB-207, which references the rotation window duration from the platform limits reference and does not restate it in the change record [3][8].",
+          "citations": [
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Change windows"
+              ],
+              "start_char": 713,
+              "end_char": 887,
+              "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+            },
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            },
+            {
+              "marker": 8,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2944,
+            "output_tokens": 167,
+            "latency_ms": 6337.587
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h007",
+          "trial": 2,
+          "text": "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window. The rotation window is six hours according to the platform limits reference [6], but the Thursday change window is only four hours, from 22:00 to 02:00 UTC [4]. Since the rotation window exceeds the change window duration, a full rotation would not fit inside the Thursday change window.",
+          "citations": [
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            },
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Change windows"
+              ],
+              "start_char": 713,
+              "end_char": 887,
+              "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2947,
+            "output_tokens": 134,
+            "latency_ms": 5389.571
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h007",
+          "trial": 3,
+          "text": "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window. The Thursday change window is four hours long (22:00 to 02:00 UTC) [4], while the rotation window for the mesh certificate authority is six hours [6]. Since the rotation window is longer than the change window, a full rotation would exceed the Thursday change window duration. This is consistent with the procedure in RB-207, which references the platform limits for the rotation window duration and requires the shortest remaining leaf lifetime to be at least the rotation window length before starting a rotation [3][8].",
+          "citations": [
+            {
+              "marker": 4,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Change windows"
+              ],
+              "start_char": 713,
+              "end_char": 887,
+              "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+            },
+            {
+              "marker": 6,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Certificates"
+              ],
+              "start_char": 308,
+              "end_char": 567,
+              "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            },
+            {
+              "marker": 8,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 2947,
+            "output_tokens": 177,
+            "latency_ms": 7352.978
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.6666666666666666,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n",
+                "found": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+              },
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              },
+              {
+                "marker": 8,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 4,
+            "uncited_sentences": [
+              "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window.",
+              "Since the rotation window is longer than the change window, a rotation taking the full rotation window would exceed the Thursday change window duration."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.6666666666666666,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              },
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n",
+                "found": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window.",
+              "Since the rotation window exceeds the change window duration, a full rotation would not fit inside the Thursday change window."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.6666666666666666,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 4,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n",
+                "found": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+              },
+              {
+                "marker": 6,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n",
+                "found": "## Certificates\n\nThe mesh rotation window is **six hours**. A rotation may not begin if the\nshortest remaining leaf lifetime is below it.\n\nLeaf certificates are issued for 72 hours and re-issued at one third of\nremaining life. The root is valid for one year.\n"
+              },
+              {
+                "marker": 3,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              },
+              {
+                "marker": 8,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n",
+                "found": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+              }
+            ],
+            "sentences": 4,
+            "uncited_sentences": [
+              "The CR-2311 rotation could not have run inside the Thursday change window if it had taken the full rotation window.",
+              "Since the rotation window is longer than the change window, a full rotation would exceed the Thursday change window duration."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h008",
+      "question": "RB-207 says not to retire the old root too early. What does the failure look like if you do?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h008",
+          "trial": 1,
+          "text": "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake. This failure will appear as a network partition rather than a certificate problem [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "What not to do"
+              ],
+              "start_char": 1109,
+              "end_char": 1365,
+              "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1571,
+            "output_tokens": 73,
+            "latency_ms": 3896.49
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h008",
+          "trial": 2,
+          "text": "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake. This failure will appear as a network partition rather than a certificate problem [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "What not to do"
+              ],
+              "start_char": 1109,
+              "end_char": 1365,
+              "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1571,
+            "output_tokens": 73,
+            "latency_ms": 3898.92
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h008",
+          "trial": 3,
+          "text": "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake. This failure will appear as a network partition rather than a certificate problem [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "What not to do"
+              ],
+              "start_char": 1109,
+              "end_char": 1365,
+              "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1571,
+            "output_tokens": 73,
+            "latency_ms": 3860.53
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n",
+                "found": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n",
+                "found": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "runbook-rb-207-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n",
+                "found": "## What not to do\n\nDo not retire the old root before step five completes. A service that has not\nre-issued will fail every mutual TLS handshake the moment the old root goes, and\nthe failure looks like a network partition rather than a certificate problem.\n"
+              }
+            ],
+            "sentences": 2,
+            "uncited_sentences": [
+              "If you retire the old root too early, specifically before step five of RB-207 completes, a service that has not re-issued its certificate will fail every mutual TLS handshake."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h009",
+      "question": "How long are certificate issuance logs kept, and is that longer or shorter than the root's validity?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h009",
+          "trial": 1,
+          "text": "Certificate issuance logs are kept for 400 days, which is longer than the root's validity on purpose [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Retention"
+              ],
+              "start_char": 888,
+              "end_char": 1003,
+              "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1426,
+            "output_tokens": 43,
+            "latency_ms": 3027.401
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h009",
+          "trial": 2,
+          "text": "Certificate issuance logs are kept for 400 days, which is longer than the root's validity on purpose [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Retention"
+              ],
+              "start_char": 888,
+              "end_char": 1003,
+              "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1426,
+            "output_tokens": 43,
+            "latency_ms": 3311.71
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h009",
+          "trial": 3,
+          "text": "Certificate issuance logs are kept for 400 days. This retention period is intentionally longer than the root certificate's validity period, although the exact length of the root's validity is not specified in the passages I found. The logs are kept longer on purpose to presumably cover the entire validity span of the root certificate and beyond [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:4",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Retention"
+              ],
+              "start_char": 888,
+              "end_char": 1003,
+              "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 2,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1953,
+            "output_tokens": 118,
+            "latency_ms": 4181.314
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose.",
+                "found": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+              }
+            ],
+            "sentences": 1,
+            "uncited_sentences": [],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose.",
+                "found": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+              }
+            ],
+            "sentences": 1,
+            "uncited_sentences": [],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "platform-limits",
+                "attribution": "resolved",
+                "quote": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose.",
+                "found": "## Retention\n\nCertificate issuance logs are kept for 400 days, which is longer than the root's\nvalidity on purpose."
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "Certificate issuance logs are kept for 400 days.",
+              "This retention period is intentionally longer than the root certificate's validity period, although the exact length of the root's validity is not specified in the passages I found."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h010",
+      "question": "What is the escalation path for a suspected root key compromise outside a change window?",
+      "category": "out-of-corpus",
+      "expected": "refuse",
+      "attempts": [
+        {
+          "task_id": "h010",
+          "trial": 1,
+          "text": "I ran out of investigation steps before I could answer this. What I gathered is on the run's record, but I will not offer a conclusion I did not reach.",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": "step_limit",
+            "tool_calls": 8,
+            "tool_errors": 0,
+            "repeated_calls": 1,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 18005,
+            "output_tokens": 194,
+            "latency_ms": 15060.36
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h010",
+          "trial": 2,
+          "text": "I ran out of investigation steps before I could answer this. What I gathered is on the run's record, but I will not offer a conclusion I did not reach.",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": "step_limit",
+            "tool_calls": 8,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 17928,
+            "output_tokens": 228,
+            "latency_ms": 16697.261
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h010",
+          "trial": 3,
+          "text": "The documentation does not explicitly state the escalation path for a suspected root key compromise outside a change window. However, it does mention that RB-207 is used for both scheduled root rotations and emergency rotations after a suspected key compromise. RB-207 includes a step to compare the shortest remaining leaf lifetime against the rotation window, and if the lifetime is less than the window, the rotation should be stopped because it would expire leaves before they re-issue. The change window is defined as Thursday 22:00 to 02:00 UTC, and changes expected to exceed this window require approval from the change advisory board, not just an operator's judgment.\n\nFrom this, it can be inferred that if a suspected root key compromise occurs outside the change window, the operator should not proceed with the rotation immediately if it would cause leaf certificates to expire prematurely. Instead, the operator likely needs to escalate to the change advisory board for approval to perform the emergency rotation outside the normal change window.\n\nNo direct escalation path or contact points are detailed in the passages found. The closest related information is that the change advisory board is involved for changes exceeding the change window, and RB-207 is the runbook to follow for emergency root rotations after suspected key compromise [1][3][5][2].\n\nTherefore, the escalation path for a suspected root key compromise outside a change window involves stopping the rotation if it cannot safely complete within the window and escalating to the change advisory board for approval to proceed with the emergency rotation. Specific contacts or further escalation steps are not documented in the passages available.",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:1",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "When to use this"
+              ],
+              "start_char": 156,
+              "end_char": 375,
+              "quote": "## When to use this\n\nA scheduled root rotation, or an emergency rotation after a suspected key\ncompromise. For an expired *leaf* certificate on a single service, this is the\nwrong procedure and RB-208 is the right one.\n"
+            },
+            {
+              "marker": 3,
+              "document_id": "platform-limits",
+              "chunk_id": "platform-limits:3",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/platform-limits.md",
+              "title": "Platform limits reference",
+              "heading_path": [
+                "Platform limits reference",
+                "Change windows"
+              ],
+              "start_char": 713,
+              "end_char": 887,
+              "quote": "## Change windows\n\nThe Thursday change window is four hours, 22:00 to 02:00 UTC. A change expected\nto exceed it needs the change advisory board, not an operator's judgement.\n"
+            },
+            {
+              "marker": 5,
+              "document_id": "runbook-rb-207-certificate-rotation",
+              "chunk_id": "runbook-rb-207-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/runbook-rb-207-certificate-rotation.md",
+              "title": "RB-207: rotating the mesh certificate authority",
+              "heading_path": [
+                "RB-207: rotating the mesh certificate authority",
+                "Steps"
+              ],
+              "start_char": 376,
+              "end_char": 1108,
+              "quote": "## Steps\n\n1. Take the service count from the mesh control plane. Do not use the inventory\n   label: a service missing its label is a service that will not be counted and\n   will not be rotated.\n\n2. Read the shortest remaining leaf lifetime across every counted service.\n\n3. **Compare that lifetime against the rotation window.** If the shortest\n   remaining lifetime is less than the window, stop: a rotation started now will\n   expire leaves before they re-issue. The window is recorded in the platform\n   limits reference and is not restated here.\n\n4. Publish the new root, then trigger re-issue in batches of ten services.\n\n5. Verify every counted service is serving a leaf signed by the new root before\n   retiring the old one.\n"
+            },
+            {
+              "marker": 2,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 7,
+            "tool_errors": 0,
+            "repeated_calls": 1,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 17428,
+            "output_tokens": 507,
+            "latency_ms": 17967.597
+          },
+          "failed": ""
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": null,
+          "outcome": "refused",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": true,
+          "support_coverage": 1.0,
+          "citation_precision": 1.0,
+          "attribution": null,
+          "outcome": "refused",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 1.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    }
+  ],
+  "scores": {
+    "pass_rate": [
+      0.3333333333333333,
+      1.0,
+      1.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      1.0,
+      0.0,
+      0.6666666666666666
+    ]
+  },
+  "clusters": [
+    "change-2311-certificate-rotation+runbook-rb-207-certificate-rotation",
+    "platform-limits+runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+platform-limits",
+    "runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+runbook-rb-207-certificate-rotation",
+    "platform-limits+runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+platform-limits",
+    "runbook-rb-207-certificate-rotation",
+    "platform-limits",
+    "category:out-of-corpus"
+  ],
+  "judged": false
+}

@@ -1,9 +1,11 @@
 """Postmortem drafting, and the triage agent embedded inside it."""
 
+from langgraph.checkpoint.memory import InMemorySaver
 from tests.unit.agents.conftest import TENANT, Harness
 
 from paimon.agents.postmortem import (
     AGENT_NAME,
+    REJECTED,
     SECTIONS,
     TIMELINE_DOCUMENT_ID,
     UNSUPPORTED,
@@ -13,6 +15,7 @@ from paimon.agents.postmortem import (
 from paimon.agents.triage import AGENT_NAME as TRIAGE_NAME
 from paimon.domain.agents import AgentState, NodeSpec
 from paimon.domain.entities import RunStatus
+from paimon.infrastructure.orchestration import LangGraphWorkflow, build_serializer
 
 TIMELINE = """09:00 drain started on node-7
 09:12 eviction stalled
@@ -133,3 +136,90 @@ class TestTheWholeAgent:
         composed = harness.chat_model.calls[-1][-1].content
         for section in SECTIONS:
             assert section in composed
+
+
+class TestSurvivingAReview:
+    """A run suspended for a person, and what it still has when it continues.
+
+    The one path in the platform where state crosses a checkpoint and comes back
+    — minutes or hours later, possibly in a different process. Everything the
+    run had gathered is reloaded from that checkpoint, so anything the encoding
+    loses is lost here and nowhere else, which is why this is the test that
+    proves the serializer's repair matters rather than merely works.
+    """
+
+    @staticmethod
+    def _reviewable(harness: Harness) -> LangGraphWorkflow:
+        return LangGraphWorkflow(
+            build_postmortem_graph(harness.collaborators(), review=True),
+            harness.checkpointer,
+            saver=InMemorySaver(serde=build_serializer()),
+        )
+
+    async def test_a_resumed_run_keeps_the_citations_it_had(self) -> None:
+        harness = Harness(answer="The drain stalled on a disruption budget [1].")
+        await harness.index()
+        workflow = self._reviewable(harness)
+
+        async for _ in workflow.stream(TIMELINE, thread_id="t-review", tenant_id=TENANT):
+            pass
+        suspended = await harness.checkpointer.load("t-review")
+        assert suspended is not None
+        assert suspended.status is RunStatus.AWAITING_INPUT
+
+        resumed = await workflow.resume("accept", thread_id="t-review")
+
+        assert resumed.status is RunStatus.SUCCEEDED
+        assert resumed.citations
+        assert "[1]" in resumed.answer
+
+    async def test_a_citation_that_crossed_the_checkpoint_still_resolves(self) -> None:
+        # The offsets and the heading path are what a citation is *for*. A
+        # heading path revived as a list rather than a tuple made a citation
+        # unequal to the one that was stored, which is the difference between a
+        # resumed run and a resumed run nothing downstream can match.
+        harness = Harness(answer="The drain stalled on a disruption budget [1].")
+        await harness.index()
+        workflow = self._reviewable(harness)
+
+        async for _ in workflow.stream(TIMELINE, thread_id="t-review", tenant_id=TENANT):
+            pass
+        resumed = await workflow.resume("accept", thread_id="t-review")
+
+        citation = resumed.citations[0]
+        assert isinstance(citation.heading_path, tuple)
+        assert citation.end_char > citation.start_char
+        assert citation.quote
+
+    async def test_a_rejected_draft_comes_back_citing_nothing(self) -> None:
+        # The other half: a reviewer who withdraws the draft leaves a run whose
+        # record must not keep pointing at the sources of the text they refused.
+        # The word matters — REVIEW_QUESTION asks for "reject: <reason>", and
+        # anything else is reviewer notes on a draft that stands.
+        harness = Harness(answer="The drain stalled on a disruption budget [1].")
+        await harness.index()
+        workflow = self._reviewable(harness)
+
+        async for _ in workflow.stream(TIMELINE, thread_id="t-review", tenant_id=TENANT):
+            pass
+        resumed = await workflow.resume(
+            "reject: this is wrong about the budget", thread_id="t-review"
+        )
+
+        assert resumed.citations == ()
+        assert not resumed.grounded
+
+    async def test_notes_are_not_a_rejection(self) -> None:
+        # The distinction the review prompt draws, asserted because a reviewer
+        # writing a correction and having the draft withdrawn is the kind of
+        # surprise that stops people using a review step.
+        harness = Harness(answer="The drain stalled on a disruption budget [1].")
+        await harness.index()
+        workflow = self._reviewable(harness)
+
+        async for _ in workflow.stream(TIMELINE, thread_id="t-review", tenant_id=TENANT):
+            pass
+        resumed = await workflow.resume("tighten the wording in section two", thread_id="t-review")
+
+        assert resumed.citations
+        assert REJECTED not in resumed.answer
