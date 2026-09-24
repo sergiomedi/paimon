@@ -31,7 +31,9 @@ from paimon.evaluation import (
 )
 from paimon.evaluation.runner import BenchmarkReport
 from paimon.interfaces.cli.evaluate import (
+    ingest_corpus,
     load_report,
+    read_corpus,
     render,
     render_answers,
     render_comparison,
@@ -350,3 +352,44 @@ class TestTheCalibrationSection:
         labels = load_labels(path)
         assert [label.faithfulness for label in labels] == [Verdict.YES, Verdict.YES]
         assert [label.completeness for label in labels] == [None, None]
+
+
+class TestReadingACorpusFromSeveralDirectories:
+    """A held-out set needs the corpus it was held out from.
+
+    Three documents ingested alone are not a retrieval problem: every search
+    returns nearly all of them, so the failure the measurement exists to find —
+    the right document retrieved at the wrong chunk, because another chunk
+    named the same identifier — cannot happen, and the number is not comparable
+    with a run over the full corpus. The directories stay separate on disk so
+    the earlier measurement stays reproducible against its own corpus alone.
+    """
+
+    def test_documents_from_every_directory_are_read(self, tmp_path: Path) -> None:
+        first = tmp_path / "sample"
+        second = tmp_path / "heldout"
+        for directory, name in ((first, "runbook"), (second, "change-record")):
+            directory.mkdir()
+            (directory / f"{name}.md").write_text(f"# {name}\n", encoding="utf-8")
+
+        found = [read_corpus(first), read_corpus(second)]
+
+        assert [document_id for batch in found for document_id, *_ in batch] == [
+            "runbook",
+            "change-record",
+        ]
+
+    async def test_a_document_id_in_two_directories_is_refused(self, tmp_path: Path) -> None:
+        # Ingesting both would leave whichever came last, silently: a corpus
+        # nobody described, measured as though it were the one on the command
+        # line.
+        first = tmp_path / "sample"
+        second = tmp_path / "heldout"
+        for directory in (first, second):
+            directory.mkdir()
+            (directory / "platform-limits.md").write_text("# limits\n", encoding="utf-8")
+
+        # No resources: the clash is caught before anything reaches the
+        # database, so there is nothing for the test to stand up.
+        with pytest.raises(ValueError, match="platform-limits"):
+            await ingest_corpus(None, [first, second], TENANT)  # type: ignore[arg-type]

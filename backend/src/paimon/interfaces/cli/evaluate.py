@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import sys
+from collections import Counter
 from collections.abc import Callable, Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -142,8 +143,17 @@ def read_corpus(corpus: Path) -> list[tuple[str, str, bytes, str]]:
     return documents
 
 
-async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> list[str]:
-    """Ingest every supported document in a directory.
+async def ingest_corpus(resources: Resources, corpus: Sequence[Path], tenant_id: str) -> list[str]:
+    """Ingest every supported document in one or more directories.
+
+    More than one because a held-out set needs the corpus it was held out
+    *from*. Three documents ingested alone are not a retrieval problem: every
+    search returns nearly the whole corpus, so the failure this measurement
+    exists to detect — the right document retrieved at the wrong chunk, because
+    some other chunk named the same identifier — cannot occur, and the result
+    is not comparable with a run over the full corpus. The directories stay
+    separate on disk so the earlier measurement remains reproducible against
+    its own corpus alone.
 
     Returns:
         The ids of the documents indexed or confirmed unchanged, in order. The
@@ -151,8 +161,25 @@ async def ingest_corpus(resources: Resources, corpus: Path, tenant_id: str) -> l
         the documents back and the repository has no "list everything" — nor
         should it, since nothing else in the platform ever wants one.
     """
+    documents = [
+        document
+        for directory in corpus
+        for document in await asyncio.to_thread(read_corpus, directory)
+    ]
+    # A document id is a filename stem, so two directories can carry the same
+    # one — and ingesting both would leave whichever came last, silently. That
+    # is a corpus nobody described, measured as though it were the one in the
+    # command line, which is the same class of error as running a benchmark
+    # against a database another process was truncating.
+    seen = Counter(document_id for document_id, *_ in documents)
+    clashing = sorted(document_id for document_id, count in seen.items() if count > 1)
+    if clashing:
+        raise ValueError(
+            "the same document id appears in more than one corpus directory: "
+            f"{', '.join(clashing)}. One would silently replace the other."
+        )
+
     ingest = build_ingest_document(resources)
-    documents = await asyncio.to_thread(read_corpus, corpus)
     ingested: list[str] = []
     for document_id, source_uri, raw, media_type in documents:
         result = await ingest(
@@ -730,7 +757,16 @@ async def main(argv: list[str] | None = None) -> int:
         empty benchmark that reports success is worse than one that fails.
     """
     parser = argparse.ArgumentParser(description="Run the retrieval benchmark.")
-    parser.add_argument("--corpus", type=Path, help="Directory of documents to ingest first.")
+    parser.add_argument(
+        "--corpus",
+        type=Path,
+        nargs="+",
+        help=(
+            "Directories of documents to ingest first. More than one when a "
+            "held-out set has to be measured against the corpus it was held "
+            "out from, rather than alone with no distractors."
+        ),
+    )
     parser.add_argument("--dataset", type=Path, required=True, help="Golden set, JSON Lines.")
     parser.add_argument("--tenant", default="benchmark", help="Tenant to ingest and query as.")
     parser.add_argument("--cutoff", type=int, default=8, help="The k metrics are measured at.")
