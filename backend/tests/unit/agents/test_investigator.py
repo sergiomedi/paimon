@@ -203,6 +203,14 @@ class TestAnsweringInOneHop:
         assert run.total_tokens == 460
 
     async def test_both_tools_are_offered_every_turn(self) -> None:
+        # Counted, not just checked with `all`. A loop that stopped asking the
+        # model after the first turn would satisfy "every turn offered two
+        # tools" with one entry, and the measured run turns on exactly this:
+        # the agent searched once and answered in 100 of 100 runs, which is a
+        # finding about the model only if the second turn really was offered
+        # the tools. Proved against the live adapter too — the request for the
+        # second `act` carries both function definitions — and pinned here so
+        # it cannot regress silently.
         harness = Harness()
         await harness.index()
 
@@ -212,7 +220,13 @@ class TestAnsweringInOneHop:
             Turn(text="Cordon the node first [1]."),
         )
 
-        assert all(len(offered) == 2 for offered in model_of(harness).offered)
+        offered = model_of(harness).offered
+        assert len(offered) == 2, "the model was not asked a second time"
+        assert all(len(turn) == 2 for turn in offered)
+        assert [{tool.name for tool in turn} for turn in offered] == [
+            {"search_corpus", "read_document"},
+            {"search_corpus", "read_document"},
+        ]
 
 
 class TestAnsweringInTwoHops:
