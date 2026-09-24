@@ -11,6 +11,7 @@ parsing. Writing a second full implementation would have duplicated the part mos
 likely to go wrong, to avoid duplicating the part least likely to.
 """
 
+import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -27,6 +28,8 @@ from paimon.infrastructure.http import error_detail
 
 COGNITIVE_SERVICES_SCOPE = "https://cognitiveservices.azure.com/.default"
 DEFAULT_API_VERSION = "2024-10-21"
+DEFAULT_MAX_RETRIES = 5
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 DEFAULT_BATCH_SIZE = 96
 DEFAULT_EMBEDDING_TIMEOUT_SECONDS = 30.0
 DEFAULT_CHAT_TIMEOUT_SECONDS = 120.0
@@ -58,11 +61,38 @@ class AzureOpenAIConfig:
     query_prefix: str = ""
     batch_size: int = DEFAULT_BATCH_SIZE
     timeout_seconds: float = DEFAULT_EMBEDDING_TIMEOUT_SECONDS
+    max_retries: int = DEFAULT_MAX_RETRIES
+    """How many times a throttled request is tried again before it is an error.
+    Zero restores the original behaviour, where one 429 ends the request."""
+    retry_backoff_seconds: float = DEFAULT_RETRY_BACKOFF_SECONDS
+    """Waited only when the service sends no `Retry-After` to obey."""
 
     @property
     def base_url(self) -> str:
         """Root URL of the deployment."""
         return f"{self.endpoint.rstrip('/')}/openai/deployments/{self.deployment}"
+
+
+#: Status codes worth trying again. 429 is the deployment's rate limit; the 5xx
+#: three are Azure asking for a moment. Everything else — a bad request, a
+#: rejected token, a content filter — means the same thing on every attempt, and
+#: retrying it only turns one error into several.
+_RETRYABLE = frozenset({429, 500, 502, 503, 504})
+
+
+def _retry_after(response: httpx.Response, fallback: float) -> float:
+    """How long the service asked to be left alone.
+
+    Azure sends `Retry-After` in whole seconds on a throttled response. It is
+    obeyed when it parses, because a back-off invented here is either longer
+    than the service needs or short enough to be throttled again. The fallback
+    covers the case where the header is absent or unreadable.
+    """
+    header = response.headers.get("retry-after", "")
+    try:
+        return max(float(header), 0.0)
+    except ValueError:
+        return fallback
 
 
 class _Transport:
@@ -80,30 +110,57 @@ class _Transport:
         self._credential = credential
         self._client = client
 
+    @staticmethod
+    async def _sleep(seconds: float) -> None:
+        """Wait out a throttle. Separate so a test can run without one."""
+        await asyncio.sleep(seconds)
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
     async def post(
         self, operation: str, payload: dict[str, Any], error_type: type[Exception]
     ) -> Any:
-        """Post to an operation on the deployment, mapping failures to a domain error."""
+        """Post to an operation on the deployment, mapping failures to a domain error.
+
+        Retries a throttled request rather than failing it. A deployment has a
+        requests-per-minute limit, and anything that issues requests in a loop —
+        a benchmark, an ingestion, an agent taking several turns — will reach it:
+        the first agent run against a capacity-10 deployment lost 67 of 90
+        attempts to 429, each recorded as a failed attempt rather than as a slow
+        one. Throttling is the service saying "not yet", and treating it as
+        "no" turns a rate limit into missing data.
+
+        Azure says how long to wait in ``Retry-After``. That is obeyed when
+        present, because a back-off invented here is either longer than
+        necessary or short enough to be throttled again.
+        """
         path = f"/{operation}?api-version={self._config.api_version}"
         label = operation.split("/", maxsplit=1)[0]
-        try:
-            headers = await self._credential.headers()
-            response = await self._client.post(path, json=payload, headers=headers)
-            response.raise_for_status()
-            return response.json()
-        except httpx.HTTPStatusError as error:
-            detail = error_detail(error.response)
-            msg = f"azure openai {label} returned {error.response.status_code}{detail}"
-            raise error_type(msg) from error
-        except httpx.HTTPError as error:
-            msg = f"azure openai {label} unreachable: {error}"
-            raise error_type(msg) from error
-        except ValueError as error:
-            msg = f"azure openai {label} returned a malformed body: {error}"
-            raise error_type(msg) from error
+        for remaining in range(self._config.max_retries, -1, -1):
+            try:
+                headers = await self._credential.headers()
+                response = await self._client.post(path, json=payload, headers=headers)
+                if response.status_code in _RETRYABLE and remaining:
+                    await self._sleep(_retry_after(response, self._config.retry_backoff_seconds))
+                    continue
+                response.raise_for_status()
+                return response.json()
+            except httpx.HTTPStatusError as error:
+                detail = error_detail(error.response)
+                msg = f"azure openai {label} returned {error.response.status_code}{detail}"
+                raise error_type(msg) from error
+            except httpx.HTTPError as error:
+                msg = f"azure openai {label} unreachable: {error}"
+                raise error_type(msg) from error
+            except ValueError as error:
+                msg = f"azure openai {label} returned a malformed body: {error}"
+                raise error_type(msg) from error
+        # Unreachable: the final pass has `remaining == 0`, so it either returns
+        # or raises. Present because a `for` that falls through returns None,
+        # and None here would surface as a malformed body much later.
+        msg = f"azure openai {label} exhausted {self._config.max_retries} retries"
+        raise error_type(msg)
 
 
 class AzureOpenAIEmbeddingModel:

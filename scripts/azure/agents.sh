@@ -113,6 +113,10 @@ export PAIMON_AZURE_OPENAI__CHAT_DEPLOYMENT="$AZURE_CHAT_DEPLOYMENT_NAME"
 export PAIMON_AZURE_OPENAI__EMBEDDING_DEPLOYMENT="$AZURE_EMBEDDING_DEPLOYMENT_NAME"
 export PAIMON_AZURE_SEARCH__ENDPOINT="$AZURE_SEARCH_ENDPOINT"
 export PAIMON_OBSERVABILITY__METRICS__PRICING__MODELS="$PRICES"
+# Required beside the table, and rightly: a cost figure that cannot be traced
+# back to the prices that produced it is uninterpretable the moment the table
+# changes. Settings refuse the one without the other.
+export PAIMON_OBSERVABILITY__METRICS__PRICING__REVISION="$PRICE_REVISION"
 
 # The judge stays off here. Grading is a second pass with phi4 locally, over
 # these transcripts, so the judge never changes between the runs it compares and

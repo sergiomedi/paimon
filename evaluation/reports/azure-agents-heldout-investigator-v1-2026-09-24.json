@@ -1,0 +1,1217 @@
+{
+  "dataset": "agents-v2-heldout",
+  "system": "investigator-v1",
+  "configuration": "gpt-4.1-mini via azure openai, azure ai search, agents-v2-heldout",
+  "trials": 3,
+  "reliability": {
+    "tasks": 10,
+    "trials": 3,
+    "pass_at_1": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 10,
+      "clusters": 6
+    },
+    "pass_at_k": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 10,
+      "clusters": 6
+    },
+    "pass_hat_k": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 10,
+      "clusters": 6
+    }
+  },
+  "categories": [
+    {
+      "category": "multi-hop",
+      "tasks": 6,
+      "reliability": {
+        "tasks": 6,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 6,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 6,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 6,
+          "clusters": null
+        }
+      }
+    },
+    {
+      "category": "one-hop",
+      "tasks": 3,
+      "reliability": {
+        "tasks": 3,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 3,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 3,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 3,
+          "clusters": null
+        }
+      }
+    },
+    {
+      "category": "out-of-corpus",
+      "tasks": 1,
+      "reliability": {
+        "tasks": 1,
+        "trials": 3,
+        "pass_at_1": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        },
+        "pass_at_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        },
+        "pass_hat_k": {
+          "mean": 0.0,
+          "standard_error": 0.0,
+          "n": 1,
+          "clusters": null
+        }
+      }
+    }
+  ],
+  "trajectory": {
+    "tool_calls": {
+      "mean": 0.03333333333333333,
+      "standard_error": 0.03333333333333333,
+      "n": 30,
+      "clusters": 10
+    },
+    "tool_errors": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 30,
+      "clusters": 10
+    },
+    "repeated_calls": {
+      "mean": 0.0,
+      "standard_error": 0.0,
+      "n": 30,
+      "clusters": 10
+    },
+    "total_tokens": {
+      "mean": 90.03333333333333,
+      "standard_error": 53.41924677422855,
+      "n": 30,
+      "clusters": 10
+    },
+    "latency_ms": {
+      "mean": 531.8206666666667,
+      "standard_error": 195.0464324700818,
+      "n": 30,
+      "clusters": 10
+    },
+    "stop_reasons": {
+      "answered": 1
+    },
+    "outcomes": {
+      "answered": 1,
+      "crashed": 29
+    },
+    "failures": 29,
+    "estimated_cost": 0.001288
+  },
+  "tasks": [
+    {
+      "task_id": "h001",
+      "question": "CR-2311 rotated the mesh certificate authority. What does the step that decides whether a rotation is safe to start actually compare?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h001",
+          "trial": 1,
+          "text": "The step that decides whether a rotation is safe to start actually compares the shortest remaining leaf certificate lifetime against the rotation window. This is described in the procedure RB-207, which CR-2311 followed end to end without deviation. The change record CR-2311 does not restate this step because the procedure copied into the change record stops being updated [1].",
+          "citations": [
+            {
+              "marker": 1,
+              "document_id": "change-2311-certificate-rotation",
+              "chunk_id": "change-2311-certificate-rotation:2",
+              "source_uri": "/home/sergi/projects/paimon/evaluation/corpus/heldout/change-2311-certificate-rotation.md",
+              "title": "Change record CR-2311: rotate the mesh certificate authority",
+              "heading_path": [
+                "Change record CR-2311: rotate the mesh certificate authority",
+                "How it was done"
+              ],
+              "start_char": 380,
+              "end_char": 743,
+              "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+            }
+          ],
+          "trajectory": {
+            "stop_reason": "answered",
+            "tool_calls": 1,
+            "tool_errors": 0,
+            "repeated_calls": 0,
+            "steps": [
+              "act",
+              "tools",
+              "act",
+              "finalize",
+              "verify"
+            ],
+            "input_tokens": 1440,
+            "output_tokens": 97,
+            "latency_ms": 5373.563
+          },
+          "failed": ""
+        },
+        {
+          "task_id": "h001",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 154.955
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h001",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 134.53
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": true,
+          "support_coverage": 0.5,
+          "citation_precision": 1.0,
+          "attribution": {
+            "checks": [
+              {
+                "marker": 1,
+                "document_id": "change-2311-certificate-rotation",
+                "attribution": "resolved",
+                "quote": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n",
+                "found": "## How it was done\n\nThe operator followed **RB-207** end to end and did not deviate. The step that\ndecides whether a rotation is safe to start is the one that compares the\nshortest remaining leaf lifetime against the rotation window; this change record\ndoes not restate it, because a procedure copied into a change record is a\nprocedure that stops being updated.\n"
+              }
+            ],
+            "sentences": 3,
+            "uncited_sentences": [
+              "The step that decides whether a rotation is safe to start actually compares the shortest remaining leaf certificate lifetime against the rotation window.",
+              "This is described in the procedure RB-207, which CR-2311 followed end to end without deviation."
+            ],
+            "invented_markers": []
+          },
+          "outcome": "answered",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h002",
+      "question": "What is the mesh rotation window that RB-207 step three compares against?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h002",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 144.849
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h002",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 167.364
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h002",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 164.127
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h003",
+      "question": "CR-2311's pre-flight count reported 39 services. How many should it have reported?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h003",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 269.261
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h003",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 149.603
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h003",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 152.779
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h004",
+      "question": "A single service is serving an expired leaf certificate. Which runbook applies, and why not RB-207?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h004",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 164.743
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h004",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 150.483
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h004",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 197.332
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h005",
+      "question": "Why did RB-207 step one tell the operator not to use the inventory label, and what happened in CR-2311 when it was used?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h005",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 165.452
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h005",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 210.108
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h005",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act",
+              "tools",
+              "act"
+            ],
+            "input_tokens": 549,
+            "output_tokens": 57,
+            "latency_ms": 3706.455
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h006",
+      "question": "In what size batches does RB-207 tell me to re-issue, and why that size?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h006",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 165.923
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h006",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 137.013
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h006",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 172.867
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h007",
+      "question": "Could the CR-2311 rotation have run inside the Thursday change window if it had taken the full rotation window?",
+      "category": "multi-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h007",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 271.708
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h007",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 171.121
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h007",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 220.901
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h008",
+      "question": "RB-207 says not to retire the old root too early. What does the failure look like if you do?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h008",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 148.361
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h008",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 196.22
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h008",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 162.812
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h009",
+      "question": "How long are certificate issuance logs kept, and is that longer or shorter than the root's validity?",
+      "category": "one-hop",
+      "expected": "answer",
+      "attempts": [
+        {
+          "task_id": "h009",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 156.002
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h009",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act",
+              "tools",
+              "act"
+            ],
+            "input_tokens": 539,
+            "output_tokens": 19,
+            "latency_ms": 1984.174
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h009",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 163.961
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    },
+    {
+      "task_id": "h010",
+      "question": "What is the escalation path for a suspected root key compromise outside a change window?",
+      "category": "out-of-corpus",
+      "expected": "refuse",
+      "attempts": [
+        {
+          "task_id": "h010",
+          "trial": 1,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 308.947
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h010",
+          "trial": 2,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 161.279
+          },
+          "failed": "the run failed"
+        },
+        {
+          "task_id": "h010",
+          "trial": 3,
+          "text": "",
+          "citations": [],
+          "trajectory": {
+            "stop_reason": null,
+            "tool_calls": null,
+            "tool_errors": null,
+            "repeated_calls": null,
+            "steps": [
+              "act"
+            ],
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "latency_ms": 227.727
+          },
+          "failed": "the run failed"
+        }
+      ],
+      "grades": [
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        },
+        {
+          "outcome_correct": false,
+          "support_coverage": 0.0,
+          "citation_precision": 0.0,
+          "attribution": null,
+          "outcome": "ungrounded",
+          "judged": false,
+          "judge_verdict": null,
+          "judge_reasoning": "",
+          "probe_agreed": null
+        }
+      ]
+    }
+  ],
+  "scores": {
+    "pass_rate": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ]
+  },
+  "clusters": [
+    "change-2311-certificate-rotation+runbook-rb-207-certificate-rotation",
+    "platform-limits+runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+platform-limits",
+    "runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+runbook-rb-207-certificate-rotation",
+    "platform-limits+runbook-rb-207-certificate-rotation",
+    "change-2311-certificate-rotation+platform-limits",
+    "runbook-rb-207-certificate-rotation",
+    "platform-limits",
+    "category:out-of-corpus"
+  ],
+  "judged": false
+}

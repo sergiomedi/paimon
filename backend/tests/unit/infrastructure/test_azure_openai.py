@@ -21,6 +21,13 @@ from paimon.infrastructure.azure.openai import (
 )
 
 Handler = Callable[[httpx.Request], httpx.Response]
+
+
+async def _record(into: list[float], seconds: float) -> None:
+    """Stand in for the wait, so a retry test costs no wall clock."""
+    into.append(seconds)
+
+
 DIMENSIONS = 4
 CONFIG = AzureOpenAIConfig(
     endpoint="https://resource.openai.azure.com",
@@ -206,3 +213,140 @@ class TestChat:
         await model.complete([Message(role="user", content="hello")])
 
         assert "/openai/deployments/text-embed-prod/chat/completions" in str(requests[0].url)
+
+
+class TestThrottling:
+    """A rate limit is the service saying "not yet", not "no".
+
+    A deployment has a requests-per-minute ceiling, and anything issuing
+    requests in a loop reaches it: the first agent benchmark against a
+    capacity-10 deployment lost 67 of 90 attempts to 429, each recorded as a
+    failed attempt rather than a slow one. That is a rate limit turned into
+    missing data, and missing data that looks like model behaviour.
+    """
+
+    async def test_a_throttled_request_is_tried_again(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "paimon.infrastructure.azure.openai._Transport._sleep",
+            staticmethod(lambda seconds: _record(slept, seconds)),
+        )
+        requests: list[httpx.Request] = []
+        replies = iter([httpx.Response(429), embeddings([1.0, 0.0, 0.0, 0.0])])
+
+        model = AzureOpenAIEmbeddingModel(
+            CONFIG, ApiKeyCredential("k"), client_for(lambda _: next(replies), requests)
+        )
+
+        assert (await model.embed_query("why?")).values == (1.0, 0.0, 0.0, 0.0)
+        assert len(requests) == 2
+
+    async def test_it_waits_as_long_as_azure_asked(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Retry-After is the service's own number. A back-off invented here is
+        # either longer than it needs or short enough to be throttled again.
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "paimon.infrastructure.azure.openai._Transport._sleep",
+            staticmethod(lambda seconds: _record(slept, seconds)),
+        )
+        replies = iter(
+            [
+                httpx.Response(429, headers={"retry-after": "37"}),
+                embeddings([1.0, 0.0, 0.0, 0.0]),
+            ]
+        )
+
+        model = AzureOpenAIEmbeddingModel(
+            CONFIG, ApiKeyCredential("k"), client_for(lambda _: next(replies), [])
+        )
+        await model.embed_query("why?")
+
+        assert slept == [37.0]
+
+    async def test_without_a_header_it_falls_back(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        slept: list[float] = []
+        monkeypatch.setattr(
+            "paimon.infrastructure.azure.openai._Transport._sleep",
+            staticmethod(lambda seconds: _record(slept, seconds)),
+        )
+        replies = iter([httpx.Response(429), embeddings([1.0, 0.0, 0.0, 0.0])])
+
+        model = AzureOpenAIEmbeddingModel(
+            AzureOpenAIConfig(
+                endpoint=CONFIG.endpoint,
+                deployment=CONFIG.deployment,
+                dimensions=DIMENSIONS,
+                retry_backoff_seconds=1.5,
+            ),
+            ApiKeyCredential("k"),
+            client_for(lambda _: next(replies), []),
+        )
+        await model.embed_query("why?")
+
+        assert slept == [1.5]
+
+    async def test_it_gives_up_and_says_so(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Retrying forever would turn a deployment that is genuinely too small
+        # into a benchmark that never finishes and never says why.
+        monkeypatch.setattr(
+            "paimon.infrastructure.azure.openai._Transport._sleep",
+            staticmethod(lambda seconds: _record([], seconds)),
+        )
+        requests: list[httpx.Request] = []
+        model = AzureOpenAIEmbeddingModel(
+            AzureOpenAIConfig(
+                endpoint=CONFIG.endpoint,
+                deployment=CONFIG.deployment,
+                dimensions=DIMENSIONS,
+                max_retries=2,
+            ),
+            ApiKeyCredential("k"),
+            client_for(lambda _: httpx.Response(429), requests),
+        )
+
+        with pytest.raises(EmbeddingError, match="429"):
+            await model.embed_query("why?")
+        assert len(requests) == 3
+
+    async def test_a_bad_request_is_not_retried(self) -> None:
+        # 400 means the same thing on every attempt. Retrying it turns one
+        # error into several and delays the report of the real problem.
+        requests: list[httpx.Request] = []
+        model = AzureOpenAIEmbeddingModel(
+            CONFIG, ApiKeyCredential("k"), client_for(lambda _: httpx.Response(400), requests)
+        )
+
+        with pytest.raises(EmbeddingError, match="400"):
+            await model.embed_query("why?")
+        assert len(requests) == 1
+
+    async def test_chat_is_covered_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Both adapters share one transport, which is the point of sharing it:
+        # the agent loop is what actually hits the limit.
+        monkeypatch.setattr(
+            "paimon.infrastructure.azure.openai._Transport._sleep",
+            staticmethod(lambda seconds: _record([], seconds)),
+        )
+        requests: list[httpx.Request] = []
+        replies = iter(
+            [
+                httpx.Response(429),
+                httpx.Response(
+                    200,
+                    json={
+                        "choices": [{"message": {"content": "cordon it"}}],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                    },
+                ),
+            ]
+        )
+        model = AzureOpenAIChatModel(
+            CONFIG, ApiKeyCredential("k"), client_for(lambda _: next(replies), requests)
+        )
+
+        completion = await model.complete((Message(role="user", content="what first?"),))
+
+        assert completion.text == "cordon it"
+        assert len(requests) == 2
