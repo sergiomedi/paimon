@@ -52,3 +52,37 @@ asked and then adds related information.
 
 These six are the maintainer's to settle. Kappa is computed against whatever the
 file holds at the time it is run, so changing a line changes the number.
+
+---
+
+# The validation sample, and the adjudications
+
+Both added 2026-09-24, and **both produced by the same labeller** — Claude
+(Opus, in Cowork) — as the development labels above. Stored here rather than
+left in a working folder, because a figure whose provenance lives somewhere else
+is a figure that gets quoted without it.
+
+## Validation labels — `refusal-validation-2026-09-24.jsonl`
+
+Thirty-nine texts the development set never touched, drawn from the sixty-four
+left over after it took sixty of a hundred and twenty-four. Same filters, same
+opaque ids, zero overlap. Labelled **7 `yes` (declines), 32 `no` (answers)**.
+
+Its purpose is that the sixty are now a development set: the rubric was compared
+against them and corrected, so measuring the correction on them would be
+measuring a judge against the exam it was tuned on.
+
+## Adjudications — `refusal-dev-adjudications-2026-09-24.jsonl`
+
+The ten development-set disagreements, settled: **nine upheld `no`, one upheld
+`yes`** — the labeller's original call in every case. So all ten were judge
+errors, and κ = 0.648 stands as measured.
+
+**This is self-adjudication and adds no independent evidence.** The rater who
+labelled the rows also settled the disputes about them, so it confirms rather
+than checks. It is recorded because the confirmation is still worth having — it
+rules out the possibility that the labels were casual and would not survive a
+second look by their own author — and because pretending it is anything more
+would be the exact failure this file exists to prevent.
+
+A person settling these ten would be worth more than everything above.

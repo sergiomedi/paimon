@@ -16,6 +16,7 @@ from paimon.evaluation.calibration import (
     Agreement,
     Calibration,
     agreement,
+    bootstrap_kappa,
     cohens_kappa,
     labelling_template,
     load_labels,
@@ -245,3 +246,71 @@ class TestWhetherACalibrationIsAcceptable:
             relevance=self._agreement(0.0, compared=0),
         )
         assert not calibration.is_acceptable
+
+
+class TestABootstrapIntervalForKappa:
+    """Kappa has no standard error worth quoting, so its interval is resampled.
+
+    It is a ratio of two quantities estimated from the same small sample, and
+    its sampling distribution is skewed at thirty to sixty cases. The interval
+    is what decides whether a threshold was cleared: 0.81 on thirty-nine cases
+    with an interval of [0.55, 0.95] is not an argument that the judge passed,
+    it is an argument that thirty-nine cases cannot tell.
+    """
+
+    @staticmethod
+    def _mixed(size: int, wrong: int) -> tuple[list[Verdict], list[Verdict]]:
+        first = [Verdict.YES if i % 3 == 0 else Verdict.NO for i in range(size)]
+        second = list(first)
+        for i in range(wrong):
+            second[i] = Verdict.NO if second[i] is Verdict.YES else Verdict.YES
+        return first, second
+
+    def test_perfect_agreement_has_an_interval_at_one(self) -> None:
+        first, second = self._mixed(40, wrong=0)
+
+        low, high = bootstrap_kappa(first, second, resamples=500)
+
+        assert low == 1.0
+        assert high == 1.0
+
+    def test_the_interval_contains_the_point_estimate(self) -> None:
+        first, second = self._mixed(40, wrong=6)
+
+        low, high = bootstrap_kappa(first, second, resamples=2000)
+
+        assert low <= cohens_kappa(first, second) <= high
+
+    def test_a_smaller_sample_gives_a_wider_interval(self) -> None:
+        # The property that makes it worth computing: thirty-nine cases should
+        # look less certain than a hundred and fifty.
+        small = self._mixed(20, wrong=3)
+        large = self._mixed(150, wrong=22)
+
+        narrow = bootstrap_kappa(*large, resamples=2000)
+        wide = bootstrap_kappa(*small, resamples=2000)
+
+        assert (wide[1] - wide[0]) > (narrow[1] - narrow[0])
+
+    def test_it_is_reproducible(self) -> None:
+        # An interval that moves when nothing else did invites re-rolling until
+        # it clears the threshold.
+        first, second = self._mixed(40, wrong=6)
+
+        assert bootstrap_kappa(first, second, resamples=500) == bootstrap_kappa(
+            first, second, resamples=500
+        )
+
+    def test_one_label_throughout_is_the_widest_honest_interval(self) -> None:
+        # No chance agreement to discount, so kappa is undefined and saying so
+        # beats reporting a number.
+        same = [Verdict.NO] * 30
+
+        assert bootstrap_kappa(same, same, resamples=500) == (-1.0, 1.0)
+
+    def test_nothing_measured_is_not_certainty(self) -> None:
+        assert bootstrap_kappa([], [], resamples=500) == (-1.0, 1.0)
+
+    def test_mismatched_lengths_are_refused(self) -> None:
+        with pytest.raises(ValueError, match="2 verdicts against 3"):
+            bootstrap_kappa([Verdict.YES, Verdict.NO], [Verdict.YES, Verdict.NO, Verdict.YES])
