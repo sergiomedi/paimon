@@ -55,6 +55,9 @@ reasoning trail, and rewriting history destroys it.
 | [0042](0042-a-second-identity-that-exists-to-grant-one-privilege.md) | A second identity, which exists to grant one privilege | Accepted |
 | [0043](0043-a-person-gets-a-token-the-same-way-a-workload-does.md) | A person gets a token the same way a workload does | Accepted |
 | [0044](0044-delivery-without-a-standing-environment.md) | Delivery without a standing environment | Accepted |
+| [0045](0045-an-autonomous-loop-measured-against-the-workflows.md) | An autonomous loop, measured against the workflows it does not replace | Accepted |
+| [0046](0046-how-an-agent-is-evaluated.md) | How an agent is evaluated | Accepted |
+| [0047](0047-a-cyclic-graph-declares-its-own-bound.md) | A cyclic graph declares its own bound | Accepted |
 
 ## Writing a new ADR
 

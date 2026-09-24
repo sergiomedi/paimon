@@ -73,3 +73,9 @@ param modelPrices = json(readEnvironmentVariable('AZURE_PAIMON_MODEL_PRICES', '{
 // A label for that table, recorded on every measurement so a figure can be
 // traced back to the prices that produced it. Required as soon as there are any.
 param priceRevision = readEnvironmentVariable('AZURE_PAIMON_PRICE_REVISION', 'unset')
+
+// False only for an evaluation window, which runs the models and the search
+// service against a database in local Docker. The managed server would bill
+// about EUR 0.25 an hour to be ignored, which is most of the cost of a window
+// whose tokens cost cents. The delivery pipeline never sets it.
+param deployData = readEnvironmentVariable('AZURE_PAIMON_DEPLOY_DATA', 'true') == 'true'

@@ -238,6 +238,24 @@ jobs:
           rm "$stub/bicep"
           PATH="$stub:/usr/bin:/bin" bicep_cli build x.bicep --stdout
 
+      # The template compiles, both ways round. deployData gates the database and
+      # the application; a flag that only ever ships true is a flag nobody has
+      # proved compiles false, and the evaluation windows are the ones that set
+      # it. Both branches are built here so neither rots.
+      - name: Build the Bicep template
+        run: |
+          bicep build infrastructure/main.bicep --stdout > /dev/null
+          bicep build-params infrastructure/main.bicepparam --stdout > /dev/null
+        env:
+          AZURE_PAIMON_API_AUDIENCE: api://ci
+          AZURE_PAIMON_DEPLOY_DATA: "true"
+
+      - name: Build the Bicep template without the database
+        run: bicep build-params infrastructure/main.bicepparam --stdout > /dev/null
+        env:
+          AZURE_PAIMON_API_AUDIENCE: api://ci
+          AZURE_PAIMON_DEPLOY_DATA: "false"
+
       # A quota row is named gpt4.1-mini where the model is gpt-4.1-mini, and the
       # name contains a dot that a naive split drops. Both mistakes were made
       # here, and both are cheap to make again.

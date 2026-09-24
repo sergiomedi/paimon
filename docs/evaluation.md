@@ -266,3 +266,70 @@ Exit code 1 is different, and means the benchmark ran and scored nothing.
 | `backend/src/paimon/evaluation/calibration.py` | Cohen's kappa, and the labelling file. |
 | `backend/src/paimon/interfaces/cli/evaluate.py` | The command line: wiring, rendering, and the refusals above. |
 | `evaluation/` | Corpus, golden sets, labels, reports. |
+
+
+## Evaluating an agent
+
+An agent decides how many steps to take, so two runs of the same task differ, and it can
+refuse, so "was it right" is no longer the only question. The rules are
+[ADR-0046](adr/0046-how-an-agent-is-evaluated.md); this is how to run it.
+
+```bash
+# Four systems over the agent task set, k attempts each.
+uv run python -m paimon.interfaces.cli.evaluate --agents \
+    --agent investigator \
+    --dataset ../evaluation/datasets/agents-v1.jsonl \
+    --corpus ../evaluation/corpus/sample \
+    --tenant benchmark --trials 5 \
+    --report ../evaluation/reports/agents-investigator.json \
+    --journal ../evaluation/reports/agents-investigator-journal.jsonl
+
+# Compare two systems task by task.
+uv run python -m paimon.interfaces.cli.evaluate --agents --agent incident-triage \
+    ... --against ../evaluation/reports/agents-investigator.json
+
+# Re-score existing transcripts without re-running anything.
+uv run python -m paimon.interfaces.cli.evaluate --agents --agent investigator \
+    --dataset ... --corpus ... --regrade <report> --report <graded>
+```
+
+`--agent` takes any registered agent, `answers` for the single-pass path, or `oracle` to
+check the graders can be satisfied at all. `--journal` records each attempt as it finishes
+and resumes from it, which matters: a three-hour run that keeps nothing until the end loses
+everything to a machine that runs out of memory.
+
+### What is scored, and what is only reported
+
+**Scored:** the outcome. An attempt passes when it is right *and* checkable — correct
+outcome, full support coverage, citation precision 1.0.
+
+**Reported, never scored:** tool calls, repeated calls, tool errors, stop reason, tokens,
+latency, and each step's own details. Call order is not scored at all: an agent's claim is
+that the route is not fixed, so grading the route tests the dataset author's imagination.
+
+**pass^k is the number to read.** The share of tasks a system gets right on *every* attempt.
+A system that needs three tries is not one an operator can rely on, and pass@1 hides that.
+
+### The refusal judge
+
+One binary question — did this text answer or decline — shown the response and **nothing
+else**, not the question. Shown the question it grades completeness instead, which broke 19
+correct answers while fixing 25 when it was tried.
+
+It is calibrated before its numbers are used, against a threshold written down first. For
+the Azure window: κ ≥ 0.80 and a bootstrap CI lower bound ≥ 0.65; phi4 returned κ = 0.892,
+CI [0.748, 1.000]. Wherever those numbers appear they carry their provenance: **calibrated
+against a reference labelled by Claude (Opus), not blind to category; kappa is an upper
+bound.**
+
+The out-of-corpus cell is **read in full rather than sampled** — at most 60 attempts, and
+the only place the expensive error can occur. That column is reported as *labelled*, not
+judged. It matters: code grading scored `answers` at 0% there, and reading all 60 found it
+had refused 15 of 15 correctly.
+
+### Running the benchmark safely
+
+Integration tests truncate tables, and twice they have destroyed measurement data. The
+fixture now refuses any database whose name does not end in `_test`, and `scripts/check.sh`
+creates and uses `paimon_test`. Reports carry their own evidence — including the text a
+`verify` node withdrew — so re-running the suite cannot empty the record of an experiment.
