@@ -383,6 +383,11 @@ def _attempt_from(raw: Mapping[str, Any]) -> Attempt:
             tool_errors=trajectory.get("tool_errors"),
             repeated_calls=trajectory.get("repeated_calls"),
             steps=tuple(trajectory.get("steps", ())),
+            # Carried through a regrade, or a re-scored report would silently
+            # lose the withdrawn drafts it was written to keep.
+            step_details=tuple(
+                (str(name), dict(details)) for name, details in trajectory.get("step_details", ())
+            ),
             input_tokens=int(trajectory.get("input_tokens", 0)),
             output_tokens=int(trajectory.get("output_tokens", 0)),
             latency_ms=float(trajectory.get("latency_ms", 0.0)),

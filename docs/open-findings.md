@@ -134,3 +134,44 @@ following (`read_document`), or the loop.
 
 **Status.** Open. Own step, not Phase 9. It is the precondition for the next
 experiment, not a side issue.
+
+---
+
+## 4. Integration tests destroyed a finished measurement's evidence — **fixed**
+
+**Observed.** Phase 9, 2026-09-24. The withdrawn drafts of every agent run in
+this phase are gone. `verify` records the text it withdrew in that step's
+details, those details lived only in `agent_runs`, and
+`tests/integration/test_postgres_agents.py` opens with
+`TRUNCATE TABLE agent_runs, agent_memories`. Running `scripts/check.sh` after
+the Azure window — several times — emptied the table.
+
+**What it cost.** The measurable claim is now *"the deterministic citation check
+turned 16 model drafts into refusals on out-of-corpus tasks (53% of the
+investigators' correct refusals)"*. What cannot be said is how many of those 16
+drafts were **fabrications** rather than disclaimers, which is the number that
+would price the check. The reports themselves are files and are intact, so no
+figure in this phase is wrong; only this one cannot be computed.
+
+**It was the second time.** In Phase 2 the same suite truncated `chunks` and
+`documents` mid-benchmark and produced a plausible, entirely false result. The
+answer then was `verify_corpus()`, a pre-flight guard on those two tables. It did
+not generalise: the next destructive test truncated a different table.
+
+**Fixed, both halves.**
+
+1. *The tests cannot reach a real database.* The integration fixture calls
+   `require_disposable()` before anything connects, and refuses any database
+   whose name does not end in `_test` — upstream of every `TRUNCATE`, so it does
+   not matter which table a future test decides to empty. `check.sh` and CI
+   create and use `paimon_test`. A unit test (which runs with no database
+   present) pins the refusal, that it names the database and says why, and that
+   the message tells a contributor the command to fix it.
+2. *The evidence is not kept where a test may empty it.* `Trajectory` now
+   carries `step_details`, every step's recorded details, written into the
+   report file and preserved across a regrade. The report is the record of the
+   experiment; the database is application state. Two tests pin it: a withdrawn
+   draft appears in the written report, and it survives being read back.
+
+**Status.** Fixed in Phase 9. Recorded because the loss is permanent and the
+reasoning belongs with the numbers it limits.

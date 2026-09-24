@@ -133,7 +133,9 @@ jobs:
       PAIMON_DATABASE__HOST: localhost
       PAIMON_DATABASE__USER: paimon
       PAIMON_DATABASE__PASSWORD: paimon
-      PAIMON_DATABASE__NAME: paimon
+      # Its own database, because these tests TRUNCATE. The fixture refuses a
+      # name that does not end in _test, so this is not merely a convention.
+      PAIMON_DATABASE__NAME: paimon_test
       PAIMON_REDIS__HOST: localhost
       # Turns "the service is unreachable" from a skip into a failure. Locally a
       # skip is a courtesy; here it would hide a broken adapter behind a green
@@ -152,6 +154,11 @@ jobs:
 
       - name: Install the locked environment
         run: uv sync --all-groups --all-extras --frozen
+
+      - name: Create the disposable test database
+        run: |
+          PGPASSWORD=paimon psql -h localhost -U paimon -d postgres \
+            -c "CREATE DATABASE paimon_test" || true
 
       - name: Run integration tests
         run: uv run --no-sync pytest tests/integration -v

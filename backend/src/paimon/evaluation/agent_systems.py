@@ -128,6 +128,13 @@ def _from_run(task: AgentTask, trial: int, run: AgentRun) -> Attempt:
             tool_errors=_number(details.get(_TOOL_ERRORS)),
             repeated_calls=_number(details.get(_REPEATED)),
             steps=tuple(step.name for step in run.steps),
+            # Every step's details, not just the last one's. The withdrawn draft
+            # is recorded by `verify`, which is not always last, and the report
+            # is the only durable copy — the run record lives in a table the
+            # integration suite truncates.
+            step_details=tuple(
+                (step.name, dict(step.details)) for step in run.steps if step.details
+            ),
             input_tokens=sum(step.input_tokens for step in run.steps),
             output_tokens=sum(step.output_tokens for step in run.steps),
         ),

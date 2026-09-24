@@ -95,6 +95,17 @@ class Trajectory:
     tool_errors: int | None = None
     repeated_calls: int | None = None
     steps: tuple[str, ...] = ()
+    step_details: tuple[tuple[str, Mapping[str, str]], ...] = ()
+    """What each step recorded about itself, paired with its name.
+
+    Carried into the report because the report is the record of the experiment
+    and the database is application state. The withdrawn draft lives here: the
+    verify node replaces the answer, so without this the text it withdrew
+    existed only in `agent_runs`, and that table is truncated by the integration
+    suite. A finished measurement lost its withdrawn drafts exactly that way,
+    and the answer is not to guard one more table but to stop keeping the
+    evidence somewhere a test is allowed to empty.
+    """
     input_tokens: int = 0
     output_tokens: int = 0
     latency_ms: float = 0.0

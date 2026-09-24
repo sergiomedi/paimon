@@ -8,6 +8,7 @@ that cannot use its tools. Since that is precisely the conclusion this phase
 exists to reach or reject, it must not be reachable by accident.
 """
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -17,13 +18,15 @@ from tests.unit.evaluation.test_agent_grading import DOCS, TASKS
 from paimon.domain.entities import Chunk
 from paimon.domain.ports import SearchFilters
 from paimon.evaluation import run_agent_benchmark
-from paimon.evaluation.agent_dataset import AgentDataset
-from paimon.evaluation.agent_grading import Attempt
+from paimon.evaluation.agent_benchmark import AgentReport, regrade
+from paimon.evaluation.agent_dataset import AgentDataset, AgentTask
+from paimon.evaluation.agent_grading import Attempt, Trajectory
 from paimon.evaluation.agent_systems import AlwaysRefuses
 from paimon.interfaces.cli.evaluate_agents import (
     Bench,
     FileJournal,
     load_report,
+    read_attempts,
     render,
     render_comparison,
     verify_corpus,
@@ -329,3 +332,86 @@ class ListJournal:
 
     def record(self, attempt: Attempt) -> None:
         self.written.append(attempt)
+
+
+class TestTheReportKeepsWhatTheRunRecorded:
+    """The report is the record of the experiment; the database is not.
+
+    The verify node replaces a draft it cannot support, so the withdrawn text
+    exists only in what that step recorded about itself. It used to live solely
+    in `agent_runs`, which the integration suite truncates — and a finished
+    measurement lost its withdrawn drafts exactly that way, discovered when
+    somebody went looking for them weeks later. Keeping them in the report file
+    is the fix: a file on disk is not something a test is allowed to empty.
+    """
+
+    def test_a_withdrawn_draft_survives_into_the_report(self, tmp_path: Path) -> None:
+        withdrawn = "The escalation path is to page the security duty officer [1]."
+        report = _report_with(
+            Attempt(
+                task_id=_first_task().task_id,
+                trial=1,
+                text="I found material but could not tie the answer to any of it.",
+                citations=(),
+                trajectory=Trajectory(
+                    stop_reason="answered",
+                    steps=("act", "finalize", "verify"),
+                    step_details=(("verify", {"withdrawn": withdrawn, "markers_written": "1"}),),
+                ),
+            )
+        )
+        path = tmp_path / "report.json"
+
+        write_report(report, path)
+
+        assert withdrawn in path.read_text(encoding="utf-8"), (
+            "the withdrawn draft is not in the report, so the only copy is in a "
+            "table the integration suite truncates"
+        )
+
+    def test_the_draft_survives_a_regrade(self, tmp_path: Path) -> None:
+        # A regrade rebuilds attempts from the file. If it drops step details,
+        # re-scoring a report quietly destroys the evidence it was keeping.
+        withdrawn = "Page the security duty officer [1]."
+        path = tmp_path / "report.json"
+        write_report(
+            _report_with(
+                Attempt(
+                    task_id=_first_task().task_id,
+                    trial=1,
+                    text="could not tie the answer to any of it",
+                    citations=(),
+                    trajectory=Trajectory(
+                        steps=("verify",),
+                        step_details=(("verify", {"withdrawn": withdrawn}),),
+                    ),
+                )
+            ),
+            path,
+        )
+
+        _, _, stored = read_attempts(path)
+
+        replayed = stored[_first_task().task_id][0]
+        details = dict(replayed.trajectory.step_details)
+        assert details["verify"]["withdrawn"] == withdrawn
+
+    def test_a_step_that_recorded_nothing_adds_nothing(self) -> None:
+        # Otherwise every report carries a row of empty dictionaries per run.
+        assert Trajectory(steps=("act",)).step_details == ()
+
+
+def _first_task() -> "AgentTask":
+    """The first task of the shipped set, whatever it is called."""
+    return TASKS.tasks[0]
+
+
+def _report_with(attempt: Attempt) -> "AgentReport":
+    """One finished report carrying a single attempt.
+
+    Built through `regrade`, which is the path that turns stored attempts into a
+    report — the same one a re-scored run takes.
+    """
+    dataset = AgentDataset(name="one", tasks=(_first_task(),))
+    stored = {attempt.task_id: [attempt]}
+    return asyncio.run(regrade(dataset, stored, DOCS, system="test", configuration="test"))
