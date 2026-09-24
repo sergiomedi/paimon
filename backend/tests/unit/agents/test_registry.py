@@ -57,3 +57,30 @@ class TestWhichAgentsGetBuilt:
         # and not in `AGENTS` is a name no client is told about, which is
         # exactly the status this one should have.
         assert V1_AGENT_NAME not in AGENTS
+
+
+class TestWhatEachVariantCallsItself:
+    """A run record, a report and a calibration case id all name their system.
+
+    Two graphs sharing one name is not cosmetic: the paired comparison labels
+    both sides identically, and `attempt_id` builds `system/task/trial`, so the
+    two runs' attempts collide in any sample drawn across them.
+    """
+
+    def test_the_default_build_is_named_for_the_agent(self) -> None:
+        built = build_all(tool_calling().collaborators(), variants=True)
+
+        assert built[AGENT_NAME].name == AGENT_NAME
+
+    def test_the_superseded_build_names_itself_apart(self) -> None:
+        built = build_all(tool_calling().collaborators(), variants=True)
+
+        assert built[V1_AGENT_NAME].name == V1_AGENT_NAME
+
+    def test_every_registered_name_matches_the_graph_it_builds(self) -> None:
+        # The registry key is what the CLI resolves; the graph's own name is
+        # what gets recorded. A benchmark that asks for one and records the
+        # other is a benchmark whose output cannot be attributed.
+        built = build_all(tool_calling().collaborators(), variants=True)
+
+        assert all(name == spec.name for name, spec in built.items())

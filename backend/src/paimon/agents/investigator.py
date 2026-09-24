@@ -266,7 +266,12 @@ def build_investigator_graph(
         raise UnsupportedModelError(msg)
 
     return GraphSpec(
-        name=AGENT_NAME,
+        # Named after the layout, not after the function. The two are different
+        # systems — that is the point of keeping both — and a run record, a
+        # report and a calibration case id all identify their system by this
+        # name. Two systems sharing one name makes the comparison between them
+        # unreadable and their attempt ids collide.
+        name=AGENT_NAME if layout is PassageFormat.NUMBERED_SOURCES else V1_AGENT_NAME,
         # What this loop can cost, declared rather than left for a deployment to
         # work out. Raising the turn budget now raises the ceiling with it; it
         # used to require editing agents.step_limit as well, and forgetting
