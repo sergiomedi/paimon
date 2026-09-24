@@ -47,9 +47,28 @@ load_outputs
 
 BACKEND="$ROOT/backend"
 STAMP="$(date -u +%Y-%m-%d)"
-TENANT="azure-agents"
 TRIALS=3
-SYSTEMS=(answers incident-triage investigator-v1 investigator)
+
+# Every run in the window, in order, as `tag|system|dataset|tenant`.
+#
+# Two datasets, two tenants, one budget. The v1 tenant gets **exactly** the
+# corpus the local v1 run used — nine documents, nothing added — because its
+# numbers are only comparable with the local ones if the retrieval landscape is
+# the same. The held-out tenant gets those nine plus the three held-out
+# documents, which is the corpus the local held-out run used, and it is separate
+# so that adding them cannot disturb the v1 measurement.
+#
+# The held-out pair is here for the primary question rather than for a pass
+# rate. agents-v1 has seven multi-hop tasks and the held-out set six; together
+# thirteen, which is still small and is nearly twice what either gives alone.
+RUNS=(
+    "v1|answers|agents-v1.jsonl|azure-agents"
+    "v1|incident-triage|agents-v1.jsonl|azure-agents"
+    "v1|investigator-v1|agents-v1.jsonl|azure-agents"
+    "v1|investigator|agents-v1.jsonl|azure-agents"
+    "heldout|investigator|agents-v2-heldout.jsonl|azure-heldout"
+    "heldout|investigator-v1|agents-v2-heldout.jsonl|azure-heldout"
+)
 
 command -v docker >/dev/null 2>&1 || die "docker is not installed, and the database is local."
 command -v uv >/dev/null 2>&1 || die "uv is not installed: https://docs.astral.sh/uv/"
@@ -85,7 +104,11 @@ bold "▸ what this will use"
 printf '  models     %s  (%s)\n' "$AZURE_OPENAI_ENDPOINT" "$AZURE_CHAT_DEPLOYMENT_NAME"
 printf '  search     %s\n' "$AZURE_SEARCH_ENDPOINT"
 printf '  database   local, in docker\n'
-printf '  systems    %s\n' "${SYSTEMS[*]}"
+printf '  runs       %s\n' "${#RUNS[@]}"
+for spec in "${RUNS[@]}"; do
+    IFS='|' read -r tag system dataset tenant <<<"$spec"
+    printf '               %-8s %-16s %-22s %s\n' "$tag" "$system" "$dataset" "$tenant"
+done
 printf '  trials     %s per task\n' "$TRIALS"
 printf '  ceiling    $%s, checked between systems\n' "$CEILING"
 printf '  prices     %s  (read %s)\n\n' "$PRICES" "$PRICE_REVISION"
@@ -113,11 +136,6 @@ if ! uv run --no-sync python -m paimon.interfaces.cli.ensure_search_index; then
     die "nothing measured."
 fi
 printf '\n'
-
-# Everything from here writes to the same tenant, so the corpus is ingested once
-# and the three later systems reuse it.
-CORPUS=("$ROOT/evaluation/corpus/sample")
-DATASET="$ROOT/evaluation/datasets/agents-v1.jsonl"
 
 spent=0
 
@@ -150,9 +168,18 @@ print(f"{cost:.4f}")
 PY
 }
 
-for system in "${SYSTEMS[@]}"; do
-    report="$ROOT/evaluation/reports/azure-agents-${system}-${STAMP}.json"
-    journal="$ROOT/evaluation/reports/azure-agents-${system}-journal.jsonl"
+for spec in "${RUNS[@]}"; do
+    IFS='|' read -r tag system dataset tenant <<<"$spec"
+
+    # The v1 corpus alone, or the v1 corpus plus the held-out documents. Never
+    # the held-out documents alone: three documents with no distractors mean
+    # every search returns nearly the whole corpus, and the failure worth
+    # measuring — the right document retrieved at the wrong chunk — cannot occur.
+    corpus=("$ROOT/evaluation/corpus/sample")
+    [[ "$tag" == "heldout" ]] && corpus+=("$ROOT/evaluation/corpus/heldout")
+
+    report="$ROOT/evaluation/reports/azure-agents-${tag}-${system}-${STAMP}.json"
+    journal="$ROOT/evaluation/reports/azure-agents-${tag}-${system}-journal.jsonl"
 
     # Checked before starting, against what this system could cost rather than
     # against what has been spent. A ceiling enforced after the spending is a
@@ -162,37 +189,40 @@ for system in "${SYSTEMS[@]}"; do
         || projected="$FIRST_ESTIMATE"
     if python3 -c "import sys; sys.exit(0 if float('$spent') + float('$projected') > float('$CEILING') else 1)"; then
         printf '\n'
-        warn "STOPPED at the ceiling: \$$spent spent, '$system' could cost \$$projected,"
-        warn "and \$$CEILING is the limit. '$system' was not started."
+        warn "STOPPED at the ceiling: \$$spent spent, '$tag/$system' could cost \$$projected,"
+        warn "and \$$CEILING is the limit. '$tag/$system' was not started."
         warn "The reports already written are complete and usable."
         break
     fi
 
-    bold "▸ $system  (x$TRIALS, spent \$$spent of \$$CEILING, this one up to \$$projected)"
+    bold "▸ $tag / $system  (x$TRIALS, spent \$$spent of \$$CEILING, this one up to \$$projected)"
     uv run --no-sync python -m paimon.interfaces.cli.evaluate \
         --agents --agent "$system" \
-        --dataset "$DATASET" \
-        --corpus "${CORPUS[@]}" \
-        --tenant "$TENANT" --trials "$TRIALS" \
-        --label "gpt-4.1-mini via azure openai, azure ai search, agents-v1" \
+        --dataset "$ROOT/evaluation/datasets/$dataset" \
+        --corpus "${corpus[@]}" \
+        --tenant "$tenant" --trials "$TRIALS" \
+        --label "gpt-4.1-mini via azure openai, azure ai search, ${dataset%.jsonl}" \
         --report "$report" \
         --journal "$journal"
 
     if ! cost="$(report_cost "$report")"; then
         printf '\n'
-        warn "'$system' finished but its report carries no cost, so the ceiling cannot"
+        warn "'$tag/$system' finished but its report has no cost, so the ceiling cannot"
         warn "be enforced for the next system. The usual cause is a price table whose"
         warn "model name does not match what the deployment reports."
         die "stopping rather than spending unmetered."
     fi
     spent="$(python3 -c "print(f'{float(\"$spent\") + float(\"$cost\"):.4f}')")"
     dearest="$(python3 -c "print(f'{max(float(\"$dearest\"), float(\"$cost\")):.4f}')")"
-    printf '\n  %s cost $%s, running total $%s\n\n' "$system" "$cost" "$spent"
+    printf '\n  %s/%s cost $%s, running total $%s\n\n' "$tag" "$system" "$cost" "$spent"
 done
 
 printf '\n'
 bold "▸ spent $spent of a \$$CEILING ceiling"
 printf 'Reports are in evaluation/reports/azure-agents-*-%s.json.\n\n' "$STAMP"
+printf 'The primary diagnostic, against the local baseline of {1: 50} calls and\n'
+printf '11 and 10 of 50 attempts reaching two documents:\n'
+printf '  scripts/azure/hops.py evaluation/reports/azure-agents-*-%s.json\n\n' "$STAMP"
 printf 'Grade them with phi4 locally — the judge does not change between runs:\n'
 printf '  PAIMON_EVALUATION__JUDGE__ENABLED=true PAIMON_EVALUATION__JUDGE__MODEL=phi4 \\\n'
 printf '    uv run python -m paimon.interfaces.cli.evaluate --agents --agent <system> \\\n'
