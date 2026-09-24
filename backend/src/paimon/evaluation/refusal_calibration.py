@@ -194,6 +194,60 @@ def attempts_from_report(raw: Mapping[str, Any]) -> list[SampledAttempt]:
     return found
 
 
+def audit_cell(
+    raw: Mapping[str, Any], category: str = "out-of-corpus", *, judged_only: bool = False
+) -> list[SampledAttempt]:
+    """Every attempt in one category, carrying what the judge said about it.
+
+    Not a sample. The error worth spending a person on — an answer to a
+    question the corpus cannot answer, recorded as a refusal, which is how a
+    hallucination becomes a pass — can only occur in one cell, and that cell is
+    small enough to read in full. A threshold over a sample answers "is the
+    judge good enough"; reading the cell answers "is this column right", which
+    is the question the column is for.
+
+    Args:
+        raw: A graded report. Grades are positional against attempts.
+        category: The cell to audit.
+        judged_only: Keep only the attempts the judge called refusals. Off by
+            default, and the default is the honest one: a file in which every
+            row is a judged refusal tells its labeller so, however opaque the
+            ids are, and a labeller who knows the expected answer will find it.
+            Taking the whole category costs a few more rows, removes the
+            anchor, and catches the opposite error too — a refusal recorded as
+            an answer — which a one-sided audit cannot see.
+
+    Returns:
+        The attempts to audit, each carrying the judge's verdict for scoring
+        afterwards. The verdict never reaches the labelling file.
+    """
+    system = str(raw.get("system", "unknown"))
+    found: list[SampledAttempt] = []
+    for task in raw.get("tasks", ()):
+        if str(task.get("category", "")) != category:
+            continue
+        grades = list(task.get("grades", ()))
+        for index, attempt in enumerate(task.get("attempts", ())):
+            if attempt.get("failed"):
+                continue
+            grade = grades[index] if index < len(grades) else {}
+            verdict = grade.get("judge_verdict")
+            decided = Verdict(verdict) if verdict is not None else None
+            if judged_only and decided is not Verdict.YES:
+                continue
+            found.append(
+                SampledAttempt(
+                    case_id=attempt_id(system, str(task["task_id"]), int(attempt["trial"])),
+                    system=system,
+                    category=category,
+                    question=str(task.get("question", "")),
+                    answer=str(attempt.get("text", "")),
+                    judged=decided,
+                )
+            )
+    return found
+
+
 def opaque_ids(sample: Sequence[SampledAttempt]) -> dict[str, str]:
     """Map each sampled attempt to a label that says nothing about it.
 
@@ -303,6 +357,7 @@ __all__ = [
     "SampledAttempt",
     "attempt_id",
     "attempts_from_report",
+    "audit_cell",
     "calibrate",
     "instructions",
     "opaque_ids",

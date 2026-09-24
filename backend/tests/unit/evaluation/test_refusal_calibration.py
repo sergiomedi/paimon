@@ -23,6 +23,7 @@ from paimon.evaluation.refusal_calibration import (
     SampledAttempt,
     attempt_id,
     attempts_from_report,
+    audit_cell,
     calibrate,
     distinct_texts,
     instructions,
@@ -423,3 +424,106 @@ class TestBothRatersAreAskedTheSameThing:
         assert "JSON" not in instructions()
         assert "Leave a line blank" in instructions()
         assert "Leave a line blank" not in REFUSAL_RUBRIC
+
+
+def graded(system: str, *tasks: dict[str, object]) -> dict[str, object]:
+    """A graded report, shaped the way the agent benchmark writes one."""
+    return {"system": system, "tasks": list(tasks)}
+
+
+def task(task_id: str, category: str, *rows: tuple[str, str | None, str]) -> dict[str, object]:
+    """One task with its attempts and the grades that sit positionally beside them."""
+    return {
+        "task_id": task_id,
+        "category": category,
+        "question": "who do I call?",
+        "attempts": [
+            {"task_id": task_id, "trial": index, "text": text, "failed": failed}
+            for index, (text, _, failed) in enumerate(rows, start=1)
+        ],
+        "grades": [{"judge_verdict": verdict} for _, verdict, _ in rows],
+    }
+
+
+class TestAuditingTheExpensiveCell:
+    """Reading one cell in full, rather than sampling it and setting a threshold.
+
+    The error worth spending a person on — an answer to a question the corpus
+    cannot answer, recorded as a refusal — can only happen in one cell, and
+    that cell is small enough to read entirely.
+    """
+
+    def test_it_takes_every_attempt_in_the_category(self) -> None:
+        report = graded(
+            "answers",
+            task("a023", "out-of-corpus", ("nothing covers this", "yes", "")),
+            task("a001", "one-hop", ("cordon it", "no", "")),
+            task("a024", "out-of-corpus", ("I cannot find it", "yes", "")),
+        )
+
+        found = audit_cell(report)
+
+        assert [item.case_id for item in found] == ["answers/a023/1", "answers/a024/1"]
+
+    def test_it_carries_the_judge_verdict_for_scoring(self) -> None:
+        report = graded(
+            "answers", task("a023", "out-of-corpus", ("nothing covers this", "yes", ""))
+        )
+
+        assert audit_cell(report)[0].judged is Verdict.YES
+
+    def test_the_verdict_never_reaches_the_labelling_file(self) -> None:
+        # The whole point of the audit is a second opinion. A file that carries
+        # the verdict under review is a file that collects agreement with it.
+        report = graded(
+            "answers",
+            task("a023", "out-of-corpus", ("the sources do not cover INC-4102", "yes", "")),
+        )
+
+        rendered = template(audit_cell(report))
+
+        assert "yes" not in json.loads(rendered.splitlines()[0]).values()
+        assert json.loads(rendered.splitlines()[0])["refusal"] == ""
+        assert "answers" not in rendered
+        assert "a023" not in rendered
+
+    def test_attempts_that_never_ran_are_left_out(self) -> None:
+        report = graded(
+            "answers",
+            task("a023", "out-of-corpus", ("", None, "connection reset"), ("no idea", "yes", "")),
+        )
+
+        assert [item.case_id for item in audit_cell(report)] == ["answers/a023/2"]
+
+    def test_the_whole_category_is_taken_not_just_the_refusals(self) -> None:
+        # A file in which every row is a judged refusal tells its labeller so,
+        # however opaque the ids are. Taking the whole cell removes the anchor
+        # and catches the opposite error, which a one-sided audit cannot see.
+        report = graded(
+            "answers",
+            task(
+                "a023",
+                "out-of-corpus",
+                ("nothing covers this", "yes", ""),
+                ("the ceiling is 9000", "no", ""),
+            ),
+        )
+
+        found = audit_cell(report)
+
+        assert [item.judged for item in found] == [Verdict.YES, Verdict.NO]
+
+    def test_one_sided_is_available_when_asked_for(self) -> None:
+        report = graded(
+            "answers",
+            task(
+                "a023",
+                "out-of-corpus",
+                ("nothing covers this", "yes", ""),
+                ("the ceiling is 9000", "no", ""),
+            ),
+        )
+
+        found = audit_cell(report, judged_only=True)
+
+        assert [item.case_id for item in found] == ["answers/a023/1"]

@@ -59,6 +59,13 @@ discovered afterwards, and the thresholds are **not** adjusted for it.
 
 ## Rule 3 (zero out-of-corpus answer→refusal errors) — zero tolerance, by construction
 
+> **Superseded.** This section is what made the case for replacing rule 3, and
+> it is kept unedited as the record of why. Rule 3 is no longer a gate: the
+> whole out-of-corpus cell is audited instead, and conditions 1 and 2 alone
+> decide whether the judge is used. See the amended rule, and the reasoning,
+> in `refusal-validation-azure.PREREGISTRATION.md`. The change was made before
+> any Azure transcript existed.
+
 An answer→refusal error is a `no→yes` flip. Under the pre-registered allocation
 **24 of the 80 cases are out-of-corpus**, so one such flip landing on any of them
 fails the rule outright, whatever κ says. Worst-position tolerance under all
