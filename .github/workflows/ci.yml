@@ -16,12 +16,35 @@
 
 name: CI
 
+# Every pull request runs full CI, with no path filter.
+#
+# Two reasons, and the second is the one that was actually costing something.
+#
+# `main` requires these six checks. A filtered `pull_request` trigger means a PR
+# touching no filtered path never runs them, so the checks never report and the
+# PR is blocked for ever — not "merged without CI", unmergeable. A docs-only PR
+# hit exactly that, and narrowing the fix to `docs/**` and `evaluation/**` would
+# have left the next PR touching README.md, LICENSE or .gitignore in the same
+# hole. A required check has to be one that always runs.
+#
+# And excluding `evaluation/**` was a real gap, not merely an inconvenience: the
+# datasets live there, and `tests/unit/evaluation/test_agent_dataset.py` pins
+# their task content by hash precisely so a question, a quote or an expected
+# outcome cannot change unnoticed. Under the old filter, changing a dataset ran
+# nothing — the one guard that exists for it was skipped by the trigger that was
+# supposed to enforce it.
+#
+# Deliberately not solved with a second workflow declaring the same job names and
+# exiting zero. That produces a green "Integration tests" check on a run where no
+# test executed, which is worse than the block it removes.
+#
+# `push` keeps its filter: a push to `main` that changes only prose does not need
+# the image built, and its PR has already run everything.
 on:
   push:
     branches: [main]
     paths: ["backend/**", "frontend/**", "docker/**", "infrastructure/**", "scripts/**", ".github/workflows/ci.yml"]
   pull_request:
-    paths: ["backend/**", "frontend/**", "docker/**", "infrastructure/**", "scripts/**", ".github/workflows/ci.yml"]
 
 # A new push supersedes the run in flight for the same ref.
 concurrency:
