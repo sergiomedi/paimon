@@ -529,7 +529,9 @@ def _agent_collaborators(resources: Resources) -> AgentCollaborators:
     )
 
 
-def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
+def build_agent_workflows(
+    resources: Resources, *, variants: bool = False
+) -> dict[str, AgentWorkflow]:
     """Compile every registered agent once.
 
     At startup rather than per request: compiling is pure work over a static
@@ -538,6 +540,9 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
 
     Args:
         resources: The process-lifetime object graph.
+        variants: Also compile superseded versions of an agent, so a change can
+            be measured against what it replaced. The API leaves this off: it
+            serves the agents the platform stands behind, not the history.
 
     Returns:
         Each agent's runnable workflow, by name.
@@ -555,6 +560,7 @@ def build_agent_workflows(resources: Resources) -> dict[str, AgentWorkflow]:
             review_postmortems=resources.settings.agents.review_postmortems,
             max_turns=resources.settings.agents.investigator_max_turns,
             token_budget=resources.settings.agents.investigator_token_budget,
+            variants=variants,
         ).items()
     }
 

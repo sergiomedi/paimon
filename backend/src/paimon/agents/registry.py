@@ -63,6 +63,7 @@ def build_all(
     review_postmortems: bool = False,
     max_turns: int = investigator.DEFAULT_MAX_TURNS,
     token_budget: int = investigator.DEFAULT_TOKEN_BUDGET,
+    variants: bool = False,
 ) -> dict[str, GraphSpec]:
     """Build every agent this deployment can run, applying its options.
 
@@ -77,6 +78,11 @@ def build_all(
             finalised.
         max_turns: Model turns the investigator may take in one run.
         token_budget: Tokens the investigator may spend in one run.
+        variants: Also build the investigator as it was first measured, so the
+            change to how it presents passages can be compared against what it
+            replaced. **For the benchmark only** — the API serves the four
+            agents in :data:`AGENTS`, and an operator has no reason to run a
+            version the project has already moved on from.
 
     Returns:
         Each available agent's validated graph, by name. The investigator is
@@ -102,6 +108,13 @@ def build_all(
             max_turns=max_turns,
             token_budget=token_budget,
         )
+        if variants:
+            built[investigator.V1_AGENT_NAME] = investigator.build_investigator_graph(
+                collaborators,
+                max_turns=max_turns,
+                token_budget=token_budget,
+                layout=investigator.PassageFormat.TOOL_LINES,
+            )
     return built
 
 

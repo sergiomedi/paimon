@@ -668,7 +668,7 @@ async def _run_agents(
         return USAGE_ERROR
 
     documents = await load_documents(resources, ingested, args.tenant)
-    workflows = build_agent_workflows(resources)
+    workflows = build_agent_workflows(resources, variants=True)
     bench = Bench(
         workflows=workflows,
         answerer=build_answer_question(resources),

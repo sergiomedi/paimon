@@ -32,10 +32,12 @@ from paimon.agents.investigator import (
     SYSTEM_PROMPT,
     UNSUPPORTED,
     WENT_IN_CIRCLES,
+    PassageFormat,
     UnsupportedModelError,
     build_investigator_graph,
     worst_case_steps,
 )
+from paimon.agents.tools import render_passages
 from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.domain.agents import AgentState, StopReason, Transcript
 from paimon.domain.entities import AgentRun, Chunk, RunStatus
@@ -71,11 +73,12 @@ async def investigate(
     harness: Harness,
     *turns: Turn,
     question: str = "why did the drain stall?",
+    layout: PassageFormat = PassageFormat.NUMBERED_SOURCES,
     **options: int,
 ) -> AgentRun:
     """Run the investigator against a scripted model and return its run."""
     harness.chat_model = ScriptedToolCallingChatModel(turns=turns)  # type: ignore[assignment]
-    spec = build_investigator_graph(harness.collaborators(), **options)
+    spec = build_investigator_graph(harness.collaborators(), layout=layout, **options)
     workflow = harness.workflow(spec)
     async for _ in workflow.stream(question, thread_id="t-1", tenant_id=TENANT):
         pass
@@ -894,3 +897,50 @@ class TestHowPassagesAreShown:
         shown = model_of(harness).seen[1][-1].content
         assert "Do not answer from memory" in shown
         assert SOURCES_HEADER not in shown
+
+
+class TestTheVersionThisReplaced:
+    """The old passage format, kept runnable so the change can be measured.
+
+    A change adopted because it looks better than what it replaced is a
+    preference. The point of keeping `TOOL_LINES` reachable is that both
+    versions can answer the same held-out tasks in the same process on the same
+    day, and the difference can be reported as a number.
+    """
+
+    async def test_it_shows_passages_the_way_the_first_measured_run_did(self) -> None:
+        harness = Harness()
+        await harness.index_chunks(chunk("c1", "runbook", "Cordon the node first."))
+
+        await investigate(
+            harness,
+            Turn(calls=(search("cordon"),)),
+            Turn(text="Cordon it [1]."),
+            layout=PassageFormat.TOOL_LINES,
+            question="what first?",
+        )
+
+        shown = model_of(harness).seen[1][-1].content
+        indexed = chunk("c1", "runbook", "Cordon the node first.")
+        assert render_passages((indexed,), (1,)) in shown
+        assert SOURCES_HEADER not in shown
+        assert render_source(1, indexed) not in shown
+
+    async def test_it_still_carries_documents_in_a_tool_message(self) -> None:
+        # The one thing the comparison may not vary. Document text reaching the
+        # model outside a `tool` message is what makes an injected instruction
+        # look like a system one, and no measurement is worth moving it.
+        harness = Harness()
+        await harness.index()
+
+        await investigate(
+            harness,
+            Turn(calls=(search("draining"),)),
+            Turn(text="Cordon the node first [1]."),
+            layout=PassageFormat.TOOL_LINES,
+        )
+
+        shown = model_of(harness).seen[1]
+        carriers = [message for message in shown if "Cordon" in message.content]
+        assert carriers
+        assert all(message.role == "tool" for message in carriers)

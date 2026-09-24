@@ -30,6 +30,7 @@ budget going nowhere. Phase 9 measures both rather than asserting either.
 """
 
 from collections.abc import Sequence
+from enum import StrEnum
 
 from paimon.agents.collaborators import AgentCollaborators
 from paimon.agents.support import load_documents
@@ -39,6 +40,7 @@ from paimon.agents.tools import (
     ToolArgumentError,
     ToolExecutor,
     UnknownToolError,
+    render_passages,
 )
 from paimon.application.use_cases.answer_question import NO_MATERIAL
 from paimon.domain.agents import (
@@ -60,6 +62,37 @@ from paimon.rag.citations import MARKER, resolve_citations
 from paimon.rag.prompting import render_source
 
 AGENT_NAME = "investigator"
+
+#: The agent as it was first measured, kept selectable so the change to how it
+#: shows passages can be compared against it on the same tasks, in the same
+#: process, on the same day. Registered only for the benchmark; the API offers
+#: four agents, not five.
+V1_AGENT_NAME = "investigator-v1"
+
+
+class PassageFormat(StrEnum):
+    """How retrieved passages are laid out in the tool message.
+
+    Two values because there is a measurement between them, not because a
+    deployment should choose. ``NUMBERED_SOURCES`` is what the agent does;
+    ``TOOL_LINES`` is what it did when 37 of 125 answerable attempts were
+    withdrawn for want of a resolvable citation, while the two simpler systems
+    managed 250 of 250 on the same corpus with the same model.
+
+    That gap is the reason for the change and the reason the old format has to
+    stay reachable: a change adopted without measuring what it replaced is a
+    preference, not an improvement. **This enum goes when the comparison is
+    recorded.**
+    """
+
+    NUMBERED_SOURCES = "numbered-sources"
+    """A ``Sources:`` block, each passage rendered by the same function the
+    single-pass prompt uses — document, heading trail, text."""
+
+    TOOL_LINES = "tool-lines"
+    """``[n] document: <id>`` and the text, with no header and no heading
+    trail. What the first measured run used."""
+
 
 #: Model turns a run may take. Eight is enough for the two-hop questions this
 #: exists for — search, read what the first result named, answer — with room to
@@ -202,6 +235,7 @@ def build_investigator_graph(
     *,
     max_turns: int = DEFAULT_MAX_TURNS,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
+    layout: PassageFormat = PassageFormat.NUMBERED_SOURCES,
 ) -> GraphSpec:
     """Assemble the investigator.
 
@@ -211,6 +245,9 @@ def build_investigator_graph(
             platform that cannot degrade gracefully without that.
         max_turns: Model turns one run may take.
         token_budget: Tokens one run may spend, checked before each turn.
+        layout: How passages are shown. Defaulted to what the agent does; the
+            other value exists so the change can be measured against what it
+            replaced, and goes when that is recorded.
 
     Returns:
         A validated graph specification, declaring what its loop can cost so the
@@ -245,7 +282,7 @@ def build_investigator_graph(
             ),
             NodeSpec(
                 name="tools",
-                run=_tools_node(collaborators.corpus),
+                run=_tools_node(collaborators.corpus, layout),
                 summary="ran the tools",
                 report=_report_tools,
             ),
@@ -315,7 +352,7 @@ def _act_node(chat_model: ToolCallingChatModel, *, max_turns: int, token_budget:
     return act
 
 
-def _tools_node(corpus: CorpusAccess) -> Node:
+def _tools_node(corpus: CorpusAccess, layout: PassageFormat) -> Node:
     """Build the node that runs what the model asked for."""
 
     async def tools(state: AgentState) -> StateUpdate:
@@ -335,7 +372,7 @@ def _tools_node(corpus: CorpusAccess) -> Node:
         results: list[Message] = []
 
         for call in _requested(transcript):
-            transcript, reply = await _run_one(executor, call, transcript, ledger)
+            transcript, reply = await _run_one(executor, call, transcript, ledger, layout)
             results.append(reply)
             if transcript.stopped:
                 break
@@ -349,7 +386,11 @@ def _tools_node(corpus: CorpusAccess) -> Node:
 
 
 async def _run_one(
-    executor: ToolExecutor, call: ToolCall, transcript: Transcript, ledger: "_Ledger"
+    executor: ToolExecutor,
+    call: ToolCall,
+    transcript: Transcript,
+    ledger: "_Ledger",
+    layout: PassageFormat,
 ) -> tuple[Transcript, Message]:
     """Run one tool call, and say what it did to the conversation.
 
@@ -389,7 +430,7 @@ async def _run_one(
     markers = ledger.number(found.passages)
     return (
         transcript.with_call(call, markers),
-        _reply(call, _render(found.passages, markers, found.note)),
+        _reply(call, _render(found.passages, markers, found.note, layout)),
     )
 
 
@@ -489,7 +530,12 @@ class _Ledger:
         return marker
 
 
-def _render(passages: Sequence[Chunk], markers: Sequence[int], note: str) -> str:
+def _render(
+    passages: Sequence[Chunk],
+    markers: Sequence[int],
+    note: str,
+    layout: PassageFormat = PassageFormat.NUMBERED_SOURCES,
+) -> str:
     """Render numbered passages the way the single-pass prompt renders sources.
 
     Same block, same header, same per-passage shape — ``render_source`` is the
@@ -506,6 +552,9 @@ def _render(passages: Sequence[Chunk], markers: Sequence[int], note: str) -> str
     """
     if not passages:
         return note
+    if layout is PassageFormat.TOOL_LINES:
+        body = render_passages(passages, markers)
+        return f"{body}\n\n{note}" if note else body
     body = "\n\n".join(
         render_source(marker, passage) for passage, marker in zip(passages, markers, strict=True)
     )
