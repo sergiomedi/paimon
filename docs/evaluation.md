@@ -182,10 +182,17 @@ anchored second opinion is an expensive way to confirm the first.
 What comes back is **Cohen's kappa**, per rubric:
 
 ```
-  calibrated against 15 human labels
+  calibrated against 15 reference labels
     faithfulness  kappa +0.45 (TOO LOW), raw 73.3% ± 25.3%, 15 compared, 0 skipped
     completeness  kappa +0.81 (acceptable), raw 93.3% ± 13.1%, 15 compared, 0 skipped
     relevance     kappa +1.00 (acceptable), raw 100.0% ± 0.0%, 15 compared, 0 skipped
+```
+
+Those fifteen labels have **no recorded provenance**: nothing in the repository or its history
+says who produced them, and git authorship does not settle it. They are therefore not described
+as human labelling. See [`evaluation/labels/README.md`](../evaluation/labels/README.md).
+
+```text
 ```
 
 Kappa rather than raw agreement, because raw agreement flatters any rater on a skewed dataset:

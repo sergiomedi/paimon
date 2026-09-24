@@ -346,7 +346,7 @@ def write_labelling_template(
 def _calibration_lines(calibration: Calibration) -> list[str]:
     """Render what a person's labels said about the judge."""
     lines = [
-        f"  calibrated against {calibration.labels} human labels",
+        f"  calibrated against {calibration.labels} reference labels",
         f"    faithfulness  {calibration.faithfulness.format()}",
         f"    completeness  {calibration.completeness.format()}",
         f"    relevance     {calibration.relevance.format()}",
@@ -788,7 +788,7 @@ async def main(argv: list[str] | None = None) -> int:
         "--labels",
         type=Path,
         help=(
-            "A file of human labels, to measure how far this judge agrees with a "
+            "A file of reference labels, to measure how far this judge agrees "
             "person. Without it the judged numbers are reported as uncalibrated."
         ),
     )

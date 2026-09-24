@@ -274,7 +274,7 @@ class TestTheCalibrationSection:
                 ]
             )
         )
-        assert "calibrated against 2 human labels" in rendered
+        assert "calibrated against 2 reference labels" in rendered
         assert "UNCALIBRATED" not in rendered
         assert "kappa" in rendered
 

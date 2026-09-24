@@ -1,7 +1,31 @@
-# Human labels
+# Reference labels
 
-A person's verdicts on a sample of answers, used to measure how far the evaluation judge agrees
-with somebody who read the same material ([ADR-0032](../../docs/adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)).
+Verdicts on a sample of answers, used to measure how far the evaluation judge agrees with a
+rater who read the same material
+([ADR-0032](../../docs/adr/0032-a-judge-is-uncalibrated-until-a-person-checks-it.md)).
+
+## Who produced which of these, which is not the same for all of them
+
+This directory was called "Human labels" until 2026-09-24, and by then it held files no person
+had labelled. The three provenances are kept apart here because κ means something different
+for each, and a directory-level title cannot say which.
+
+| file | labelled by | how to describe it |
+|---|---|---|
+| `refusal-labels-2026-09-23.jsonl`, `refusal-validation-2026-09-24.jsonl`, `refusal-dev-adjudications-2026-09-24.jsonl`, `refusal-validation-azure-2026-09-24.jsonl`, `audit-out-of-corpus-2026-09-24.jsonl` | **Claude (Opus)** | *labelled and adjudicated by Claude (Opus); accepted by the project owner as the reference, without independent human review* |
+| `refusal-validation-azure-2026-09-24.jsonl` and the audit specifically | Claude (Opus), **with the key files visible in the same folder** | additionally: *not blind to category; kappa is an upper bound* |
+| `answers-v1.jsonl` (15 labels, Phase 6) | **not recorded** | see below |
+
+**`answers-v1.jsonl` has no recorded provenance.** It was committed in `9132dfc` on
+2026-09-10; neither that commit, nor any other, nor any file beside it, says who filled in the
+fifteen verdicts. Git authorship does not settle it — every commit in this repository carries
+the project owner's identity, including the ones an assistant wrote.
+
+So it is **not** described as human labelling anywhere, and the figures calibrated against it
+(faithfulness κ +0.45, completeness κ +0.81, relevance κ +1.00) are reported with their
+provenance unknown rather than asserted. Recording who labelled a reference set is now part of
+producing one; `refusal-labels-2026-09-23.PROVENANCE.md` and
+`refusal-validation-azure.LABELLER.md` are what that looks like.
 
 One JSON object per line:
 

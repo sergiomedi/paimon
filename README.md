@@ -171,6 +171,14 @@ incident and miss the next wording anyway. What is guaranteed is where the text 
 the **user** turn as a numbered source, never into the system turn or a tool description. Both
 are asserted as tests, because a boundary nothing checks is one that moves.
 
+**A known exception, on Azure.** Azure OpenAI's content filter rejects some of these documents
+outright, and it fires on the *retrieved passage* rather than on the question. So a deployment
+using Azure OpenAI currently returns an **error** — not an answer, not a refusal — for any
+question whose retrieval happens to pull in such a document. Measured in Phase 9: 6 of 9
+attempts on two tasks, for both single-pass systems. That contradicts the promise this
+paragraph makes, it is not fixed, and it is written down with its minimum fix in
+[`docs/open-findings.md`](docs/open-findings.md#2-azure-openais-content-filter-turns-a-retrievable-document-into-an-error).
+
 ## Architecture
 
 Business logic is independent of every framework around it. FastAPI, LangGraph, Azure OpenAI
@@ -319,7 +327,7 @@ Each of these is the full version of a paragraph above, written to be read on it
 
 ## How it was built
 
-Eight phases. Each shipped working software and its documentation, and none began before the
+Nine phases. Each shipped working software and its documentation, and none began before the
 previous one was complete. The commit history and the decision records are the record of it.
 
 - [x] **Phase 1 — Foundation** · architecture, ADRs, repository skeleton, dev environment, CI
@@ -330,6 +338,8 @@ previous one was complete. The commit history and the decision records are the r
 - [x] **Phase 6 — Evaluation** · golden sets, verified attribution, a calibrated judge
 - [x] **Phase 7 — Cloud** · Azure deployment, deployed and measured, then destroyed
 - [x] **Phase 8 — Delivery** · an environment per merge, created, exercised and destroyed
+- [x] **Phase 9 — Autonomy** · an agent that loops, and the measurement that it does not pay
+      for itself against a workflow on the same model
 
 **Nothing in this repository is described as working before it has been observed working.**
 That rule cost several documents a rewrite, and it is the one worth keeping.
