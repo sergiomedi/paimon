@@ -4,6 +4,30 @@
 - **Date:** 2026-09-05
 - **Phase:** 6 — Evaluation
 
+> ## Erratum — 2026-09-24
+>
+> **The decision below stands unchanged. What was false is that Phase 6 met it.**
+>
+> This ADR sets the rule that a judge is uncalibrated until a person has checked it, and
+> Phase 6 then reported κ figures — faithfulness +0.45, completeness +0.81, relevance +1.00 —
+> as though that bar had been cleared. It had not. The fifteen labels in
+> `evaluation/labels/answers-v1.jsonl` were **not labelled by a person**: the project owner
+> confirms he did not label them, their origin is unrecorded, and most likely an AI assistant
+> in an earlier session produced them. The development journal's claim that he did
+> ("Fase 6 · Tanda 5") was written by that session's assistant and is false.
+>
+> Two statements below are therefore wrong as applied to Phase 6. *"With one labeller there is
+> no way to know whether a disagreement means the judge is wrong or the rubric is ambiguous"*
+> presumes a human labeller who did not exist; and the framing throughout, that the judged
+> numbers now carry an answer to *"and how do you know?"*, overstates what those κ figures
+> support.
+>
+> The reasoning is not rewritten and no new ADR supersedes this one, because **no decision
+> changes**: the rule was right, and it is now known to be unmet. By its own standard, **no
+> judge in this project is calibrated against a person today**. See
+> [`docs/open-findings.md`](../open-findings.md) and
+> [`evaluation/labels/README.md`](../../evaluation/labels/README.md).
+
 ## Context and problem statement
 
 ADR-0031 built a judge on terms chosen against every measured failure mode: discrete labels,

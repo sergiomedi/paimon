@@ -14,7 +14,7 @@ indefinitely and settled in an afternoon with a dataset. This directory is that 
 | `corpus/sample/` | A small operational corpus, written for this repository, so the benchmark runs immediately after a clone. |
 | `corpus/manifest.json` | Public corpora to evaluate against properly, with their licences. |
 | `datasets/*.jsonl` | Golden sets: questions and the passages that answer them. |
-| `labels/` | A person's verdicts on a sample of answers, used to calibrate the judge. See [`labels/README.md`](labels/README.md). |
+| `labels/` | Reference verdicts on a sample of answers, used to calibrate the judge. **None of them were produced by a person** — see [`labels/README.md`](labels/README.md) for which rater produced which. |
 | `reports/` | Benchmark output. Git-ignored; runs are cheap and results are not a source of truth. |
 
 ## Why two corpora

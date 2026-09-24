@@ -14,16 +14,21 @@ for each, and a directory-level title cannot say which.
 |---|---|---|
 | `refusal-labels-2026-09-23.jsonl`, `refusal-validation-2026-09-24.jsonl`, `refusal-dev-adjudications-2026-09-24.jsonl`, `refusal-validation-azure-2026-09-24.jsonl`, `audit-out-of-corpus-2026-09-24.jsonl` | **Claude (Opus)** | *labelled and adjudicated by Claude (Opus); accepted by the project owner as the reference, without independent human review* |
 | `refusal-validation-azure-2026-09-24.jsonl` and the audit specifically | Claude (Opus), **with the key files visible in the same folder** | additionally: *not blind to category; kappa is an upper bound* |
-| `answers-v1.jsonl` (15 labels, Phase 6) | **not recorded** | see below |
+| `answers-v1.jsonl` (15 labels, Phase 6) | **not a person** | *not labelled by a person: the project owner confirms he did not label them; origin unrecorded, most likely an AI assistant in an earlier session* |
 
-**`answers-v1.jsonl` has no recorded provenance.** It was committed in `9132dfc` on
-2026-09-10; neither that commit, nor any other, nor any file beside it, says who filled in the
-fifteen verdicts. Git authorship does not settle it — every commit in this repository carries
-the project owner's identity, including the ones an assistant wrote.
+**`answers-v1.jsonl` was not labelled by a person: the project owner confirms he did not label them; origin unrecorded, most likely an AI assistant in an earlier session.**
 
-So it is **not** described as human labelling anywhere, and the figures calibrated against it
-(faithfulness κ +0.45, completeness κ +0.81, relevance κ +1.00) are reported with their
-provenance unknown rather than asserted. Recording who labelled a reference set is now part of
+It was committed in `9132dfc` on 2026-09-10; neither that commit, nor any other, nor any file
+beside it, records who filled in the fifteen verdicts. Git authorship settles nothing — every
+commit in this repository carries the project owner's identity, including the ones an
+assistant wrote. Asked directly, **the project owner confirms he did not label them**. The
+development journal claims he did ("Fase 6 · Tanda 5"); that text was written by that
+session's assistant and is false.
+
+So the figures calibrated against it (faithfulness κ +0.45, completeness κ +0.81, relevance
+κ +1.00) are **not** evidence that a person checked this judge. By the rule in ADR-0032 —
+see the erratum at the top of it — no judge in this project is calibrated against a person
+today. Recording who labelled a reference set is now part of
 producing one; `refusal-labels-2026-09-23.PROVENANCE.md` and
 `refusal-validation-azure.LABELLER.md` are what that looks like.
 
