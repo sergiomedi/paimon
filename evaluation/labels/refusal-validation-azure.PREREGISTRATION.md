@@ -126,14 +126,34 @@ The out-of-corpus column is then reported with all four numbers:
 
 If any of those is missing the column is not reported.
 
-The audit takes the **whole out-of-corpus cell**, not only the attempts the
-judge called refusals. A file in which every row is a judged refusal tells its
-labeller so, however opaque the ids are, and a labeller who knows the expected
-answer will find it. The extra rows cost little — the cell is 5 tasks × 3
-trials × 4 systems = at most 60 attempts — they remove the anchor, and they
-catch the opposite error, a genuine refusal recorded as an answer, which a
-one-sided audit cannot see. The asked-for subset is reported as its own line
-within the total.
+### Scope of the audit: the whole cell
+
+**Settled 2026-09-24, before any Azure transcript existed.** The audit takes
+**every out-of-corpus attempt**, not only the ones the judge called refusals.
+Three reasons, and the third is the one that changes what the column *is*:
+
+1. **It removes the anchor.** A file in which every row is a judged refusal
+   tells its labeller so, however opaque the ids are, and a labeller who knows
+   which answer is expected will find it.
+2. **It catches the opposite error.** A correct refusal that the judge read as
+   an answer is invisible to a one-sided audit, and it is a real error: it
+   scores a system as having answered a question the corpus cannot answer.
+3. **It makes the out-of-corpus column labelled rather than judged.** Auditing
+   the whole cell means no verdict in that column is the judge's unless the
+   labeller agreed with it. The column is therefore reported as **labelled**,
+   with the judge's verdicts as the starting point that was checked — not as a
+   judged column with a correction applied. That is a stronger claim than any
+   κ over a sample can support, and it is available only because the cell is
+   small: 5 out-of-corpus tasks × 3 trials × 4 systems = **at most 60
+   attempts**.
+
+The subset originally specified — out-of-corpus attempts the judge called
+refusals — is reported as its own line within the total, so the number the
+original rule 3 would have gated on is still visible.
+
+This decision is about *scope*, not thresholds, and it only widens what gets
+read. It cannot make a result easier to pass, because the audit is not a gate:
+conditions 1 and 2 decide whether the judge is used, and they are untouched.
 
 **The local measurement's columns stay unmeasurable.** A second sample passing,
 or an audit succeeding, cannot retroactively license the first. The two runs
